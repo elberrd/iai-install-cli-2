@@ -245,7 +245,8 @@ Options:
                            decide talking with Pi) | category=option pairs,
                            e.g.: backend=hono,db=neon,orm=drizzle,auth=clerk
                            (categories: frontend, backend, database, orm, auth,
-                           blob, deploy — anything missing becomes "decide later")
+                           blob, automations, deploy — anything missing becomes
+                           "decide later")
   --agent-files <mode>     Project with agent files (.claude, CLAUDE.md…): add (default, only what's missing) | replace (backup + replace)
   --template-id <id>       Catalog template: live1 (default) | live2
   --template-ref <branch>  Template branch/tag on the gated download (test

@@ -8,6 +8,28 @@ harness, **FIA — the IAI Agent Factory** and how to extend it. Getting started
 > (`imp/`), deterministic FDAs (`fda_*.mjs`), observability SQLite
 > (`imp/data/fia.db`) and subscription-based authentication (Claude CLI + Pi/Codex).
 
+**Contents**
+
+1. [The three pieces](#1-the-three-pieces)
+2. [Access: sign-in, guest mode and tokens](#2-access-sign-in-guest-mode-and-tokens)
+3. [Install modes, stack paths and the pipeline](#3-install-modes-stack-paths-and-the-pipeline)
+4. [Philosophy: maximal template, guided removal](#4-philosophy-maximal-template-guided-removal)
+5. [Addons](#5-addons)
+6. [Integrations: skills, CLIs and service keys](#6-integrations-skills-clis-and-service-keys)
+7. [The Documents page (storage)](#7-the-documents-page-storage)
+8. [The harness](#8-the-harness)
+9. [FIA — the IAI Agent Factory](#9-fia--the-iai-agent-factory)
+10. [The durable planning layer](#10-the-durable-planning-layer)
+11. [The design-system layer](#11-the-design-system-layer)
+12. [Pi command reference](#12-pi-command-reference)
+13. [The web UI (`--ui`)](#13-the-web-ui---ui)
+14. [Maintenance: `--verify`, `--update-runtime`, `imp update`](#14-maintenance---verify---update-runtime-imp-update)
+15. [Recipes — worked examples](#15-recipes--worked-examples)
+16. [Flag reference](#16-flag-reference)
+17. [Environment variables](#17-environment-variables)
+18. [Extending: a new addon, a new template](#18-extending-a-new-addon-a-new-template)
+19. [CLI development](#19-cli-development)
+
 ---
 
 ## 1. The three pieces
@@ -15,13 +37,15 @@ harness, **FIA — the IAI Agent Factory** and how to extend it. Getting started
 | Piece        | Source              | What it is                                                              |
 | ------------ | ------------------- | ----------------------------------------------------------------------- |
 | **CLI**      | this repo (`impactus` on npm) | Interactive Node.js installer (ESM + @clack/prompts)      |
-| **Harness**  | private repo (community gated API) | Agent-workflow scaffold (/start, /dev, /sv, 9 agents, skills) — **the base, always installed** |
+| **Harness**  | private repo (community API) | Agent-workflow scaffold (/start, /dev, /sv, 9 agents, skills) — **the base, always installed** |
 | **Template** | private repo (community gated API) | Next.js 16 + Convex + Clerk + shadcn/Tailwind v4 app, with EVERYTHING implemented — **optional** |
 
 The CLI **does not bundle** the template or the harness: both are downloaded at
 install time **exclusively through the community API** — there is no direct
 GitHub clone. The templates require the paying-student token; the harness is
-also served **without** one (guest mode installs harness + FIA only).
+also served **without** one (guest mode installs harness + FIA only — see §2).
+The FIA/Pi runtime (`imp/` + `.pi/`) IS bundled in the npm package
+(`fia-templates/`, `pi-templates/`) and stamped locally.
 
 **Tenancy**: `--tenancy single` (default) downloads live1; `--tenancy multi`
 downloads **live2** — multi-tenant with organizations owned by the
@@ -36,180 +60,120 @@ CLI additionally sets `SUPERADMIN_EMAILS` in Convex with the Clerk account
 email during installation (extra bootstrap). Spec/roadmap: `live2-spec.md`
 in the private `impactus-internal-docs` repo.
 
-### Install modes and stack paths
-
-Right after name/folder, the CLI asks **how to start** (stored in
-`ctx.mode` + `ctx.stackPath`, set in `steps/mode.js`):
-
-- **Recommended stack** (`--stack recomendada` / `--mode full`; the `--yes`
-  default in a new folder) → `mode=full`, `stackPath=template`: downloads the
-  template and runs the full pipeline. The harness still comes in (last).
-- **Build my own stack** (`--stack backend=hono,db=neon,…`) → `mode=harness`,
-  `stackPath=custom`: the wizard in `steps/stack.js` asks layer by layer
-  (catalog in `src/stack-catalog.js`; pure rules in `src/lib/stack.js` —
-  Convex ⇒ no API/ORM; Hono ⇒ SQL database + ORM; Automations/Jobs outside
-  the app is optional — "none" by default, Modal for external compute).
-  Every layer accepts **"decide later"**. If the choices match the recommended stack, the wizard
-  offers to switch to the template (still in the prelude, before the pipeline).
-- **Not sure yet** (`--stack depois`; `--mode harness` in a new folder) →
-  `stackPath=discover`: everything pending — Pi (`/idea`) extracts PRD + stack.
-- **Existing project** → `stackPath=brownfield`: `/absorb` fills the manifest
-  with the real stack.
-
-On every path, `steps/stack-docs.js` runs after the harness: it writes the
-`ai-docs/stack.md` manifest (source of truth), stamps the stack block into
-`AGENTS.md` (`<!-- stack-start/end -->` markers) and — outside template mode —
-installs official skills, offers CLIs (with login) and registers MCPs for the
-chosen techs. The installer works from the static catalog
-(`src/stack-catalog.js`) — it is the bootstrap; the first `/stack` pass later
-verifies and refreshes that tooling through the research ledger
-(`imp/scripts/stack-research.mjs`, see "Stack research"). DEV database
-provisioning:
-
-- **Neon** — two routes: instant with NO account (Neon Launchpad,
-  `src/lib/neon.js` — `DATABASE_URL` in `.env.local` + claim URL in the
-  manifest, expires in ~72h without claim) or in the student's ACCOUNT via CLI
-  (`neon auth` + `neon projects create --output json`).
-- **Supabase** — guided through the official CLI: `supabase login` →
-  `projects create` with a generated password (recorded in `.env.local`); the
-  connection string comes from the dashboard (pasted into the installer or later).
-
-The web UI (`--ui`) also knows the paths: the "Harness only" card gains a
-"Your stack" section (decide with Pi, or layer-by-layer selects driven by the
-catalog) and the generated command comes out with `--stack` (`src/lib/command.js`).
-
-The harness is **always** installed; the mode only decides whether the template comes along.
+The overall shape of an install:
 
 ```
 npx impactus
       │
+      ├─► ACCESS — sign in (optional; valid session skips the question)
+      │
       ├─► name/folder + MODE (harness only  |  harness + template)
       │
-      ├─ full mode ──► pick the TEMPLATE (live1 | live2 — TEMPLATES catalog)
+      ├─ full mode ──► DECISIONS: template (live1 | live2), addons, shadcn,
+      │               │    deps, storage, webhook, GitHub, deploy, FIA —
+      │               │    all at once, then one summary + confirm
       │               ├─► DOWNLOADS the template to a tmp (community gated API)
-      │               ├─► pick the stack (addons — groups may come from the
-      │               │    downloaded template.addons.json)
-      │               ├─► install ──► REMOVES what was not chosen
+      │               ├─► install ──► reconciles the choice against the
+      │               │    downloaded template.addons.json, then REMOVES
+      │               │    everything that was not chosen
       │               ├─► Convex + Clerk + webhook + storage + skills/CLIs
       │               └─► GitHub + Vercel (optional)
       │
-      └─► harness merge (gated download — always, in both modes)
+      ├─► harness merge (community download — always, in both modes)
+      ├─► stack manifest + docs + tooling (ai-docs/stack.md)
+      ├─► FIA stamp (imp/ + .pi/ from the bundled templates)
+      ├─► Impeccable design skill (optional)
+      └─► final summary + next steps
 ```
 
-## 2. Philosophy: maximal template, guided removal
+## 2. Access: sign-in, guest mode and tokens
 
-Instead of the CLI *generating* code (fragile, hard to test), the template
-ships with **all integrations implemented and working together** — and the CLI
-**removes what the user did not choose**. Three mechanisms, all described in
-the `template.addons.json` manifest (at the template root):
+Signing in is **optional** and is the first question of the installer
+(`steps/auth.js`). What it decides:
 
-### 2.1 Markers in the code
+| State | What the installer delivers |
+| --- | --- |
+| **Signed in**, active subscription | Everything: templates + the automated template pipeline (Convex, Clerk, keys, webhooks, GitHub, deploy) and the harness + FIA. |
+| **Guest** (declined the sign-in) | Harness + FIA only. Every template path is locked (`steps/mode.js`), announced up front and again in the final summary. |
+| **Inactive subscription** | Same as guest, after a renewal warning with the checkout URL. The saved token is kept — renewing reactivates it. |
 
-Snippets belonging to an addon sit between markers:
+The decision tree on every run:
 
-```ts
-// live1:addon:sentry:start
-import { withSentryConfig } from "@sentry/nextjs"
-// live1:addon:sentry:end
+1. `CREATE_IAI_TOKEN` set (CI/automation) → verified; an invalid token **fails
+   loudly** (automation never silently degrades to a harness-only install).
+2. A saved token exists (`~/.create-iai/auth.json`) → verified. Valid →
+   "Welcome back" and no questions. Expired/revoked (401) → cleared, the offer
+   below includes a fresh login. Community unreachable (5xx/network) → the run
+   exits WITHOUT deleting the credential ("your login is still saved").
+3. Interactive → the "Sign in (optional)" note + a two-option select:
+   **Sign in (recommended)** (device flow) or **Continue without signing in**
+   (guest mode, `ctx.guest = true`).
+4. `--yes` with no token → guest mode with a warning (there are no prompts to
+   ask with); `--mode full` / `--stack recomendada` then error out instead of
+   silently downgrading.
+
+**Device flow** (OAuth 2.0 Device Authorization Grant, RFC 8628): the CLI
+calls `POST /api/cli/device/start` on the community API, opens the browser at
+the community's `/cli` page with a user code, and polls
+`POST /api/cli/device/poll` until approved (10-minute deadline, `slow_down`
+honored). The token is saved to `~/.create-iai/auth.json` (mode **600**) with
+the API base and a device label (`<hostname> (<platform>)`) shown in the
+student's token list. During an install, a DENIED authorization falls back to
+guest mode (the run continues); `--login` standalone still exits 1.
+
+**Access is revalidated on every use** (`GET /api/cli/verify` re-checks the
+enrollment), and the template download re-checks it again server-side. The
+harness tarball is served **without** a token (`PUBLIC_TEMPLATES` on the
+community server) — harness + FIA are the free tier; `live1`/`live2` answer
+`401 missing_token` to anonymous requests.
+
+Subcommands (each authenticates/reports and exits):
+
+```bash
+npx impactus --login    # device flow now; errors out if denied
+npx impactus --whoami   # "Authenticated as <name> — subscription active ✓" | inactive | expired
+npx impactus --logout   # revokes server-side (best-effort) + deletes auth.json
 ```
 
-Stripper rules (`src/lib/addons.js`):
+State on disk — `~/.create-iai/` (dir mode 700):
 
-- Addon **not chosen** → the whole block is deleted.
-- Addon **chosen** → the code stays; the marker lines disappear.
-- **Inverse block** `live1:addon!:<id>` → only exists when the addon was NOT
-  chosen (e.g. the minimal baseline CSP vs. the full CSP of the `csp` addon).
-- Works in any text file: `//` (TS/JS), `{/* */}` (JSX), `#`
-  (YAML, .env.example). Nested blocks are supported.
+| Path | What |
+| --- | --- |
+| `auth.json` | `{ token, apiBase, savedAt, label }`, mode 600. |
+| `keys/<slug>.env` | Service keys pasted in the web UI (`--keys` reads them; mode 600, machine-local only). |
+| `logs/run-<timestamp>.log` | Full log of each installer run (secrets redacted) — what students attach to bug reports. |
 
-### 2.2 Files/dependencies manifest
+Dev/testing: `--api <url>` or `CREATE_IAI_API` point the CLI at another
+community deployment; a custom base prints a one-time warning (the saved token
+is sent to that host).
 
-`template.addons.json` lists, per addon: `files` (deleted), `dependencies`/
-`devDependencies` and `scripts` (pruned from package.json). A file listed by
-more than one addon (e.g. `app/dashboard/billing`, shared by stripe/
-asaas/clerk-billing) is only deleted when **none** of them was chosen.
-`virtual` defines derived ids used in markers (e.g. `billing-ui` = turns on
-when any payment turns on — controls the "Subscription" item in the sidebar).
+## 3. Install modes, stack paths and the pipeline
 
-### 2.3 Recording the choice
+### 3.1 The four stack paths
 
-The generated project gets an `imp/iai.config.json` with the chosen addons (older versions kept it at the root), and
-the manifest is removed. `npm install` runs only after the pruning (never
-downloads what was cut) and `convex dev --once` (the Convex step) regenerates
-`convex/_generated` for the reduced set.
+Right after name/folder, the CLI asks **how to start** (stored in
+`ctx.mode` + `ctx.stackPath`, set in `steps/mode.js`):
 
-### 2.4 Template catalog and the template's addon catalog
+| Path | Trigger | Mode | What happens |
+|---|---|---|---|
+| `template` | "Recommended stack" pick, `--stack recomendada`, `--mode full`, the `--yes` default in a new folder | `full` | Downloads the ready-made template and runs the full pipeline. The harness still comes in (last). |
+| `custom` | "Build my own stack" pick, `--stack propria`/`custom`, or `--stack cat=opt` pairs | `harness` | The layer-by-layer wizard (§3.3). May switch to `full` mid-wizard when the choices match the recommended stack. |
+| `discover` | "Not sure yet" pick, `--stack depois`, `--mode harness` in a new folder | `harness` | Everything pending — Pi (`/idea`) extracts PRD + stack later. |
+| `brownfield` | Existing project detected (folder has `package.json` or `.git` and was not created by the CLI) | `harness` | `/absorb` maps the real stack and fills the manifest. `--stack depois` on an existing project also lands here. |
 
-`TEMPLATES` (`src/config.js`) is the single source of installable templates
-(live1 single-tenant, live2 multi-tenant). Each entry declares `repo`,
-`available` (publication gate), `strip`, `tenancy` and `requires` — the
-capabilities the pipeline turns on (`convex`, `clerk`, `shadcn`, `storage`,
-`mcps`; pure helper in `src/lib/pipeline.js`). The choice comes from
-`--template-id` (or the legacy `--tenancy` shortcut, or an interactive
-question). There is no direct fork/clone flag: the download is always the
-gated one, by the catalog `id`.
+Flag precedence: `--stack` > `--mode`/`--harness-only` > `--yes`. A `--mode`
+that conflicts with the mode `--stack` implies is a **hard error**. In guest
+mode (§2) any flag that forces the template (`--mode full`,
+`--stack recomendada`) throws a "needs the community sign-in" error rather
+than silently downgrading, and interactive menus simply don't offer the
+template path. A leftover install-state marker (a previous full install died
+midway) is treated as a **resume** of the full install — never as an existing
+project — and requires the sign-in.
 
-Since the download happens BEFORE the addon choice, the downloaded
-`template.addons.json` itself may declare the optional
-`groups`/`presets` fields (same format as `ADDON_GROUPS`/`ADDON_PRESETS`): in
-that case the addons step uses the TEMPLATE'S catalog — a new template exposes
-its own groups without requiring a CLI release. Without those fields, the
-CLI's built-in catalog applies (current live1/live2 behavior).
+The harness is **always** installed; the mode only decides whether the
+template comes along.
 
-To ADD a template: an entry in `TEMPLATES` + repo on the community backend's
-allowlist (`cli-paid-gate.md`, private `impactus-internal-docs` repo) +
-`TEMPLATE_GITHUB_TOKEN` scope.
-
-### 2.5 Post-install audit (`--verify`)
-
-`npx impactus --verify --dir <folder>` audits an already-installed project
-without touching anything (`src/steps/verify.js`): valid package.json,
-`imp/iai.config.json` present, leftover manifest, orphaned `live1:addon:*`
-markers, base envs in `.env.local` (error) and keys for the chosen addons'
-services (warning — everything degrades gracefully),
-`node_modules`/`convex/_generated`, and the **agent skills coverage**: every
-skill in `skills-lock.json` must exist in `.agents/skills/<name>/` (else Cursor
-is blind to it) and, when the project has a `.pi/`, in `.pi/skills/<name>/`
-(else the FIA agents are) — warning-level, fixed with
-`npx skills experimental_install` (§5.2). Exits with code 1 when there is an
-error — usable in the student's CI. With `--json` the human report is replaced
-by `{ ok, errors, warnings }` on stdout (same exit code) — for scripts.
-
-### 2.6 Runtime updates (`--update-runtime`)
-
-`npx impactus --update-runtime --dir <folder>` re-stamps the FIA/Pi RUNTIME of
-an already-installed project from the impactus version currently running
-(`src/steps/update-runtime.js`) — new FDAs, gates and prompts without a
-re-install. The contract:
-
-- **Manifest** — `setupFia` records `imp/.runtime-manifest.json`
-  (`{ impactus, stamped_at, files: { <relpath>: <sha1> } }`) covering every
-  file stamped from both template trees. The shas are the TEMPLATE's: the
-  stamp skips pre-existing files, so a file that differs from the template was
-  never written by us and stays "modified" (consent + backup before any
-  overwrite).
-- **Updatable paths only** (`FIA.runtimeUpdatablePaths`): `imp/modules/`,
-  `imp/fda_*.mjs`, `imp/scripts/`, `imp/package.json`, `.pi/skills/fia/`,
-  `.pi/prompts/`, `.pi/extensions/`. Never touched: `imp/fia.config.yaml`,
-  `imp/data/`, `imp/node_modules/`, anything outside the template trees.
-  Files the template no longer ships are LEFT in place — additive + replace,
-  never delete.
-- **Per file**: missing → add; byte-identical → skip; differs with the disk
-  sha matching the manifest (unmodified since the stamp) → overwrite; differs
-  otherwise (edited locally, or no manifest) → interactive runs ask per file —
-  Yes / **Yes to all** / No / **No to all**, the *-to-all answers stick for
-  the rest of the run — after one loud warning; non-interactive runs skip and
-  report unless `--force` (= yes to everything). Every overwrite is backed up
-  to `imp/.runtime-backup-<YYYYMMDD-HHmmss>/<relpath>` first (gitignored).
-- **Afterwards**: `npm install` in `imp/` when `imp/package.json` changed, Pi
-  packages re-installed (idempotent, degrades with a warning), manifest
-  rewritten — overwritten files move to the new baseline while
-  skipped-modified ones KEEP the stamp sha, so the next run still flags them.
-  Prints an added / updated / skipped-modified / unchanged summary; `--json`
-  prints the same as JSON. Exits 1 only on hard failures (e.g. the
-  `npm install`).
-
-## 3. Pipeline
+### 3.2 Pipeline
 
 The prelude (steps 1–5) always runs; the `[i/n]` counter only knows the exact
 total after the mode is resolved (`main.js` builds the list in two phases — the
@@ -219,15 +183,15 @@ prelude, then the tail for the chosen mode).
 
 | #  | Step | File | Notes |
 | -- | ----- | ------- | ----- |
-| 1  | Access — sign in (optional) | `steps/auth.js` | Valid session → "Welcome back"; otherwise offers the device-flow login. Declining sets **guest mode**: harness + FIA only, every template path locked (announced on the spot) |
+| 1  | Access — sign in (optional) | `steps/auth.js` | Valid session → "Welcome back"; otherwise offers the device-flow login. Declining sets **guest mode** (§2) |
 | 2  | Claude Code | `steps/preflight.js` | Blocks if missing/logged out |
 | 3  | Name and folder | `steps/project.js` | `.` installs in the current folder |
-| 4  | **How to start — mode + stack path** | `steps/mode.js` | Sets `ctx.mode` + `ctx.stackPath`; in guest mode the template path is locked (flags forcing it error out) |
-| 5  | Your stack — layer by layer | `steps/stack.js` | Only the "build my own stack" path asks; may switch `ctx.mode` to `full` (never for guests) |
+| 4  | **How to start — mode + stack path** | `steps/mode.js` | Sets `ctx.mode` + `ctx.stackPath`; agent-files conflict policy asked here too |
+| 5  | Your stack — layer by layer | `steps/stack.js` | Only the `custom` path asks; may switch `ctx.mode` to `full` (never for guests) |
 
 **`full` mode (harness + template):** each step declares a CAPABILITY
 (`core` always runs; `convex`/`clerk`/`shadcn`/`storage`/`mcps` only when the
-template declares them in `requires` — see §2.4 and `src/lib/pipeline.js`).
+template declares them in `requires` — see §4.4 and `src/lib/pipeline.js`).
 
 | #  | Step | File | Notes |
 | -- | ----- | ------- | ----- |
@@ -244,13 +208,13 @@ template declares them in `requires` — see §2.4 and `src/lib/pipeline.js`).
 | 16 | Convex — publish functions | `steps/convex.js` | Also regenerates `_generated` |
 | 17 | Clerk → Convex webhook | `steps/webhook.js` | Optional; subscribes only to `user.*` events (multi included) |
 | 18 | Storage — Convex or R2 | `steps/storage.js` | R2 with wrangler assistant (bucket + CORS); consumes keys from `--keys` |
-| 19 | **Keys — activate integrations** | `steps/service-keys.js` | See §5.1 — AI prompts, `--keys`, webhooks via API |
-| 20 | **Integrations — skills and CLIs** | `steps/integrations.js` | See §5 |
+| 19 | **Keys — activate integrations** | `steps/service-keys.js` | See §6.1 — AI prompts, `--keys`, webhooks via API |
+| 20 | **Integrations — skills and CLIs** | `steps/integrations.js` | See §6 |
 | 21 | Git + GitHub | `steps/github.js` | Private/public repo, push |
 | 22 | Vercel deploy | `steps/deploy.js` | Optional (demo with dev creds) |
 | 23 | Harness | `steps/harness.js` | Merge without overwriting anything (always) |
 | 24 | Stack — manifest and docs | `steps/stack-docs.js` | `ai-docs/stack.md` + stack block in `AGENTS.md` |
-| 25 | FIA — Pi + FDAs | `steps/fia.js` | Stamps `imp/` + `.pi/`, npm scripts, SQLite + the runtime manifest (§2.6) |
+| 25 | FIA — Pi + FDAs | `steps/fia.js` | Stamps `imp/` + `.pi/`, npm scripts, SQLite + the runtime manifest (§14.2) |
 | 26 | Impeccable — design skill | `steps/impeccable.js` | Optional, default on; requires Node ≥ 22.12 |
 | 27 | Final summary | `steps/finish.js` | URLs + integrations report + pending items |
 
@@ -267,7 +231,367 @@ template declares them in `requires` — see §2.4 and `src/lib/pipeline.js`).
 
 Logs of each run: `~/.create-iai/logs/run-<timestamp>.log`.
 
-## 4. Addon groups
+### 3.3 The stack catalog and the layer-by-layer wizard
+
+`src/stack-catalog.js` is the **single data source** for everything the
+installer knows about stack layers: the wizard, the manifest renderer and the
+tooling step are all driven by it. Adding a technology = one catalog entry
+(docs/skills/CLI/MCP/envs), no logic changes. `depois` ("decide later") is a
+valid answer in ANY category — the literal is a stored/CLI value kept for
+compatibility.
+
+The eight categories, in question order, and every option:
+
+| Category | Options (default first) | Conditional logic |
+|---|---|---|
+| `frontend` | **`nextjs`** (Next.js App Router) | — |
+| `backend` | **`convex`** (database + backend together, no API layer) · `hono` (own API — a route handler inside Next.js, single deploy) | — |
+| `database` | **`neon`** (serverless Postgres, instant no-account provisioning) · `supabase` (Postgres + platform) · `convex` (built into the backend) | Only asked when `backend=hono`; `backend=convex` forces `convex`; `backend=depois` drags it to pending |
+| `orm` | **`drizzle`** · `prisma` · `none` | Only asked when `backend=hono` (an ORM is mandatory there); `backend=convex` forces `none` |
+| `auth` | **`clerk`** · `better-auth` (open source, lives in YOUR SQL database — not offered with the Convex backend) | — |
+| `blob` | **`r2`** (Cloudflare R2) · `convex-storage` (Convex backend only) · `supabase-storage` (Supabase database only) | — |
+| `automations` | **`none`** (in-app scheduling: Convex scheduled functions / Vercel crons) · `modal` (external compute: cron, queues, GPU, long-running Python — a SECOND deploy target, `pip install modal`, `modal setup`) | — |
+| `deploy` | **`vercel`** (the only supported path today) | Still a real question — a `--stack` pair list that omits it leaves it pending |
+
+The pure rule engine (`applyStackRules` in `src/lib/stack.js`) enforces the
+combinations and **never silently drops an explicit choice** — an overridden
+choice produces a printed warning (e.g. `ORM: "drizzle" ignored — the chosen
+backend already defines this layer (not applicable).`). The golden rule: the
+Convex backend means no API layer and no ORM; the Hono backend means SQL
+database (Neon/Supabase) + ORM (Drizzle recommended, Prisma alternative).
+
+Wizard behavior worth knowing: categories decided via `--stack` are not asked
+(flags win); "Adjust the choices…" at the review panel reopens ALL layers,
+including flag-set ones; if the final choices are exactly the recommended
+stack (`matchesTemplateStack`: nextjs + convex + clerk + r2/convex-storage +
+vercel — `automations` is ignored and survives as a manifest override), the
+wizard offers to switch to the ready-made template (signed-in only; guests get
+an informative note and keep building from the manifest). Under `--yes` the
+flag choices stand, the rest stays pending, and the template-switch offer
+never happens.
+
+### 3.4 `--stack` grammar
+
+```bash
+npx impactus my-app --stack recomendada     # full mode: the ready-made template
+npx impactus my-app --stack depois          # harness only, all layers pending
+npx impactus my-app --stack propria         # harness, interactive wizard (alias: custom)
+npx impactus my-app --stack backend=hono,db=neon,orm=drizzle
+npx impactus my-app --stack banco=supabase,storage=supabase-storage,jobs=modal
+npx impactus my-app --yes --stack backend=hono,db=neon,orm=drizzle,auth=clerk,blob=r2,frontend=nextjs,deploy=vercel,automations=none
+```
+
+Canonical categories: `frontend, backend, database, orm, auth, blob,
+automations, deploy`. Aliases: `db`/`banco` → `database`, `arquivos`/`storage`
+→ `blob`, `autenticacao` → `auth`, `jobs`/`automacoes` → `automations`. A
+value with no `=` that isn't a known shortcut **aborts** (an unrecognized
+value must never silently change the install type); an invalid pair warns and
+that layer is asked again (or stays pending under `--yes`); a known category
+with an unknown option is dropped with a warning at validation time.
+
+### 3.5 DEV database provisioning (custom path)
+
+Runs inside the stack-docs step, only when the chosen database is Neon or
+Supabase and `.env.local` does not already carry a `DATABASE_URL` (an existing
+one is always kept — the database is yours). Everything is fail-soft: a
+network/CLI failure warns and prints the manual command; nothing aborts.
+
+- **Neon, instant (recommended, no account)** — Neon Launchpad:
+  `POST https://neon.new/api/v1/database` (20 s timeout). `.env.local` gets
+  `DATABASE_URL` (+ `DATABASE_URL_DIRECT` when present) plus a claim-URL
+  comment; the claim URL also lands in the manifest and as a terminal warning:
+  **claim the database into your Neon account within ~72h or it expires**. A
+  marker comment prevents a re-run from creating a second database.
+- **Neon, in your account** — installs/logs into the `neon` CLI (`neon auth`,
+  browser) and runs `neon projects create --name <slug> --output json`
+  (2-minute timeout; retried once after a login). Secrets are redacted from
+  the run log.
+- **Supabase** — installs the `supabase` CLI (brew tap), probes login with
+  `supabase projects list`, runs `supabase login` if needed, then
+  `supabase projects create <slug>` **inherited**: the Supabase CLI itself
+  asks organization, region and the database password — the password is typed
+  into the CLI's hidden prompt, never passes through argv and never stays with
+  the installer. The connection string comes from the dashboard (Connect) and
+  is pasted into the installer (or added to `.env.local` later).
+- **Later** — a manual hint is printed (e.g. `npx neon-new@latest --yes` for a
+  claimable database, or `neon projects create`).
+
+### 3.6 The stack manifest and the AGENTS.md block
+
+`ai-docs/stack.md` is the **source of truth** agents read before planning,
+implementing and launching. Written once by the installer (never overwritten
+if present — `/stack` updates it), it carries: the source line
+(template/installer/discover/brownfield), a per-layer Summary table with
+local-docs pointers (`ai-docs/apis/<tech>.md`, generated by `/stack`), a
+"Pending — decide before implementing" checkbox list with the decision rules,
+a "Layers" detail section per decided technology (role, official docs,
+llms.txt, CLI/MCP/skills, notes, test users for auth, Neon provision +
+claim URL), and an "Environments — development × production" table (golden
+rule: `.env.local` is development ONLY; every production env lives on Vercel
+or the matching service — `/launch` guides the promotion).
+
+`AGENTS.md` gets a compact mirror between `<!-- stack-start/end -->` markers —
+decided layers, pending layers ("do NOT invent: stop and decide with the
+engineer"), and the pointer to the manifest. Idempotent: marker present ⇒
+never rewritten by the installer.
+
+### 3.7 Tooling for the chosen technologies
+
+Outside template mode, the stack-docs step equips the project for every
+decided technology (deduped — Convex appears as backend AND database but its
+tooling runs once):
+
+1. **Skills** via skills.sh (see §6.2) — e.g. Neon installs `neon`,
+   `neon-postgres`, `claimable-postgres`, `neon-postgres-branches` from
+   `neondatabase/agent-skills`; Convex/Clerk/Better Auth/Cloudflare install
+   their official sources.
+2. **Official CLI** via `ensureIntegrationCli` — offered once per binary:
+   brew → npm -g → pip fallback (Modal is pip), 5-minute timeout, then an
+   optional browser login (default **no**). Convex is `viaNpx` — never
+   installed globally. Under `--yes`: hint only, no install, no login.
+3. **Official MCP** via `claude mcp add …` — e.g. Neon
+   (`--transport http https://mcp.neon.tech/mcp`), Vercel
+   (`https://mcp.vercel.com`), Convex (`add-json` with `npx convex mcp
+   start`). Supabase and Clerk MCPs need a key/PAT, so the installer prints
+   the note and `/stack` guides them later.
+
+Pending layers install nothing — whoever decides later (Pi `/idea` or
+`/stack`) gets the tools at decision time. The installer catalog is the
+bootstrap; the first `/stack` pass re-verifies everything through the research
+ledger (§10).
+
+### 3.8 The decisions phase and the step-by-step behavior (full mode)
+
+**Decisions** (`steps/decisions.js`) follow the professional-scaffolder
+pattern: ALL questions first (template, addons, shadcn preset+block, deps,
+storage, webhook, GitHub push + repo name + visibility, deploy, FIA,
+Impeccable), then one summary panel, then a `Yes — start now / Adjust the
+choices… / Cancel` confirm. "Adjust" reopens every question pre-filled with
+the prior answers. Whatever a flag decided is never asked; capabilities the
+template does not declare never become a question. Execution then runs end to
+end with no further *decision* questions (logins/keys for chosen services may
+still interact — the summary says so).
+
+The `--yes` defaults, exactly: deps `none` · shadcn no preset + block
+`sidebar-07` · storage `convex` (unless `--storage r2` + all four `R2_*` keys
+in `--keys`, which configures R2 non-interactively) · webhook off (it needs a
+manual dashboard action, so automation never turns it on) · push off (creating
+a remote repo is irreversible) · visibility private · deploy off · FIA on ·
+Impeccable on.
+
+Step behaviors worth knowing:
+
+- **Deps** — `safe` runs `npm update --save` (patch/minor inside the
+  template's ranges). There is deliberately no `latest` mode (major bumps
+  broke projects before the first `npm run dev`); the manual path is
+  `npx npm-check-updates -i`, package by package, with the app running.
+- **shadcn** — a pasted "Get Code" command runs verbatim; a bare code becomes
+  `npx shadcn@latest apply <code>`. Blocks install with
+  `npx shadcn@latest add -y -o <block…>` (deterministic, no mid-install
+  prompts) and a **guard-rail** restores application code the block demo
+  would clobber: modified tracked app files are checked out back to the
+  baseline commit, unused new demo files are removed — the block's real value
+  (`components/ui/*`, `hooks/*`, `lib/*`, deps) stays. `hooks/use-mobile.ts`
+  is backed up/restored (the registry version fails the template's eslint and
+  would block every commit). A warn-only `npx tsc --noEmit` closes the step.
+- **Convex** — two phases. `setupConvex` logs in
+  (`npx convex login --device-name "create-iai installer"`) and provisions
+  with `npx convex dev --once --configure=new --project <slug>
+  --dev-deployment cloud --tail-logs disable`; success is judged by the env
+  vars, NOT the exit code — the very first push fails ON PURPOSE
+  (`auth.config.ts` reads `CLERK_JWT_ISSUER_DOMAIN`, which Clerk sets next).
+  A crashed re-run that finds `CONVEX_DEPLOYMENT` + `NEXT_PUBLIC_CONVEX_URL`
+  in `.env.local` reconnects with a plain `dev --once` instead of creating a
+  SECOND cloud project. `NEXT_PUBLIC_CONVEX_SITE_URL` is derived
+  (`.convex.cloud` → `.convex.site`). `finalizeConvex` publishes the
+  functions after Clerk (also regenerates `convex/_generated`); its failure
+  is only a warning ("run `npx convex dev`").
+- **Clerk** — 100% automatic: resolves the `clerk` CLI (global → `npm i -g
+  clerk` → `npx -y clerk@latest`, agent mode via `CLERK_MODE=agent`), logs
+  in, creates or reuses an app, pulls the dev-instance keys into `.env.local`
+  (normalized to `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` + `CLERK_SECRET_KEY`),
+  creates the `convex` JWT template (`{"name":"convex","claims":{"aud":
+  "convex"},"lifetime":3600}` — `convex/auth.config.ts` pins that exact
+  name/aud; API fallback + manual note if the CLI path fails), derives the
+  issuer FROM the publishable key (base64 payload — no API round-trip) and
+  sets `CLERK_JWT_ISSUER_DOMAIN` on the Convex deployment. The Clerk account
+  email becomes the super-admin (`SUPERADMIN_EMAILS` on Convex).
+- **Webhook** — semi-automatic by necessity (endpoint + signing secret are
+  dashboard-only in Clerk): the CLI mints the Svix dashboard URL via the
+  Clerk API, prints exactly what to paste
+  (`https://<name>.convex.site/clerk-users-webhook`, events `user.created`,
+  `user.updated`, `user.deleted`), captures the `whsec_` secret (written to
+  `.env.local` FIRST, then `npx convex env set CLERK_WEBHOOK_SECRET`).
+- **GitHub** — commit `feat: project configured by create-iai (Convex +
+  Clerk + shadcn/ui)`; a lefthook/eslint rejection shows the lint output and
+  the documented escape hatch `LEFTHOOK=0 git commit -m "initial setup"`
+  (never misblamed on git identity). Push runs `gh repo create <name>
+  --private|--public --source=. --remote=origin --push`.
+- **Deploy** — `vercel link --yes --project <slug>`, then an **additive** env
+  sync (only missing keys are added; existing Vercel values are kept, with a
+  note when they differ from `.env.local`; values travel via stdin, never
+  argv; `CONVEX_DEPLOYMENT` is deliberately not copied — CLI-only var), then
+  `vercel deploy --prod --yes`. The URL uses the DEV Convex backend and DEV
+  Clerk keys — a demo; the real production promotion is `/launch` (FIA) or
+  the printed manual checklist.
+
+## 4. Philosophy: maximal template, guided removal
+
+Instead of the CLI *generating* code (fragile, hard to test), the template
+ships with **all integrations implemented and working together** — and the CLI
+**removes what the user did not choose**. The order is: **decide** (all addon
+questions in the decisions phase) → **download** → **reconcile** (against the
+downloaded manifest) → **prune** → `npm install`. Three mechanisms, all
+described in the `template.addons.json` manifest (at the template root):
+
+### 4.1 Markers in the code
+
+Snippets belonging to an addon sit between markers:
+
+```ts
+// live1:addon:sentry:start
+import { withSentryConfig } from "@sentry/nextjs"
+// live1:addon:sentry:end
+```
+
+Stripper rules (`src/lib/addons.js` — pure, tested):
+
+- Addon **not chosen** → the whole block is deleted.
+- Addon **chosen** → the code stays; the marker lines disappear.
+- **Inverse block** `live1:addon!:<id>` → only exists when the addon was NOT
+  chosen. Real example from `next.config.ts` — the minimal baseline CSP vs.
+  the full CSP of the `csp` addon:
+
+  ```ts
+  // live1:addon!:csp:start
+  { key: "Content-Security-Policy", value: "frame-ancestors 'self';" },
+  // live1:addon!:csp:end
+  // live1:addon:csp:start
+  { key: "Content-Security-Policy", value: contentSecurityPolicy },
+  // live1:addon:csp:end
+  ```
+
+- Works in any text file — the marker is matched anywhere in the line, so any
+  comment syntax works: `//` (TS/JS), `{/* */}` (JSX), `#` (YAML,
+  `.env.example`), `<!-- -->` (md). Nested blocks are supported; stray/extra
+  `end` markers are tolerated instead of corrupting output.
+- The scan skips `node_modules`, `.git`, `.next`, `_generated`, `public`,
+  files over 1 MiB, and any file without the `live1:addon` substring; only
+  text extensions are touched. The literal `live1:` prefix is the fixed
+  protocol string in EVERY template (live2 included) — not per-template.
+- **Virtual ids** (`manifest.virtual`) join the keep-set when ANY member addon
+  was chosen; they exist only for markers shared by several addons — e.g.
+  `billing-ui` (stripe|asaas|clerk-billing → the "Subscription" sidebar item)
+  and `signup-hooks` (notifications|resend → the new-signup hooks import).
+
+### 4.2 Files/dependencies manifest
+
+`template.addons.json` lists, per addon: `files` (deleted), `dependencies`/
+`devDependencies` and `scripts` (pruned from package.json). A file listed by
+more than one addon (e.g. `app/dashboard/billing`, shared by stripe/
+asaas/clerk-billing) is only deleted when **none** of them was chosen.
+Emptied parent folders are removed too. A representative real entry:
+
+```json
+"sentry": {
+  "label": "Sentry (+ Spotlight no dev)",
+  "files": ["sentry.server.config.ts", "sentry.edge.config.ts",
+            "instrumentation-client.ts", "app/global-error.tsx"],
+  "dependencies": ["@sentry/nextjs"],
+  "devDependencies": ["@spotlightjs/spotlight"],
+  "scripts": ["dev:spotlight"]
+}
+```
+
+### 4.3 Recording the choice
+
+The generated project gets `imp/iai.config.json` (older versions kept it at
+the root):
+
+```json
+{ "createdWith": "create-iai", "addons": ["analyzer", "commitlint", "csp", "knip", "rate-limit", "sentry"] }
+```
+
+and the manifest is removed. `npm install` runs only after the pruning (never
+downloads what was cut) and `convex dev --once` (the Convex step) regenerates
+`convex/_generated` for the reduced set. After the install the CLI runs
+`npx prettier --write .` and amends the initial commit
+(`chore: initial template (create-iai)`, with `LEFTHOOK=0` so the project's
+fresh git hooks don't fire on the internal amend) — stripping blocks can leave
+formatting Prettier would rewrite, and the amend keeps `format:check` green in
+the generated project's CI. `.env.local` is seeded from the already-pruned
+`.env.example` (born clean — no dead config for unchosen addons) and the four
+Clerk routing defaults are always upserted.
+
+### 4.4 Template catalog and the template's addon catalog
+
+`TEMPLATES` (`src/config.js`) is the single source of installable templates
+(live1 single-tenant, live2 multi-tenant). Each entry declares `repo`
+(documentational — the real allowlist lives on the community server),
+`available` (publication gate: `false` hides it from the select AND
+hard-errors an explicit `--template-id`), `strip` (folders deleted right after
+extraction — both templates strip `packages/`), `tenancy` and `requires` — the
+capabilities the pipeline turns on (`convex`, `clerk`, `shadcn`, `storage`,
+`mcps`; pure helper in `src/lib/pipeline.js`). The choice comes from
+`--template-id` (or the legacy `--tenancy` shortcut, or an interactive
+question). There is no direct fork/clone flag: the download is always the
+gated one, by the catalog `id`; `--template-ref <branch|tag>` tests a template
+branch through the same gate.
+
+The addon CHOICE happens in the decisions phase, against the CLI's built-in
+catalog — but the downloaded `template.addons.json` may declare its own
+`groups`/`presets` fields (same format as `ADDON_GROUPS`/`ADDON_PRESETS`).
+When it does, `reconcileAddons` makes the TEMPLATE'S catalog win after the
+download: flag-driven selections are re-resolved from scratch against it;
+interactive selections are intersected (ids the template doesn't know are
+dropped with a warning; template options the CLI never asked about stay out,
+with a pointer to the project README). A new template can expose its own
+options without a CLI release. Today neither live template declares them, so
+the built-in catalog applies end to end.
+
+To ADD a template: an entry in `TEMPLATES` + repo on the community backend's
+allowlist (`cli-paid-gate.md`, private `impactus-internal-docs` repo) +
+`TEMPLATE_GITHUB_TOKEN` scope. See §18.
+
+### 4.5 Crash recovery: the state marker, resume and rollback
+
+- `installTemplate` writes `.create-iai-state.json` into the target FIRST
+  (`{ version, startedAt, mode }`); the finish step removes it. A leftover
+  marker therefore means a full install died midway.
+- A folder with the marker is a **resume**, never an "existing project":
+  re-running the installer there warns, recommends continuing the full
+  install (the pipeline is idempotent — it reuses the folder, `.env.local`
+  and any cloud resources instead of duplicating Convex/Clerk), and skips the
+  agent-files question (the agent files present are the template's own
+  half-copied tree). Guest mode + marker is a hard error — only the gated
+  template flow can resume safely.
+- On a fatal error or Ctrl-C, the CLI cleans the tmp download and — only for
+  folders it CREATED itself — offers to delete the partial project (default
+  no; never under `--yes`). If `.env.local` already points at cloud services,
+  it warns first that deleting the folder does NOT delete them and that
+  `.env.local` is the only local record (dashboard.convex.dev,
+  dashboard.clerk.com, console.neon.tech).
+
+### 4.6 Agent-files conflict policy
+
+A target folder that already has agent files (`.claude`, `.cursor`,
+`.cursorrules`, `.agents`, `.pi`, `.windsurf`, `.windsurfrules`, `CLAUDE.md`,
+`HARNESS.md`, `imp/HARNESS.md`) gets the question up front (or
+`--agent-files add|replace`):
+
+- **add** (default) — only what's missing is copied; every pre-existing file
+  wins. In full mode the template copy protects those subtrees and merges
+  them per-file.
+- **replace** — the current agent files are MOVED (never deleted) to
+  `.agents-backup-<YYYY-MM-DD_HH-mm-ss>/` inside the project, then the
+  incoming ones land.
+
+App code, `ai-docs/`, `docs/`, `AGENTS.md` (always append-merged), root
+`.mcp.json` and `imp/` are never part of the policy.
+
+## 5. Addons
+
+### 5.1 Groups and presets
 
 | Group (flag) | Options | Default (`padrao`) |
 | ------------ | ------ | ----------------- |
@@ -284,37 +608,74 @@ Logs of each run: `~/.create-iai/logs/run-<timestamp>.log`.
 predates the english-first rename and is a deprecated alias of `saas`
 (accepted with a warning; no longer listed in pickers).
 
-**Precedence**: group flag > `--preset` > default. Lists accept `none` and
-`all`. Examples:
+**Precedence**: group flag > `--preset` > default (`padrao`). A group flag
+fully overrides its group; the other groups keep their preset values. Lists
+accept `none` and `all`. The three `single` groups are validated at parse time
+(a bad `--payments` value is a fatal error); multi-group values are validated
+at resolve time (bad ones warn and are ignored). Examples:
 
 ```bash
-npx impactus my-saas --preset saas --payments asaas
+npx impactus my-saas --preset saas --payments asaas      # saas set, stripe swapped for asaas
 npx impactus my-mvp --preset minimo --observability sentry --yes
+npx impactus my-app --yes --addons none --security csp   # padrao base, quality emptied, security reduced
 ```
+
+Interactively, the decisions phase offers the presets (`Default
+(recommended)` / `Minimal` / `SaaS` / `Customize…` — one question per group,
+recommended options pre-selected), then one summary with an
+"Adjust the choices…" loop before anything executes. Under `--yes` the
+`padrao` preset applies and the summary is informational.
 
 **Always included** (not a choice): TypeScript strict, T3 Env (env vars
 validated at build), Vitest + convex-test, Playwright, ESLint + Prettier,
 Lefthook, SEO (sitemap/robots/OG), CI, Dependabot, `.vscode`, i18n pt-BR/en,
 **Documents** page (upload → Convex Storage or R2, decided at runtime).
 
-## 5. Integrations: official skills and CLIs (step 16)
+### 5.2 What each addon turns on in the template
+
+| Addon | Key files | Envs (where) |
+| ----- | -------------- | ----------- |
+| commitlint | `commitlint.config.mjs` + commit-msg hook in `lefthook.yml` | — |
+| knip | `knip.json`, `check:deps` script | — |
+| analyzer | wrapper in `next.config.ts`, `build-stats` script | — |
+| sentry | `sentry.*.config.ts`, `instrumentation*.ts`, `app/global-error.tsx` | `NEXT_PUBLIC_SENTRY_DSN` (+ ORG/PROJECT/AUTH_TOKEN for sourcemaps) |
+| logging | `lib/logger.ts` (LogTape, JSON in prod) | — |
+| posthog | `components/analytics/posthog-provider.tsx` | `NEXT_PUBLIC_POSTHOG_KEY` |
+| vercel-analytics | `<Analytics />` in `components/analytics.tsx` | — |
+| csp | full CSP in `next.config.ts` (inverse block removes the baseline) | — |
+| rate-limit | `convex/lib/rateLimiter.ts` + calls in mutations | — |
+| notifications | `convex/notifications.ts`, `convex/lib/notificationKinds.ts` registry, bell in the header; email channel when resend is also present (`signup-hooks` virtual) | — |
+| resend | `convex/emails.ts` + single template `convex/lib/emailTemplate.ts` + scheduling in `users.upsertFromClerk` | `RESEND_API_KEY` (Convex) |
+| stripe | `convex/stripe.ts`, `convex/subscriptions.ts`, `/stripe-webhook` webhook, billing page | `STRIPE_*` + `SITE_URL` (Convex) |
+| asaas | `convex/asaas.ts`, `convex/assinaturasAsaas.ts`, `/asaas-webhook` webhook, billing page, skill | `ASAAS_*` (Convex) |
+| clerk-billing | `components/billing/clerk-pricing.tsx` (PricingTable) | plans in the Clerk dashboard |
+
+All degrade gracefully without their key (no-op/warning), so the app runs
+immediately after the install and each service is activated whenever you want.
+
+## 6. Integrations: skills, CLIs and service keys
 
 For each chosen addon with official tooling, the CLI installs the **agent
 skills** into the project (via [skills.sh](https://skills.sh), recorded in
-`skills-lock.json`) and offers to install/log into the **official CLI**:
+`skills-lock.json`) and offers to install/log into the **official CLI**
+(pipeline step 20):
 
 | Addon  | Skills (`npx skills add …`)  | Official CLI | Login | Keys/dashboard |
 | ------ | ---------------------------- | ----------- | ----- | -------------- |
-| stripe | `https://docs.stripe.com`    | `stripe` (brew `stripe/stripe-cli/stripe`) | `stripe login` | https://dashboard.stripe.com/apikeys |
-| sentry | `getsentry/sentry-for-ai`    | `sentry-cli` (npm `@sentry/cli`) | `sentry-cli login` | https://sentry.io/settings/auth-tokens/ |
-| resend | `resend/resend-skills`       | `resend` (npm `resend-cli`) | `resend login` | https://resend.com/api-keys |
+| stripe | `https://docs.stripe.com` (all) | `stripe` (brew `stripe/stripe-cli/stripe`) | `stripe login` | https://dashboard.stripe.com/apikeys |
+| sentry | `getsentry/sentry-for-ai` — only the 4 relevant of ~35: `sentry-nextjs-sdk`, `sentry-get-started`, `sentry-debug-issue`, `sentry-fix-issues` | `sentry-cli` (npm `@sentry/cli`) | `sentry-cli login` | https://sentry.io/settings/auth-tokens/ |
+| resend | `resend/resend-skills` (all)  | `resend` (npm `resend-cli`) | `resend login` | https://resend.com/api-keys |
 | asaas  | — (no official skills; PROJECT skill in `.claude/skills/asaas`) | — (no CLI; REST API) | — | https://sandbox.asaas.com · https://www.asaas.com |
 | r2 (storage) | `cloudflare/skills` (cloudflare + wrangler) | `wrangler` | `wrangler login` | dash.cloudflare.com → R2 |
 
-Everything is best-effort: a network failure on skills never aborts the
-installation, and the final summary lists the commands to redo it manually.
+`ensureIntegrationCli` is shared with the stack-tooling step (§3.7): each
+binary is offered ONCE per install; install order brew → npm -g → pip
+(5-minute timeout each); the login confirm defaults to **no**; `--yes` prints
+the hint and installs/logs nothing. Everything is best-effort: a network
+failure on skills never aborts the installation, and the final summary lists
+the commands to redo it manually.
 
-### 5.1 Service keys, AI prompts and `--keys` (step 15)
+### 6.1 Service keys, AI prompts and `--keys` (step 19)
 
 Central catalog: `SERVICES` in `src/config.js` — for each external service
 (Clerk, Convex, Stripe, Asaas, Resend, Sentry, PostHog, R2) it declares what
@@ -330,30 +691,57 @@ regex) and the AI prompt steps. Three consumers:
    `~/.create-iai/keys/<slug>.env` (permission **600**, machine-local only)
    and the generated command references the path via `--keys` — no secret ever
    appears in the command/history.
-2. **Terminal (`steps/service-keys.js`)** — same flow without the UI: shows
-   the same AI prompt, accepts pasting the keys (validated), writes each env
-   where the template reads it (`npx convex env set` + mirror in `.env.local`,
-   or `.env.local` only for the `NEXT_PUBLIC_*` ones).
+2. **Terminal (`steps/service-keys.js`)** — same flow without the UI: per
+   service, a select offers "See the AI prompt and paste the keys" (default) /
+   "I already have the keys — paste now" / "Skip — activate later (the
+   feature stays dormant, nothing breaks)". Each env is validated against its
+   regex (masked prompt for secrets) and written where the template reads it
+   (`npx convex env set` + mirror in `.env.local`, or `.env.local` only for
+   the `NEXT_PUBLIC_*` ones).
 3. **Webhooks via API** — with the key in hand, the CLI creates the
-   **Stripe** webhook (`POST /v1/webhook_endpoints`, `PAYMENT_WEBHOOKS`
-   events, captures the `whsec_`) and the **Asaas** one (`POST /v3/webhooks`
-   with `authToken` = locally generated `ASAAS_WEBHOOK_TOKEN`) pointing to
-   `<deployment>.convex.site/...`. Failed? It prints the manual step.
+   **Stripe** webhook (`POST /v1/webhook_endpoints` with the events
+   `checkout.session.completed`, `customer.subscription.updated`,
+   `customer.subscription.deleted`, the `api_version` pinned to the
+   stripe-node version INSTALLED in the project, capturing the `whsec_`) and
+   the **Asaas** one (`POST /v3/webhooks` — production or sandbox base per
+   `ASAAS_ENV` — with `authToken` = the locally generated
+   `ASAAS_WEBHOOK_TOKEN`, the same value the backend validates in the
+   `asaas-access-token` header) pointing to
+   `https://<deployment>.convex.site/...`. Failed? It prints the manual step.
 
-Security rules: Stripe only accepts a **test** key (`sk_test_…` — the regex
-rejects `sk_live_`); everything is optional (without a key the addon degrades
-as always); the final summary shows the report (`ctx.serviceReport`) and
-offers to delete the keys file that was used.
+The exact env catalog this step applies:
 
-### 5.2 Agent skills — the skills.sh standard
+| Service | Env (destination) | Validation |
+| --- | --- | --- |
+| stripe | `STRIPE_SECRET_KEY` (Convex, secret) | `^(sk\|rk)_test_…` — TEST keys only; restricted `rk_test_` accepted, `sk_live_` rejected |
+| | `STRIPE_PRICE_ID` (Convex) | `^price_…` |
+| | `STRIPE_WEBHOOK_SECRET` (Convex, auto via API) | `^whsec_…` |
+| | `SITE_URL` (Convex, auto) | `http://localhost:3000` in dev |
+| asaas | `ASAAS_API_KEY` (Convex, secret) | `^\$?aact_…` |
+| | `ASAAS_ENV` (Convex, user) | `production` \| `sandbox` |
+| | `ASAAS_VALUE` (Convex, user) | e.g. `49.90` |
+| | `ASAAS_WEBHOOK_TOKEN` (Convex, generated locally) | random 24-byte base64url |
+| resend | `RESEND_API_KEY` (Convex, secret) | `^re_…` — test mode until a domain is verified (`EMAIL_FROM`, `RESEND_TEST_MODE=false` for prod) |
+| sentry | `NEXT_PUBLIC_SENTRY_DSN` (.env.local) | `https://…@…/<id>` |
+| posthog | `NEXT_PUBLIC_POSTHOG_KEY` (.env.local) | `^phc_…` |
+| | `NEXT_PUBLIC_POSTHOG_HOST` (.env.local) | `https://us.i.posthog.com` or `https://eu.i.posthog.com` |
+
+Extra `--keys`-only keys (applied straight to Convex when the matching addon
+was chosen): `EMAIL_FROM`, `RESEND_TEST_MODE`, `ASAAS_DESCRIPTION`.
+
+Security rules: every secret is redacted from the run log; a dashboard env
+left at its factory default activates nothing; everything is optional (without
+a key the addon degrades as always); the final summary shows the report
+(`ctx.serviceReport`) and offers to delete the keys file that was used.
+
+### 6.2 Agent skills — the skills.sh standard
 
 Every official skill (this step, the storage step and the stack step) goes in
 through the same door: `src/lib/skills.js`, which drives the
 [skills.sh](https://skills.sh) CLI — the `skills` npm package, the standard the
-vendors publish against (Vercel's own `vercel-labs/agent-skills` is the example
-in its `--help`). The sources are declared as data: `ADDON_TOOLING[*].skills`
-and `OPTIONAL_SKILLS` in `src/config.js`, `skills` per option in
-`src/stack-catalog.js`.
+vendors publish against. The sources are declared as data:
+`ADDON_TOOLING[*].skills` and `OPTIONAL_SKILLS` in `src/config.js`, `skills`
+per option in `src/stack-catalog.js`.
 
 On disk, per engine:
 
@@ -397,31 +785,9 @@ npx skills experimental_install  # restore everything from skills-lock.json
 
 `npx skills use <pkg>@<skill>` prints a single skill's prompt without
 installing anything — handy for a one-off. And `--verify` audits the coverage
-(see §2.5).
+(see §14.1).
 
-## 6. What each addon turns on in the template
-
-| Addon | Key files | Envs (where) |
-| ----- | -------------- | ----------- |
-| commitlint | `commitlint.config.mjs` + commit-msg hook in `lefthook.yml` | — |
-| knip | `knip.json`, `check:deps` script | — |
-| analyzer | wrapper in `next.config.ts`, `build-stats` script | — |
-| sentry | `sentry.*.config.ts`, `instrumentation*.ts`, `app/global-error.tsx` | `NEXT_PUBLIC_SENTRY_DSN` (+ ORG/PROJECT/AUTH_TOKEN for sourcemaps) |
-| logging | `lib/logger.ts` (LogTape, JSON in prod) | — |
-| posthog | `components/analytics/posthog-provider.tsx` | `NEXT_PUBLIC_POSTHOG_KEY` |
-| vercel-analytics | `<Analytics />` in `components/analytics.tsx` | — |
-| csp | full CSP in `next.config.ts` (inverse block removes the baseline) | — |
-| rate-limit | `convex/lib/rateLimiter.ts` + calls in mutations | — |
-| notifications | `convex/notifications.ts`, `convex/lib/notificationKinds.ts` registry, bell in the header; email channel when resend is also present (`signup-hooks` virtual) | — |
-| resend | `convex/emails.ts` + single template `convex/lib/emailTemplate.ts` + scheduling in `users.upsertFromClerk` | `RESEND_API_KEY` (Convex) |
-| stripe | `convex/stripe.ts`, `convex/subscriptions.ts`, `/stripe-webhook` webhook, billing page | `STRIPE_*` + `SITE_URL` (Convex) |
-| asaas | `convex/asaas.ts`, `convex/assinaturasAsaas.ts`, `/asaas-webhook` webhook, billing page, skill | `ASAAS_*` (Convex) |
-| clerk-billing | `components/billing/clerk-pricing.tsx` (PricingTable) | plans in the Clerk dashboard |
-
-All degrade gracefully without their key (no-op/warning), so the app runs
-immediately after the install and each service is activated whenever you want.
-
-## 7. Documents page (storage)
+## 7. The Documents page (storage)
 
 Always present at `/dashboard/documentos`: multi-file upload with
 drag-and-drop and progress, download via signed URL and deletion with
@@ -430,14 +796,39 @@ confirmation. The backend decides the destination at **runtime**:
 - **Convex File Storage** (default, zero config): `ctx.storage.generateUploadUrl`.
 - **Cloudflare R2**: activates when the four envs `R2_ACCOUNT_ID`,
   `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` exist in the Convex
-  deployment — exactly what the storage step configures (with a wrangler
-  assistant for account, bucket and CORS). Uses the official
-  `@convex-dev/r2` component; the endpoint is derived from the Account ID.
+  deployment — a partial fill just stays on Convex Storage until completed.
+  Uses the official `@convex-dev/r2` component; the endpoint is derived from
+  the Account ID.
 
 Validation (MIME allowlist + 25 MB) is server-side in `convex/documentos.ts`;
 the browser sends the binary STRAIGHT to storage via signed URL.
 
-## 8. Harness
+The storage step (pipeline step 18) wires R2 with a **wrangler assistant**:
+installs/logs into `wrangler` if wanted, picks the Cloudflare account from
+`wrangler whoami`, creates the bucket (suggested name `<project>-files`;
+"already exists" counts as success) and applies the CORS policy — Cloudflare's
+`rules`/`allowed` JSON shape, NOT AWS S3 style:
+
+```json
+{ "rules": [ { "allowed": {
+    "origins": ["http://localhost:3000"],
+    "methods": ["GET", "PUT"],
+    "headers": ["Content-Type"] },
+  "maxAgeSeconds": 3600 } ] }
+```
+
+(an extra production origin can be added during the prompt). The one thing
+wrangler cannot do is the **S3 API token** — dashboard-only, Secret shown only
+once: `Cloudflare → R2 → Manage API Tokens → Create API Token`, minimum scope
+"Object Read & Write" on the project bucket. The four values are prompted
+(masked for the secret), set with `npx convex env set` and mirrored into
+`.env.local`. Fully non-interactive R2 is possible with
+`--yes --storage r2 --keys <file>` when the file carries all four keys (the
+R2 AI prompt returns exactly that). The installer also installs the official
+Cloudflare agent skills (`cloudflare` + `wrangler`) so the coding agent knows
+R2 by heart from day one.
+
+## 8. The harness
 
 **The installer's base — always installed**, in both modes. Downloads the
 harness through the community API (the only path — with the student token, or
@@ -445,12 +836,11 @@ anonymously in guest mode: harness + FIA are the free tier)
 and merges **without overwriting anything** — existing files
 win, the harness `README.md` becomes `imp/HARNESS.md`, and its `AGENTS.md` is
 appended to the project's between the `<!-- harness-start/end -->` markers.
-Brings `/grill`, `/start`, `/dev`, `/sv`, `/test-ui`, `/team`, `/absorb`,
-`/component`, `/theme`, `/launch`, `/quick`, `/note`, `/spec`, `/example`,
-9 specialist agents, skills (TDD + the professional ones: frontend-profissional,
-design-system, security, backend-profissional, plus `examples`) and `ai-docs/`
-(PRD, maps, task roadmap, specs, milestones, inbox, examples) for Claude Code
-and Cursor.
+For Claude Code AND Cursor it brings **21 slash commands**, 9 specialist
+agents, 6 skills and the whole `ai-docs/` scaffold: PRD template, maps,
+task roadmap (`todos/`), specs (`specs/0000-example.md`), milestones, inbox,
+decisions/, ui/ (interaction patterns), components/ (140+ reference docs),
+apis/, examples/ and `start/map-start.yaml`.
 
 Skills shared with the templates (`HARNESS.templateOwnedPaths` — the four
 professional ones, in `.claude/skills` and `.cursor/skills`): the harness is
@@ -459,10 +849,9 @@ is discarded only when the installed template actually shipped that path
 (the merge runs after the template install, so the destination already
 reflects it) — a template that brings its own variant wins in that path
 (live2 ships only `security`, its multi-tenant variant), and a template
-without the skill inherits the harness version (live1 no longer ships any of
-the four; templates without `.cursor/` still get the four skills in Cursor
-from the harness). In `harness` mode (no template) everything comes from the
-harness. The `asaas` skill belongs to an addon and lives only in the templates.
+without the skill inherits the harness version. In `harness` mode (no
+template) everything comes from the harness. The `asaas` skill belongs to an
+addon and lives only in the templates.
 
 In `full` mode it runs last (the git repo already exists, created during the
 template install); in `harness` mode the folder may have no git — the step
@@ -470,36 +859,308 @@ runs `git init` before the best-effort commit. The `--no-harness`/
 `--skip-harness` flags only apply in `full` mode (template WITHOUT the
 harness); in `harness` mode they are ignored with a warning.
 
-**Seeing what `/map` (or `/start`) created**: with the FIA installed, the
-project gets the `npm run plan` script — it opens the "Plan" tab of the local
-viewer (`http://127.0.0.1:4600#plan`, 100% offline) with the screens/routes,
-the tasks with blockers and criteria, the design system and every file in
-`ai-docs/` rendered. `/map` itself opens this page when it finishes. The
-folder can be changed with `FIA_AI_DOCS` or `--ai-docs`.
+The harness also ships `.claude/settings.json` with
+`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` (required by `/team`) and the two
+fda-lock hooks (SessionStart warn + PreToolUse gate — the read-only guard
+while an FDA runs, §9.5), plus `.mcp.json`/`.cursor/mcp.json` with the
+`playwright` and `convex` MCP servers.
 
-**Choosing each agent's engine — `/agents` and `npm run agents`**: the new
-`/agents` command (inside `pi`) and the `npm run agents` script open the FIA
-viewer's **"Agents" tab** (`http://127.0.0.1:4600#agents`). There the student
-sees the login status of each engine (claude/pi/cursor), changes each FDA
-agent's engine, model and reasoning, and edits an optional `fallbacks:` chain.
-Save writes `imp/fia.config.yaml` preserving comments (a backup is kept;
-saving is locked while an FDA runs).
+### 8.1 Command reference (Claude Code / Cursor — all 21)
 
-`imp/fia.config.yaml` now supports per-agent `fallbacks:` — an ordered list
-tried at run start when the primary engine is unavailable (binary missing,
-provider without login/key). The switch is logged and traced as
-`engine_fallback` — never silent, never mid-run.
+The core build loop:
 
-### 8.1 FDA runtime behavior (failure and recovery)
+| Command | What it does |
+| --- | --- |
+| `/start [--components] [--restart]` | 6-step project initialization: PRD check → `screens-routes.md` → task breakdown (vertical slices, one issue file per task with `Blocked by:`, specs + milestones) behind a **mandatory approval checkpoint** → `map.yaml` → component registry seeding → live `/ui-components` page. Resumable (`workflow_progress` in `map.yaml` persists after every step); `--restart` starts over; `--components` skips the step-5/6 confirmation. Missing PRD stops with a `/grill` suggestion. |
+| `/dev [task?]` | Executes ONE dev task test-first. No argument = the next **frontier** task (pending, all blockers done). The `task-sequencer` writes a just-in-time brief in `ai-docs/actual-todo/`; four gates run before code (blocking questions, registry-only components, interaction patterns from `ai-docs/ui/patterns.md`, spec traceability markers); TDD loop (red → green at pre-agreed seams); `npm run build` mandatory for `Kind: foundation`/`Kind: kit` briefs; self code-review; closes the task and recomputes the frontier. Also enforces the **theme gate** and the **env-preflight gate** (§10). |
+| `/sv [msg?]` | Save: `npm run build` gate → docs-sync check (schema/deps diffs must be reflected in `ai-docs/stack.md`/specs) → conventional commit → Convex export backup to `~/Documents/convex-backups/`. |
+| `/test-ui [flow?]` | Tests the UI in a real browser (Playwright MCP; Chrome DevTools MCP fallback) at `http://localhost:3000`: restarts the dev server if needed, walks the flow (default: sign-in), watches console errors and 4xx/5xx, fixes what it finds, re-tests, prints a fixed-format report. Credentials come from the `ai-docs/test-credentials.md` roster (Clerk test users `+clerk_test` / code `424242`), `map.yaml`, or the command-file placeholders. |
+| `/team <task>` | Multi-agent orchestration: splits the task into independent subtasks and launches the specialist agents in parallel (frontier tasks are independent by construction; each is claimed before dispatch). |
+| `/restore [hash?]` | Destructive rollback with confirmations: `git reset --hard <commit>` and/or `npx convex import --replace` from a backup. `--prod` never by default. |
+
+Planning, specs and scope:
+
+| Command | What it does |
+| --- | --- |
+| `/grill [doc\|topic?]` | Stress-tests the PRD (default) or any doc/decision — one question at a time, each with a recommendation, decisions recorded in the decision log and written back into the document. Hunts placeholders, missing actors/permissions/edge cases and a `## Launch criteria` section. Run BEFORE `/start`. |
+| `/stack [tech\|layer?]` | Owns `ai-docs/stack.md`: decides pending layers by interview (IAI preference rules), researches each tech across the 4 mandatory dimensions (docs+llms.txt, skills, CLI, MCP) into the code-verified research ledger, writes `ai-docs/apis/<tech>.md` (9 required sections incl. the Production runbook `/launch` executes), and equips the project (skills in two invocations, CLIs, MCPs). |
+| `/spec [capability\|NNNN?]` | Creates/updates a durable spec `ai-docs/specs/NNNN-<slug>.md` (requirements FR/NFR, BDD scenarios S-n, traceability, gate log) via a short interview. Definition Gate flips `Status: defined`. |
+| `/feature "what you want"` | New functionality on an EXISTING system: size triage (module-sized → `/idea` in Pi), delta mini-grill, delta spec, then ONLY the new tasks (numbering continues, `Blocked by:` real tasks), shown for approval before anything executes. Requires `map.yaml` (`/absorb` first on a never-onboarded system). |
+| `/bug "the symptom"` | Registers the defect as an issue, then fixes it through the normal pipeline with a **RED-for-the-right-reason** gate: the reproduction test must fail on an assertion before the fix (a passing or broken test never counts). |
+| `/quick "small change"` | Triage: SIMPLE only when blast radius ≤ ~3 files, one obvious shape, and none of: schema/migrations, auth/permissions, payments, new dependency, new route/page, new UI component, destructive data op. SIMPLE ships in one sitting with the guardrails on + one `## Q-NNN` audit line in `ai-docs/todos/quick-log.md`; anything else routes to `/feature`/`/bug` with the reason. Never touches the roadmap. |
+| `/note "idea"` | Appends `- [ ] YYYY-MM-DD — <idea>` to `ai-docs/inbox.md` and stops — zero questions. Later `/feature`/`/quick`/`/spec` tick items with `→ spec NNNN` / `→ Q-NNN` / `→ task NN`. |
+| `/absorb [focus?]` | Onboards an EXISTING system: surveys the code, writes `map.yaml`, the as-built PRD (never overwriting a human PRD — `PRD-as-built.md` instead), `stack.md` from what was observed, `conventions.md`, the as-built component registry and a distilled project skill; short interview for what code can't reveal. Changes no code, creates no tasks; recommends `/kit` when the registry comes out empty/duplicated. |
+
+Design system and references:
+
+| Command | What it does |
+| --- | --- |
+| `/component <name + URL/cmd> \| list \| sync` | The legal entry path for a new UI component: duplicate check against the registry first (roles `default`/`alternative` resolved), research → `ai-docs/components/<lib>/<name>.md`, install, adapt to theme/i18n/a11y (semantic-domain fields ship with their canonical source wired), registry row, `/ui-components` section. `sync` reconciles registry ↔ code ↔ page; `list` prints the registry by category. |
+| `/theme [hint\|accept?]` | Visual identity behind a side-by-side preview: ~7-question interview (colors, dark/light, typography via `next/font`, shape, interaction patterns), generates the full token set (WCAG AA contrast is a blocker), renders Current × Proposed at `/ui-components/preview` with REAL registry components, and only applies to `app/globals.css` after explicit approval. `accept` fast-path records a conscious "keep the default" decision — enough to satisfy the theme gate. |
+| `/design <images + description>` | Layout redesign from reference images: structure/hierarchy/density/motion come from the reference, colors/fonts/components stay OURS (theme + registry only). Contained scope applies directly; broad scope becomes roadmap tasks. Uses the Impeccable skill for motion when installed. |
+| `/example <url> [notes] \| list` | Registers an external reference on the example shelf: reads the source (never registers from a URL alone), pins license + commit, writes `ai-docs/examples/<slug>/NOTES.md` (mandatory `## What NOT to take`) + a registry row. GPL-family/unknown licenses are never copied verbatim. |
+| `/kit [focus?] [--report-only]` | Brownfield design-system audit: as-built registry rows → `/ui-components` page → **gap report** vs the core kit (`kit-report.md`: missing needs, below-contract items with file/line evidence — the DataTable contract audited item by item — duplicates without roles) → engineer approves → delta spec + `Kind: kit` design-only tasks with one checkbox per contract item. Changes no component and no screen itself. |
+
+Going live and meta:
+
+| Command | What it does |
+| --- | --- |
+| `/launch` | From "runs on my machine" to LIVE, in rungs: **Ready** gate (lint/typecheck/test/build green, pushed, CI green) → **Safe** gate (the security skill's checklist walked top to bottom; two hard stops: open data-ownership and any committed secret) → **BETA** (public vercel.app + production backend: Convex prod deploy key, env promotion, deploy, smoke test) → **PRODUCTION** (own domain, `pk_live_`/`sk_live_`, prod webhooks, live payments with one real tested charge). Uses `node imp/scripts/fia-launch-check.mjs --json` as the source of truth when the FIA is installed; everything logged in `ai-docs/launch.md`; every outward step needs an explicit "yes". |
+| `/create-command [name] [description]` | Scaffolds a new professionally-structured slash command in `.claude/commands/` and mirrors it to `.cursor/commands/`. |
+
+Every command that generates durable docs commits them via
+`node imp/scripts/docs-commit.mjs` (when the FIA is present) and guards its
+`imp/scripts/*` usages with a manual fallback — the harness works with or
+without the FIA runtime.
+
+### 8.2 The 9 specialist agents
+
+| Agent | Role |
+|---|---|
+| `task-master-generator` | Breaks the app into vertical-slice (tracer bullet) tasks: `todos/task-master.md` index + one issue file per task with explicit blocking deps; FULL mode also generates specs; DELTA mode (used by `/feature`, `/kit`) only adds new issues. |
+| `task-sequencer` | Prepares (never implements) the next task: picks/claims the frontier task and writes the just-in-time brief with "Seams & First Tests"; enforces the theme and env-preflight gates for foundation tasks. |
+| `screen-routes-generator` | PRD → `ai-docs/screens-routes.md` (screens, routes, navigation flows). |
+| `start-mapper` | Reads the whole codebase → `ai-docs/map.yaml` (mapping only). |
+| `start-scaffolding` | Folder structure + empty placeholders only — explicitly no implementation code. |
+| `component-architect` | Seeds the component registry: core-kit `planned` rows in scaffold-less greenfield, as-built `installed` rows when code exists (`/kit` runs it in as-built mode). |
+| `ui-component-page` | Creates/updates the live `/ui-components` design-system page (every registry component rendered for real, searchable, by category). |
+| `ui-component-researcher` | Researches/documents a single UI component into `ai-docs/components/<lib>/<name>.md`. |
+| `api-docs-researcher` | Researches an external API/technology and writes the project-tailored doc into `ai-docs/apis/` (also logs the four research dimensions). |
+
+`.cursor/agents/` are symlinks to `.claude/agents/` (canonical). Cursor
+additionally ships router skills (`project-workflow` + `workflow-*` wrappers
+for the original 8 pipelines) because Cursor routes by skill.
+
+### 8.3 Skills shipped
+
+Six skills for both engines: **tdd** (the red→green loop `/dev` follows),
+**frontend-profissional**, **design-system** (incl. `references/core-kit.md`
+— the canonical component contracts — and `references/semantic-fields.md` —
+known-domain data never becomes a free-text input), **security** (incl. the
+`/launch` checklist and the multi-tenancy reference), **backend-profissional**
+and **examples** (the reference-shelf matching rules). The four professional
+ones are the template-ownable paths described above.
+
+### 8.4 Seeing what the plan created
+
+With the FIA installed, `npm run plan` opens the viewer's "Plan" tab
+(`http://127.0.0.1:4600#plan`, 100% offline) with the screens/routes, tasks
+with blockers/criteria, design system and every `ai-docs/` file rendered —
+`/map` opens it automatically when it finishes. `npm run agents` (or
+`/agents` inside `pi`) opens the "Agents" tab to see engine login status and
+edit each FDA agent's engine/model/reasoning and `fallbacks:` chain — saving
+rewrites `imp/fia.config.yaml` preserving comments (locked while an FDA
+runs). See §9.6.
+
+## 9. FIA — the IAI Agent Factory
+
+The FIA is the agent runtime the CLI stamps into every project (unless
+`--no-fia`): **Pi** as the interactive agent (§12), deterministic **FDAs**
+(fully-automated dev agents, `imp/fda_*.mjs`) as the workforce, an
+observability SQLite (`imp/data/fia.db`), quality gates and dashboards.
+Everything runs inside the subscriptions the student already has — Claude
+through the official `claude` CLI (Pro/Max), Codex through Pi (ChatGPT
+Plus/Pro) — never API keys, never per-token billing.
+
+### 9.1 What the stamp does (`steps/fia.js`)
+
+1. Migrates any legacy layout first (`fia/` → `imp/`, root `HARNESS.md`/
+   `iai.config.json` → `imp/` — §14.2).
+2. Installs/updates the Pi CLI (`npm install -g
+   @earendil-works/pi-coding-agent`) WITHOUT any interactive login — the
+   Codex login is deliberately the last step, after the install. A failed Pi
+   install degrades (warns, EACCES gets a dedicated explanation, the rest of
+   the install continues without FIA).
+3. Stamps `imp/` (from the bundled `fia-templates/`) and `.pi/` (from
+   `pi-templates/.pi/`) — copy-skip-existing, never overwrites; a partial
+   stamp is a hard error telling you to re-run (it only adds what's missing).
+4. Ensures the gitignore entries (`imp/node_modules/`, `imp/data/sessions/`,
+   the SQLite files, backups), merges the npm scripts below (a name conflict
+   keeps YOUR script and ships ours as `<name>:fia`), and records the runtime
+   manifest (`imp/.runtime-manifest.json`, template sha1 per stamped file —
+   the `--update-runtime` baseline; on re-runs existing baselines win).
+5. `npm install` inside `imp/`; installs the three Pi packages
+   (`pi-subagents`, `pi-mcp-adapter`, `pi-web-access`), each exact-pinned to
+   the latest npm version — the pin is what keeps Pi's "Package Updates
+   Available" banner away; a student-customized entry (fork/git/path) is
+   never touched.
+6. Installs the global `imp` launcher (`npm install -g impactus`) so the
+   brand command exists on PATH — best-effort, never fails the install.
+7. Prints the final note — including, when Codex isn't logged in yet: run
+   `imp`, type `/login openai-codex`, finish in the browser, and **never log
+   in to Anthropic inside Pi** (there the Claude subscription bills per token
+   as "extra usage"; Claude runs through the `claude` CLI in the FDAs).
+
+npm scripts stamped into the project (`FIA.npmScripts`):
+
+```bash
+npm run fda:demo      # node imp/fda_prompt.mjs "Summarize this repo…" --agent scout
+npm run fda:quality   # node imp/fda_quality.mjs "quality gate"
+npm run fda:sessions  # node imp/scripts/fia-query.mjs sessions
+npm run fda:phases    # node imp/scripts/fia-query.mjs phases
+npm run fda:tail      # node imp/scripts/fia-query.mjs tail
+npm run fda:viewer    # node imp/scripts/fia-viewer.mjs         (web viewer)
+npm run plan          # viewer --view plan                       (Plan tab)
+npm run agents        # viewer --view agents                     (Agents tab)
+npm run launch:check  # node imp/scripts/fia-launch-check.mjs   (read-only readiness)
+npm run env:check     # node imp/scripts/env-preflight.mjs      (dev keys preflight)
+npm run fda:status    # node imp/scripts/fda-lock.mjs status    (is an FDA running?)
+npm run docs:commit   # node imp/scripts/docs-commit.mjs        (ai-docs-only commit)
+npm run tui           # node imp/scripts/fia-tui.mjs            (terminal dashboard)
+```
+
+### 9.2 The FDA runners
+
+Every runner shares the same CLI contract:
+
+```
+node imp/fda_<name>.mjs "<prompt-or-brief-path>" [--config imp/fia.config.yaml]
+                        [--fda-id <id>] [--resume] [--agent <name>] [--debug]
+```
+
+The prompt may be inline text or a **file path** (a brief file is inlined).
+`--resume` requires `--fda-id` and may omit the prompt — it is reloaded from
+the trace. `--agent` is only read by `fda_prompt`. `--debug` (or env
+`FIA_DEBUG`) prints full stack traces. A failed run always prints the exact
+resume command (`node imp/fda_<name>.mjs --fda-id <id> --resume`) — nothing
+is lost. Exit codes: 0 accepted · 1 any failure (including "phases green but
+not accepted") · 130/143 on SIGINT/SIGTERM (the session is marked `failed`
+first, never left as an eternal `running`).
+
+| Runner | Agents | Phases (code phases in *italics*) | Use it for |
+| --- | --- | --- | --- |
+| `fda_prompt` | any (default builder) | request → prompt | One agent, one prompt, traced end to end. `npm run fda:demo` is this with the scout. |
+| `fda_plan` | planner | request → plan | A written plan, no code changes. |
+| `fda_build` | builder | request → build | Implement from a plan/brief — no tests, no commit. |
+| `fda_scout` | scout (read-only) | request → scout | Recon: "where is billing implemented?" — any repo change is rolled back. |
+| `fda_document` | documenter | request → document | Write up recent changes (docs paths only). |
+| `fda_quality` | none | request → *quality* | Lint + typecheck + build + test with no agent — works with nothing logged in. |
+| `fda_plan_build_test` | planner, builder (+reviewer for the UI gate) | request → plan → build → *test* → up to 3 × (fix → *test*) → *spec_coverage* → checklist gate → UI gate → *commit* | The task workhorse (`/task` uses it via the sequencer). |
+| `fda_sdlc` | planner, builder, reviewer, documenter | request → plan → build → *test* (single run, no fix loop) → *spec_coverage* → checklist gate → UI gate → review → *commit_code* → document → *commit_docs* | Full cycle with an independent review — the review runs even when tests failed, and acceptance requires green tests AND an approved review. |
+| `fda_bug` | planner, builder (+reviewer) | request → plan → red_test → *red_check* → build → *test* → fix loop (≤3) → gates → *commit* | Defect fixing with a **valid RED** gate: the reproduction test must fail on an assertion BEFORE the fix (passing = "bug not reproduced"; module/syntax/env failures = invalid RED). |
+| `fda_quick` | builder | request → build → *quality_1* (lint+typecheck+focal test) → one fix round → *quality_2* → *quicklog* → *commit* | Small guarded changes (`/quick`). Appends the `## Q-NNN` audit entry, then stamps the commit sha into it as a separate one-line commit. |
+
+Examples:
+
+```bash
+node imp/fda_plan_build_test.mjs ai-docs/todos/briefs/task-07.md
+node imp/fda_bug.mjs "Deleting the last org member 500s instead of blocking"
+node imp/fda_quick.mjs "Make the empty-state copy on /invoices friendlier"
+node imp/fda_sdlc.mjs ai-docs/todos/briefs/task-12.md
+node imp/fda_plan_build_test.mjs --fda-id 3fa9c21b --resume     # resume a failed run
+```
+
+An engine exit without a parseable Report envelope fails fast with the last
+stderr lines and a matched **recovery hint**: login-shaped errors point at the
+right login command per engine; rate-limit/quota errors say to wait and
+re-run ("no extra payment is needed"). Malformed envelope JSON gets 2 re-asks
+before failing.
+
+### 9.3 `fia.config.yaml` — the agent roster
+
+FDAs never name a model — they name an **agent**; `imp/fia.config.yaml` maps
+agents to engines/models. Edited by hand or via the Agents tab (`npm run
+agents` / `/agents` in `pi`), which preserves comments. Never touched by
+`--update-runtime` (it's yours). The essentials:
+
+```yaml
+defaults:
+  coding_agent: pi                     # engine for agents that don't say otherwise
+  model: openai-codex/gpt-5.6-sol
+  thinking: high                       # minimal|low|medium|high (Pi engines)
+  tools: [read, bash, edit, write, grep, find, ls]   # Pi tool allowlist
+  protected_files:                     # deny-list enforced for EVERY agent
+    - imp/modules/
+    - imp/fia.config.yaml
+    - imp/fda_*.mjs
+    - imp/scripts/
+    - imp/data/prompt_engineering/
+  data_dir: imp/data
+  permissions:
+    benign_paths: []                   # extra globs reverted as build side effects
+
+observability:
+  db: imp/data/fia.db
+
+agents:
+  - name: planner
+    coding_agent: claude_code          # official `claude` CLI — plan billing
+    model: opus                        # alias (sonnet|opus|haiku|fable) or full name
+    effort: high                       # low|medium|high|xhigh|max|ultracode
+    fallbacks:                         # tried ONCE at run start, loudly traced
+      - { coding_agent: pi, model: openai-codex/gpt-5.6-sol, thinking: high }
+    prompt_engineering:                # REQUIRED per agent (never inherited)
+      system: imp/data/prompt_engineering/planner/system.md
+      user: imp/data/prompt_engineering/planner/user.md
+    writes: [specs/, ai-docs/]         # allowlist; [] = read-only; omit = anywhere
+```
+
+Shipped roster: **planner** (claude_code/opus, writes specs+ai-docs),
+**builder** (pi/Codex, writes anywhere but protected), **scout** (pi/Codex,
+read-only), **reviewer** (claude_code/sonnet, read-only), **documenter**
+(pi/Codex, docs paths only). Each ships a fallback to the other engine.
+
+Engines (`coding_agent`):
+
+| Engine | Binary | Model examples | Notes |
+| --- | --- | --- | --- |
+| `claude_code` | `claude` (override `CLAUDE_PATH`) | `sonnet`, `opus`, `haiku`, `fable`, or full names | Runs on the Claude Pro/Max plan. `effort` sets reasoning depth; system prompt via `--append-system-prompt` (preserves the cacheable prefix). |
+| `pi` | `pi` (override `PI_PATH`) | `openai-codex/gpt-5.6-sol`, `openrouter/…`, `xai/…`, `github-copilot/…` | Session continuity via a session FILE; `thinking` sets reasoning; per-agent `tools` and `harness_engineering` (Pi extensions). Subscription providers log in via `/login openai-codex` / `github-copilot`; API-key providers read their env var (`OPENROUTER_API_KEY`, `XAI_API_KEY`, …). |
+| `cursor` | `cursor-agent` (override `CURSOR_AGENT_PATH`) | picker ids like `sonnet-4.5`, `gpt-5`, `composer-1` | Cursor subscription; no token usage reported; system prompt is prepended to the first prompt. |
+
+**Fallbacks** run ONCE at run start, only for *hard* unavailability (binary
+missing; Pi provider with no login and no API key) — the switch is printed
+and traced as `engine_fallback`, never silent, never mid-run. The config
+header repeats the golden billing rule: Claude INSIDE Pi bills per token as
+"extra usage" — always use `coding_agent: claude_code` to stay on the plan.
+
+**Permissions**: every agent phase snapshots the working tree (`git diff` +
+hashed untracked files); writes outside the agent's `writes` allowlist (or in
+`protected_files`) are rolled back and fail the phase as a `PermissionBreach`.
+Benign build side effects (`AGENTS.md`, `next-env.d.ts`, `**/*.tsbuildinfo`,
+`.next/`, `node_modules/`, `coverage/`, … + your `benign_paths`) are reverted
+and logged as `external_change` — never blamed on the agent. Read-only agents
+deposit their reports in the git-invisible session dir
+(`imp/data/sessions/<id>/context_handoff/`), handed to prompts as
+`{{context_handoff_dir}}`.
+
+**Prompt material** lives in `imp/data/prompt_engineering/<agent>/{system,
+user}.md` — student-editable, never touched by `--update-runtime`. Templates
+receive `{{prompt}}`, `{{previous_envelope}}` and `{{context_handoff_dir}}`.
+
+**Envelopes**: every agent phase must end with a typed Report JSON
+(`status`, `summary`, `artifacts`, `notes_for_next_agent`, plus per-type
+fields like `changed_files`, `approved`/`findings`/`blocking`,
+`document_path`). Gates validate them: `artifactsExist`/`filesNonEmpty` fail
+on an empty artifacts list (an agent that produced nothing can no longer
+count as a success); `verdictConsistent` refuses an "approved" review with
+blocking items.
+
+### 9.4 Quality phases
+
+The code phases run the project's own scripts, sequentially, with verbatim
+output tails fed to fix rounds: `npm run test` (600 s), `npm run lint`
+(120 s), `npm run typecheck`/`type-check` (180 s), `npm run build` (600 s).
+A brief carrying `Kind: foundation` or `Kind: kit` arms `npm run build`
+alongside the suite in the test phase (in code, before any reviewer).
+`fda_quick` runs lint + typecheck always and the focal test only when the
+builder declared a `*.test.*` file — the full suite is deliberately skipped
+as disproportionate.
+
+### 9.5 Runtime behavior — failure, recovery, locking and gates
 
 - **A failed FDA prints the exact resume command** (`node imp/fda_<name>.mjs
   --fda-id <id> --resume`) instead of a raw stack trace; pass `--debug` to see
   the full stack. With `--fda-id … --resume` the original prompt is loaded
   from the session database — no need to retype it.
-- **Resume re-runs test/check phases**: deterministic `code` phases (tests,
-  gates) are never replayed from a saved result, so fixing the code by hand
-  and resuming actually re-tests it. Agent phases that succeeded are still
-  reused.
+- **Resume replays what already succeeded** — with the right exceptions.
+  Deterministic `code` phases (tests, gates) re-run so they verify the
+  CURRENT tree; succeeded agent phases are reused. Three deliberate
+  exceptions: `ui_verify` always re-runs (a verdict about the current tree
+  must not fossilize a rejection); `fda_bug`'s `red_check` replays its saved
+  verdict once the fix has been built (a one-way gate — re-running would
+  misread the fixed code as "bug not reproduced"); `fda_quick`'s `quicklog`
+  reuses the entry it already appended (the append is not idempotent).
 - **Agent phases retry once by default** (`retries: 1`) before failing the run.
 - **One FDA at a time per project**: a best-effort `imp/data/.fda.lock`
   (pid + fda_id + runner + started_at) blocks a second concurrent run — the
@@ -526,9 +1187,6 @@ provider without login/key). The switch is logged and traced as
   exports `FIA_FDA_RUN` into their environment), writes outside the repo stay
   allowed, everything fails open, and the block lifts the moment the run
   ends.
-- **Envelopes must declare artifacts**: `artifactsExist`/`filesNonEmpty` gates
-  now fail on an empty `artifacts` list — an agent that produced nothing can
-  no longer count as a success.
 - **FIA commits are scoped**: FDAs commit only the files declared in the
   agent's envelope (never `git add -A`), so rejected builder changes and your
   own uncommitted work stay out of FIA commits.
@@ -538,63 +1196,161 @@ provider without login/key). The switch is logged and traced as
   `--resume`). At commit time, a declared path whose content is identical to
   the baseline is dropped: it was already dirty before the run and the run
   never touched it — an over-declaring builder can no longer sweep another
-  session's leftovers (the `registry.md`/`stack.md` case) into a FIA commit.
-  A pre-dirty file the run DID modify stays in. Declared directories are
-  expanded and filtered per file. The trace logs `excluded_pre_existing` and
+  session's leftovers into a FIA commit. A pre-dirty file the run DID modify
+  stays in. The trace logs `excluded_pre_existing` and
   `changed_by_run_but_uncommitted` so nothing disappears silently.
-- **Foundation commits are widened**: a `Kind: foundation` brief makes the
-  commit phase union the envelope-declared paths with everything the run
-  itself changed (baseline-diffed) — a scaffold of hundreds of files no
-  envelope can enumerate gets committed whole instead of leaking into the
-  tree as permanent dirt.
+- **Foundation commits are widened**: a `Kind: foundation` (or `Kind: kit`)
+  brief makes the commit phase union the envelope-declared paths with
+  everything the run itself changed (baseline-diffed) — a scaffold of
+  hundreds of files no envelope can enumerate gets committed whole instead of
+  leaking into the tree as permanent dirt.
 - **Agents never commit**: the builder/documenter task prompts carry explicit
   git rules — no `git commit`/`add`/`push` (committing is the FDA's own code
-  phase, after review), and no declaring files the task did not touch. Brief
-  hygiene backs it on the orchestrator side: briefs never contain commit
-  instructions.
+  phase, after review), and no declaring files the task did not touch.
+- **Spec-coverage gate**: a brief with a `Spec: NNNN (S-1, FR-2)` line makes
+  the run grep every promised id against `spec:NNNN covers:…` markers in test
+  files — missing ones fail the phase by name. No `Spec:` line → skipped.
 - **Checklist gate (C8)**: a brief's checkboxes (Objectives, Acceptance
   Criteria, Quality Checklist) can no longer be left behind by a "finished"
   run. The builder ticks what it verified (`[x]`, or `[x] … — N/A (<reason>)`
   for inapplicable items); after the suite is green, `checklist_1` re-reads
-  the brief FROM DISK (`checkAcceptanceChecklist` in `imp/modules/gates.mjs`;
-  the file path survives `--resume` via a session marker), one `fix_checklist`
-  builder round repairs a forgotten checklist, and `checklist_2` fails the run
-  if any `- [ ]` survives — the gate refuses, it never ticks a box itself.
-  The second pass also compares box IDENTITIES against the first
-  (`checklistDrift`): rewording, moving or swapping a box for a trivial
-  ticked one is refused the same as deleting it — only the tick and the
-  `— N/A (<reason>)` annotation are legal edits, and an N/A tick without a
-  parenthesized reason fails on its own. In
-  `fda_sdlc` this happens BEFORE review, so the reviewer audits the ticks
-  against the diff (a false tick is grounds for rejection). Prompts that are
-  not brief files, and briefs without checkboxes, skip the gate. The ticked
-  brief is committed with the run's own work.
+  the brief FROM DISK (the file path survives `--resume` via a session
+  marker), one `fix_checklist` builder round repairs a forgotten checklist,
+  and `checklist_2` fails the run if any `- [ ]` survives — the gate refuses,
+  it never ticks a box itself. The second pass also compares box IDENTITIES
+  against the first (`checklistDrift`): rewording, moving or swapping a box
+  is refused the same as deleting it — only the tick and the `— N/A
+  (<reason>)` annotation are legal edits, and an N/A tick without a
+  parenthesized reason fails on its own. In `fda_sdlc` this happens BEFORE
+  review, so the reviewer audits the ticks against the diff. Prompts that are
+  not brief files, and briefs without checkboxes, skip the gate.
 - **UI-conformance gate**: a run that changed frontend component files
   (`.tsx/.jsx/.vue/.svelte` vs the run baseline) gets a dedicated audit
-  phase before it may close (`imp/modules/ui-gate.mjs`, wired in `fda_sdlc`
-  — before review — `fda_plan_build_test` and `fda_bug`). `ui_scope` (code)
-  decides deterministically whether the gate arms: an explicit `Surface:`
-  line without `ui` in the brief stands it down (`parseSurfaceLine` in
-  `imp/modules/gates.mjs`), otherwise changed frontend files arm it — briefs
-  predating the convention included. `ui_check` (reviewer agent,
-  ReviewOutput) audits ONLY those files against the interaction-pattern
+  phase before it may close. `ui_scope` (code) decides deterministically
+  whether the gate arms: an explicit `Surface:` line without `ui` in the
+  brief stands it down, otherwise changed frontend files arm it. `ui_check`
+  (reviewer agent) audits ONLY those files against the interaction-pattern
   rubric — field errors inline with the field (never only a banner/toast),
   success/failure toasts after mutations resolve, create/edit in a `Dialog`,
   `AlertDialog` for destructive actions, no native `alert()`/`confirm()`,
-  components from the registry — with `ai-docs/ui/patterns.md` overriding
-  the defaults when the project keeps one. Violations get ONE `fix_ui`
-  builder round, `ui_verify` re-audits, and the final `ui_gate` (code)
-  throws if violations survive — the audit is an agent, the refusal is code.
-  The rubric lives in `modules/` (not prompt material), so
-  `--update-runtime` delivers it to existing installs; the repair round's
-  files are committed with the run's own work.
+  components from the registry, the shared DataTable for record lists,
+  semantic components for known-domain fields — with `ai-docs/ui/patterns.md`
+  overriding the defaults when the project keeps one. Violations get ONE
+  `fix_ui` builder round, `ui_verify` re-audits, the final `ui_gate` (code)
+  throws if violations survive, and `ui_retest` re-runs the suite (the
+  repair touched production code after the test phase). The rubric lives in
+  `modules/` (not prompt material), so `--update-runtime` delivers it to
+  existing installs.
+- **Observability**: every phase, gate verdict, engine call, token count and
+  cost lands in `imp/data/fia.db`. `agent_end` events stamp
+  `{model, coding_agent, cost, cache_read, cache_write}` — the per-LLM ledger
+  groups by what actually ran, so later roster edits never re-attribute
+  spend; a failed phase that burned tokens emits its own `agent_spend` event.
 
-### 8.2 The durable planning layer — specs, milestones, inbox, /quick, examples
+### 9.6 Observability: viewer, TUI and query CLI
+
+**Web viewer** — `npm run fda:viewer` (`node imp/scripts/fia-viewer.mjs
+[--port 4600] [--db imp/data/fia.db] [--no-open] [--view plan|agents|pi]
+[--ai-docs ai-docs] [--detach]`). A read-only local server on
+`http://127.0.0.1:4600` (localhost-only, DNS-rebinding guarded; the page is
+self-contained — no CDN). Four views, each a URL hash that survives reload:
+
+- **FDAs** (default) — run list + drill-down: status/duration/tokens/cost
+  KPIs, "tokens per model" chips, a Gantt timeline (one lane per phase owner,
+  roster colors, running bars dashed), per-phase detail (engine, model,
+  effort/thinking, context gauge, gates with expandable checks, typed
+  envelopes with syntax-highlighted JSON, the compiled system/user prompts)
+  and a live filtered event stream. A `running` session with no event for
+  10 minutes and no live pid is tagged **stale** — it never animates forever.
+- **Interactive Pi** — this project's `~/.pi/agent/sessions/` timelines:
+  main lane + one lane per subagent run, messages, tool calls, tokens.
+- **Plan** (`npm run plan`) — everything `/map`/`/start` created: milestones
+  (declared status, resolved task progress), specs with gate logs, the
+  example library (license chips flag the GPL family), workflow progress,
+  screens/routes, tasks with frontier navigation, the design system
+  (component registry, `/ui-components` probe) and every `ai-docs/` document
+  rendered, plus an `inbox · N open` badge.
+- **Agents** (`npm run agents`) — engine cards with install/login state and
+  fix hints per provider, the commands → phases → agents map, and the roster
+  editor: engine/model/reasoning/fallbacks per agent, curated model pickers
+  (live `cursor-agent --list-models` when Cursor is installed), a billing
+  guard banner for `anthropic/…` models on the Pi engine, and a save that
+  edits the YAML **preserving comments**, backs up first
+  (`imp/data/backups/fia.config.<stamp>.yaml`) and answers **409** while a
+  live (non-stale) FDA runs.
+
+The FDA-side of the same data is `--view pi`-free in the terminal:
+
+**TUI** — `npm run tui` / `imp tui` (`node imp/scripts/fia-tui.mjs [--tab 1-5]
+[--once] [--no-alt] [--db] [--ai-docs] [--config]`). Read-only Ink 7
+dashboard, five tabs: **1 Home** (tasks/specs/milestone/inbox/all-runs cards +
+the current run with per-phase chips and a context gauge), **2 Work**
+(tasks + specs with the traceability table — uncovered requirements in red),
+**3 Runs** (table + drill-down with phases, retries, live event tail),
+**4 Plan**, **5 Agents** (roster + the per-LLM usage ledger, attributed at
+spend time). Keys: `1-5`/`Tab` tabs · `↑↓ j k` move · `Enter` open ·
+`Esc` back · `t` run the test suite in a pane (disabled while an FDA holds
+the lock) · `r` refresh · `v` open the web viewer (detached, matching tab) ·
+`q` quit. Mouse: clicks and wheel work (SGR reporting, restored on exit).
+`--once` renders one settled frame and exits (CI/smoke — it also skips the
+file watcher); non-TTY without `--once` exits 1 pointing at the query CLI.
+
+**Query CLI** — `node imp/scripts/fia-query.mjs`:
+
+```bash
+npm run fda:sessions                      # 20 newest runs (id, status, request, tokens)
+npm run fda:phases -- <fda_id>            # phase list of one run
+npm run fda:tail   -- <fda_id>            # last 20 raw JSONL events of a run
+node imp/scripts/fia-query.mjs models     # per-LLM lifetime ledger (engine, model,
+                                          # runs, tokens, cost, last used)
+node imp/scripts/fia-query.mjs sessions --json   # scripts/Pi consume JSON
+```
+
+The `models` ledger sums what actually ran (`agent_end` + failed-attempt
+`agent_spend` events, stamped at spend time) — roster edits never
+re-attribute history; tokens recorded before model stamping surface as an
+explicit `unattributed` row, never silently dropped.
+
+**Launch readiness** — `npm run launch:check` (`node
+imp/scripts/fia-launch-check.mjs [--json] [--strict] [--dir <p>]`). Read-only
+red/green report — it never publishes anything. Detects the current rung
+(`local` → `beta` when `.vercel/project.json` exists → `production` when a
+`pk_live_` Clerk key or an own-domain production URL is found) and runs ~29
+stack-aware checks across six sections:
+
+- **Versioning**: git repo (blocker), clean tree (blocker), remote, pushed,
+  CI green (via `gh`), CI workflow present.
+- **Work**: open tasks, `stack_decided` (blocker — pending manifest layers),
+  `production_runbooks` (every named `ai-docs/apis/<tech>.md` needs its
+  Production section), `test_credentials` (auth stacks need ≥1 filled roster
+  row between the credential markers), `quality_scripts`
+  (lint/typecheck/test/build present), `docs_sync` (schema-ish files
+  committed after `stack.md`/specs), `theme_tokens` (raw hex colors in
+  components), `registry_seeded` / `registry_planned` (blind registry,
+  planned rows at launch).
+- **Secrets**: tracked `.env*` files (blocker — untrack AND rotate),
+  `.env.example` present, secret-shaped values in `NEXT_PUBLIC_*` (blocker).
+- **Security**: raw `query(`/`mutation(` outside `convex/lib` (use the authed
+  wrappers), `dangerouslySetInnerHTML`, webhook signature verification in
+  `convex/http.ts` (blocker).
+- **Production**: Vercel linked, `convex deploy` in the build command, dev
+  deployment noted, Clerk dev vs live keys, production URL, and the
+  `automations_runbook` **blocker** when the manifest declares an external
+  automations layer (e.g. Modal) without a Production runbook.
+- **Operations**: error monitoring (Sentry), a database backup existing
+  (with the "rehearse a RESTORE once" reminder).
+
+`--strict` exits 1 on blockers (CI-friendly); `--json` gives
+`{rung, checks[], summary}`. `/launch` (in `pi`) uses this report as its
+source of truth and walks you through each fix.
+
+## 10. The durable planning layer
 
 Shared conventions between the harness (Claude Code/Cursor) and Pi, all under
 `ai-docs/`:
 
-- **Specs** — `ai-docs/specs/NNNN-<slug>.md` (4-digit, numbering continues).
+- **Specs** — `ai-docs/specs/NNNN-<slug>.md` (4-digit, numbering continues;
+  `0000-example.md` is the shipped format reference and never counts).
   Header: `Status: draft | defined | in-progress | done`, created/updated
   dates and the linked task numbers. Sections: Problem & Outcome, Scope
   (In/Out), Actors & Permissions, Requirements (`FR-1`/`NFR-1`, one
@@ -624,17 +1380,27 @@ Shared conventions between the harness (Claude Code/Cursor) and Pi, all under
   first being the MVP, generated by `/map` (Pi) and `/start` (harness) after
   the task breakdown and fed by the PRD's `## Launch criteria` (captured by
   `/idea`/`/grill`). A milestone is done only when its exit conditions are
-  verified — never by task count.
+  verified — never by task count; the declared Status is never auto-flipped.
 - **Inbox** — `ai-docs/inbox.md`:
   `- [ ] YYYY-MM-DD — <one-line idea> (context: …)` appended by `/note` with
   ZERO interview. `/feature`, `/quick` and `/map` check it for related items
   and tick them with a `→ spec 0003` / `→ Q-012` / `→ task 07` annotation.
 - **Decision logs** — `ai-docs/decisions/NNN-<command>-<date>.md`: every
   interview command (`/idea`, `/grill`, `/stack`, `/spec`, `/feature`,
-  `/theme`, `/design`, `/kit`) records question/recommendation/answer as the interview
-  happens, via `imp/scripts/decision-log.mjs` (deterministic: the script owns
-  naming, numbering, timestamps and lifecycle — `open` → `log` per answer →
-  `close` with outcome + artifacts; a crash loses nothing already answered).
+  `/theme`, `/design`, `/kit`) records question/recommendation/answer as the
+  interview happens, via `imp/scripts/decision-log.mjs` (deterministic: the
+  script owns naming, numbering, timestamps and lifecycle; a crash loses
+  nothing already answered):
+
+  ```bash
+  node imp/scripts/decision-log.mjs open stack --topic "backend choice"
+  node imp/scripts/decision-log.mjs log 3 --q "Which database?" --rec "Convex" --a "Convex"
+  node imp/scripts/decision-log.mjs note 3 --text "constraint that surfaced mid-talk"
+  node imp/scripts/decision-log.mjs close 3 --outcome "Convex + Clerk" --artifact ai-docs/stack.md
+  node imp/scripts/decision-log.mjs list [--command theme] [--json]
+  node imp/scripts/decision-log.mjs latest [command]
+  ```
+
   One file per run = versioning: re-running a command opens the next `NNN`;
   a still-open log of the same command becomes `superseded`, closed ones are
   history. Commands read the recent logs before interviewing and never re-ask
@@ -643,15 +1409,23 @@ Shared conventions between the harness (Claude Code/Cursor) and Pi, all under
 - **Stack research** — `ai-docs/research/<tech>.md`: before `/stack` documents
   or equips a technology, it must research FOUR dimensions — docs
   (+ `llms.txt`), agent skills (skills.sh registry), official CLI, official
-  MCP — and log each finding with its source via
-  `imp/scripts/stack-research.mjs` (`open` → `log` per dimension, `--found` or
-  `--none`, always with `--source` → `close`). The `close` is the gate: it
-  refuses while any dimension lacks an entry, and only a closed record lets
-  the tech be marked documented in the manifest (and equipped). One file per
-  tech, script-owned; a re-open discards old findings on purpose (fresh
-  evidence — history lives in git). The hardcoded tables (installer catalog,
-  `/stack` hint table) are bootstrap hints: research that diverges from them
-  wins, and the divergence is reported so the tables get updated.
+  MCP — and log each finding with its source:
+
+  ```bash
+  node imp/scripts/stack-research.mjs open neon
+  node imp/scripts/stack-research.mjs log neon --dim docs  --found "https://neon.com/docs" --source "https://neon.com/docs/llms.txt"
+  node imp/scripts/stack-research.mjs log neon --dim mcp   --none --source "web search: neon MCP server"
+  node imp/scripts/stack-research.mjs close neon      # REFUSES while any dimension lacks an entry
+  node imp/scripts/stack-research.mjs status [neon] [--json]
+  ```
+
+  The `close` is the gate: only a closed record lets the tech be marked
+  documented in the manifest (and equipped). "I didn't check" is not a
+  representable state (`--source` is mandatory). One file per tech,
+  script-owned; a re-open discards old findings on purpose (fresh evidence —
+  history lives in git). The hardcoded tables (installer catalog, `/stack`
+  hint table) are bootstrap hints: research that diverges from them wins, and
+  the divergence is reported so the tables get updated.
 - **Docs commits** — `imp/scripts/docs-commit.mjs` (alias
   `npm run docs:commit`): pathspec-limited commit for `ai-docs/` artifacts,
   called by the flows that generate durable documents (`/stack`, `/map` and
@@ -662,31 +1436,37 @@ Shared conventions between the harness (Claude Code/Cursor) and Pi, all under
   committed by FDAs, never by this script), it refuses while a FIA run is
   active (`imp/data/.fda.lock` with a live pid), and a clean tree exits 0
   with "nothing to commit".
+
+  ```bash
+  node imp/scripts/docs-commit.mjs --message "docs(stack): decide backend" [paths…] [--json]
+  ```
 - **Env preflight** — `imp/scripts/env-preflight.mjs` (alias
   `npm run env:check`): derives, from the layers `ai-docs/stack.md` declares,
   the dev keys the scaffold reads at build/boot time (Convex →
   `NEXT_PUBLIC_CONVEX_URL` + `CONVEX_DEPLOYMENT`; Clerk → publishable +
   secret; SQL → `DATABASE_URL`; Supabase → URL + anon key; Better Auth →
   secret) and checks `.env.local`, printing a copy-pastable fix per missing
-  key. The task-sequencer runs it BEFORE writing the foundation brief (env
-  gate — the twin of the theme gate), so a missing key costs one command, not
-  a full scaffold FDA rejected in review because `npm run build` crashed on
+  key (exit 1 when keys are missing; `--json` for scripts). The
+  task-sequencer runs it BEFORE writing the foundation brief (env gate — the
+  twin of the theme gate), so a missing key costs one command, not a full
+  scaffold FDA rejected in review because `npm run build` crashed on
   prerender. Two more layers back it up deterministically: foundation briefs
   carry the issue's `Kind: foundation` line, which makes the FDA test phase
   run `npm run build` alongside the suite (in code, before the reviewer), and
   the foundation task's fixed scope demands a hermetic build — `npm run build`
   green with NO `.env.local`, plus a generated `.env.example`. No manifest →
   the preflight passes (it only enforces what the stack declares).
-- **Project mode** — `imp/scripts/project-mode.mjs` classifies the project
-  deterministically so `/idea` can branch: `greenfield` (no PRD, or a PRD
-  template still carrying `{{placeholders}}` — the starter's code never
+- **Project mode** — `imp/scripts/project-mode.mjs [--json]` classifies the
+  project deterministically so `/idea` can branch: `greenfield` (no PRD, or a
+  PRD template still carrying `{{placeholders}}` — the starter's code never
   counts), `ideation` (a real PRD but nothing built: re-running `/idea`
-  means revising the idea) or `brownfield` (`map.yaml`, `todos/task-master.md`
-  or `PRD-as-built.md` exist). In brownfield, `/idea` runs in **module mode**:
-  deep interview about the new module and an APPENDED `## Module: <name>`
-  chapter in the PRD (never rewriting the rest), stack delta only, then
-  `/feature` breaks the chapter into delta specs + tasks (`/feature` itself
-  triages size and routes module-sized requests up to `/idea`).
+  means revising the idea) or `brownfield` (`map.yaml`,
+  `todos/task-master.md` or `PRD-as-built.md` exist). In brownfield, `/idea`
+  runs in **module mode**: deep interview about the new module and an
+  APPENDED `## Module: <name>` chapter in the PRD (never rewriting the rest),
+  stack delta only, then `/feature` breaks the chapter into delta specs +
+  tasks (`/feature` itself triages size and routes module-sized requests up
+  to `/idea`).
 - **Guide** — `/guide [goal?]` (Pi): the situational router. Probes the state
   with the same scripts the flows use (`project-mode.mjs`,
   `decision-log.mjs list`, the plan artifacts, `fia-launch-check.mjs` when
@@ -724,19 +1504,22 @@ Shared conventions between the harness (Claude Code/Cursor) and Pi, all under
   this project's conventions; `AGPL-3.0`, any `GPL-*` and `unknown` are never
   copied verbatim, and any verbatim copy is called out in the task summary with
   its license. The `0000-*` entry is a format reference and never counts.
+- **Test credentials** — the convention every auth flow feeds:
+  ONE dev test user per profile/role, created by the auth task via the
+  provider's native mechanism (Clerk dev instances: any `+clerk_test` email
+  verifies with the fixed code `424242`, no real email sent; Better Auth: a
+  dev-only seed script with the password in `TEST_USER_PASSWORD`), recorded
+  in the `ai-docs/test-credentials.md` roster (env var names, never real
+  passwords). `/test-ui` reads the roster to sign in; `launch:check` warns
+  when an auth stack has no filled roster row.
 
-Observability follows along: the viewer's **Plan tab** gains Milestones
-(progress from task status; declared Status never auto-flipped), Specs (id,
-title, status, gate log), an inbox count badge and the **Example library** card
-(kind, tags, what to take, source link and a license chip that flags the GPL
-family and unstated licenses) — tolerant parsing, a missing file never breaks
-the page. `imp/scripts/fia-query.mjs` accepts
-`--json` on sessions/phases for scripts, and `npm run launch:check` adds a
-read-only **docs sync** warning when schema-ish files (Convex/Drizzle/Prisma
-schemas, migrations, package.json deps) changed more recently than
-`ai-docs/stack.md`/`ai-docs/specs/`.
+Observability follows along: the viewer's **Plan tab** (§9.6) renders
+milestones, specs, the inbox badge and the example library; the **TUI**'s
+Work tab shows the spec traceability table with uncovered requirements in
+red; and `npm run launch:check` adds the read-only **docs sync** warning when
+schema-ish files changed more recently than `ai-docs/stack.md`/`ai-docs/specs/`.
 
-### 8.3 The design-system layer — core kit, registry and /kit
+## 11. The design-system layer
 
 The problem this layer kills: components being created **on demand**, by
 whichever task first needs one — the app reaches task 5 and grows its first
@@ -770,6 +1553,22 @@ the design system deterministic instead:
   box), and the UI gate's rubric fails a run whose list of records bypasses
   the registry's default table.
 
+**Semantic fields** ride along: known-domain data (state/UF, country,
+address/CEP, phone, documents, money, dates, timezone, fixed categories)
+never ships as a free-text input — the canonical catalog lives in the
+design-system skill (`references/semantic-fields.md`), the sequencer adds a
+Semantic fields table to briefs that touch such data, and both the C8
+quality checklist and the UI gate's rubric audit it.
+
+**The theme checkpoint**: on greenfield paths, after the Foundation task the
+sequencer refuses to hand out any other task until a **closed `theme`
+decision log** exists — either `/theme` ran (interview → side-by-side
+preview → explicit approval) or the engineer consciously accepted the stack
+default (`/theme accept`, recorded open+close in one breath). Any closed
+theme log passes, whatever its outcome; the check uses `decision-log.mjs
+list` (never `latest` — an abandoned re-run must not cancel an earlier
+approval).
+
 **Existing code** gets the same layer through `/kit` (the brownfield
 counterpart of Task 02): as-built inventory (`installed` rows with real
 paths — no `planned` promises invented), the `/ui-components` page, then a
@@ -788,7 +1587,387 @@ built). Both templates ship the layer pre-filled: as-built registry + living
 `/ui-components` page committed in their own repos (the harness merge never
 overwrites an existing file, so the template's registry wins).
 
-## 9. Flag reference
+## 12. Pi command reference
+
+The `.pi/` package the CLI stamps (from `pi-templates/.pi/`) makes Pi the
+FIA's interactive cockpit. `imp` (or `pi`) opens it in the project.
+`settings.json` sets the subagent defaults (`openai-codex/gpt-5.6-sol`,
+thinking `high`); `APPEND_SYSTEM.md` appends the FIA persona to every session
+(prefer FDAs for repeatable work, pi-subagents for ad-hoc recon, never touch
+the protected machinery); and `.pi/skills/fia/SKILL.md` carries the hard
+rules + the **Routing table — the single source of truth for the command
+catalog** (`/guide` routes exclusively from it; a command absent there "does
+not exist"). Deep procedures live in 15 cookbooks
+(`.pi/skills/fia/cookbooks/`): fia_overview, harness_bridge, install,
+run_fda, create_fda, observability, decision-log, stack, specs, components,
+theme, design, examples, launch, update_roster.
+
+### 12.1 The 23 commands (`.pi/prompts/`)
+
+| Command | Arguments | What it does |
+|---|---|---|
+| `/fia` | — | Factory overview: FDA table, task counts, last run, command list. Read-only. |
+| `/guide` | `[goal?]` | Situational router: probes the state with the deterministic scripts, asks ONE confirming question, answers with a numbered command route (each step carries the criterion that decided it). Suggests, never executes — at most offers to run step 1. |
+| `/idea` | `[topic?]` | Interview → PRD + stack. Branches on `project-mode.mjs`: greenfield (full discovery), ideation (revise the idea), brownfield (**module mode** — appends a `## Module: <name>` chapter, never rewrites the rest). Tags semantic field types in the data model and always adds `## Launch criteria`. |
+| `/stack` | `[tech\|layer?]` | Decide pending layers + the 4-dimension research gate + `ai-docs/apis/<tech>.md` docs + equip (skills/CLI/MCP). |
+| `/grill` | `[doc\|topic?]` | Stress-test the PRD one question at a time; decisions recorded and written back. |
+| `/prd` | `[focus?]` | Quick reviewer opinion on the PRD — never edits it. |
+| `/map` | `[notes?]` | PRD → `map.yaml` + screens-routes + issues/task-master + specs + registry seed + `/ui-components` + milestones; ends by opening the Plan page (`npm run plan -- --detach`). Greenfield build order: `/task` (foundation) → `/theme` → `/goal`. |
+| `/task` | `[number\|description?]` | ONE task: the task-sequencer writes the brief (enforcing the theme and env gates), then `node imp/fda_plan_build_test.mjs <brief>` (bigger/riskier work → `fda_sdlc`). On failure: `npm run fda:phases -- <id>`, resume with `--fda-id <id> --resume`. |
+| `/goal` | `[limit?]` | All unblocked tasks to done, one FDA per task (never batched), gates inside the loop, human-only steps handled MID-goal; ends with the app RUNNING + "How to test", then suggests `/launch`. |
+| `/feature` | `"request"` | Delta on an existing mapped system: size triage (module-sized routes UP to `/idea`), delta mini-grill, delta spec, DELTA tasks, approval before executing. Requires `map.yaml` (`/absorb` first otherwise). |
+| `/bug` | `"symptom"` | Issue + `node imp/fda_bug.mjs` with the RED-validity gate (assertion-failing reproduction before any fix). |
+| `/quick` | `"small change"` | Triage; SIMPLE runs `node imp/fda_quick.mjs` + the `Q-NNN` quick-log entry; COMPLEX routes to `/feature`/`/bug` naming the failed criterion. |
+| `/note` | `"idea"` | One line into `ai-docs/inbox.md`, zero questions. |
+| `/spec` | `"capability"\|NNNN` | Create/update a durable spec; Definition Gate flips `Status: defined`; ticks related inbox items. |
+| `/launch` | `[beta\|production?]` | Go live by rungs, `fia-launch-check.mjs --json` as the fact source; confirms before every irreversible step; secrets never in chat. |
+| `/component` | `name + URL/cmd \| list \| sync` | Design-system entry path (dedupe → research → install → register → showcase). |
+| `/theme` | `[hint\|accept?]` | Identity interview → FDA-built side-by-side preview at `/ui-components/preview` → explicit approval. `accept` records "keep the default" (satisfies the theme gate) with zero app changes. AA contrast is a blocker. |
+| `/design` | `images + scope` | Layout redesign from references — structure from the image, identity from OUR system. |
+| `/example` | `URL [notes] \| list` | Register an external reference on the shelf (license researched, `What NOT to take` mandatory). |
+| `/agents` | — | Opens the viewer's Agents tab (`npm run agents -- --detach`) to edit engines/models/fallbacks; Pi is forbidden from editing `imp/fia.config.yaml` itself. |
+| `/absorb` | `[focus?]` | Brownfield onboarding (as-built PRD/map/conventions/registry + project skill in `.pi/skills/project/` AND `.claude/skills/project/`); recommends `/kit` when the registry comes out empty/duplicated. |
+| `/kit` | `[focus?] [--report-only]` | Brownfield design-system audit → gap report → approved design-only tasks. |
+| `/status` | — | Read-only progress: tasks, milestones (status as declared), specs, inbox, latest runs and failed phases. |
+
+### 12.2 The interactive subagents, chains and extensions
+
+**14 pi-subagents** (`.pi/agents/*.md`, all with
+`fallbackModels: openai-codex/gpt-5.5` and `inheritProjectContext`): the
+interactive twins of the FDA roster (`scout`, `planner`, `builder`,
+`reviewer`, `documenter`) plus the planning specialists shared with the
+harness (`task-sequencer`, `task-master-generator`, `start-mapper`,
+`start-scaffolding`, `screen-routes-generator`, `component-architect`,
+`ui-component-page`, `ui-component-researcher`, `api-docs-researcher`). The
+two researchers carry real web tools (`web_search`, `fetch_content`,
+`get_search_content`) provided by the **pi-web-access** package — without it
+the packaged researcher hard-fails; the installer (and `imp update`) installs
+and exact-pins the three Pi packages (`pi-subagents`, `pi-mcp-adapter`,
+`pi-web-access`); the exact pin is also what suppresses Pi's "Package Updates
+Available" panel.
+
+**Chains** (`.pi/chains/`): `scout-planner.chain.md` — scout surveys the
+codebase for `{task}`, its `context.md` output feeds the planner.
+
+**Extensions** (`.pi/extensions/`):
+
+- `fda-lock.ts` — interactive Pi goes read-only while an FDA runs (§9.5).
+- `fia-guard.ts` — FIA-protected paths (`imp/modules/**`,
+  `imp/fia.config.yaml`, `imp/fda_*.mjs`, incl. `rm -rf imp`) are never
+  agent-writable in interactive sessions — the extension-side twin of the
+  FDA permission gate. Block message: "…is FIA infrastructure (protected).
+  Ask the engineer to change it manually or via impactus."
+- `fia-branding.ts` — the `FIA · IAI Cursos` status-line slot.
+
+## 13. The web UI (`--ui`)
+
+`npx impactus --ui` (alias `--web`) starts a **local server** (default port
+4599, walking forward up to 20 ports on conflict; bound to `127.0.0.1` only,
+with a Host/Origin DNS-rebinding guard) that serves one self-contained page
+where the installation is **assembled by clicking**. Execution does NOT
+happen in the browser: at the end the page highlights the ready
+`npx impactus …` command; the student copies it and runs it in the terminal
+(an "Open the terminal for me" button opens the OS terminal app). The
+terminal wizard remains the default entry point — `--ui` is opt-in;
+`--terminal`/`--no-ui` are accepted for compatibility. The page still ships
+with the historical `create-iai` branding (title/header).
+
+What the page offers, top to bottom:
+
+1. **Project folder** — prefilled with the server's cwd, with a native OS
+   folder dialog (AppleScript / PowerShell / zenity–kdialog; in-page modal
+   fallback) and a live "folder already has files" warning. There is no name
+   field: the project name is the folder's basename.
+2. **What to install** — "Harness + template" vs "Harness only". The
+   harness-only card has a "Your stack" section: "Decide by talking with Pi"
+   (→ `--stack depois`) or layer-by-layer selects driven by the stack catalog
+   (→ `--stack cat=opt,…`, with explicit `cat=depois` entries so the terminal
+   wizard doesn't re-ask a deliberately-pending layer).
+3. **Template, preset and addon groups** — cards from the catalogs; picking a
+   preset materializes every group flag, editing a group clears the preset.
+4. **Services** — storage pills, GitHub push + visibility, Vercel deploy
+   toggles (tri-state: unchecked emits `--no-push`/`--no-deploy` — an
+   unchecked box is a decision, so the preflight never prepares gh/vercel
+   logins for nothing).
+5. **Service keys (optional)** — per relevant service, the AI-assisted path:
+   "Copy instructions for the AI" (the same prompt catalog as the terminal —
+   paste it into a browser-automation agent, e.g. Claude in Chrome), a paste
+   box that parses the returned `KEY=value` block and fills the regex-validated
+   fields, and a collapsed manual path with the dashboard link. Keys autosave
+   to `~/.create-iai/keys/<slug>.env` (mode 600, machine-local; a project
+   rename deletes the old slug's file; the command references the path via
+   `--keys` — no secret ever appears in the command or leaves the machine).
+   Fully-automatic services (Clerk, Convex) are listed as "nothing to do".
+6. **Sign-in** — the access bar checks `~/.create-iai/auth.json` against the
+   community API and, when needed, runs the whole device flow **server-side**
+   (the browser only sees the code/link; the token never travels to the page).
+   An inactive subscription is reported as such — a fresh sign-in won't fix
+   it.
+7. **Run the installation** — the live command (assembled by
+   `src/lib/command.js`; full mode always carries `--mode full
+   --template-id <id>`, so a guest running the copied command gets the clear
+   sign-in error), copy button, open-terminal button, and the 3-step run
+   instructions.
+
+Example generated commands:
+
+```bash
+# Full mode, page defaults:
+npx impactus --dir /Users/ana/my-app --mode full --template-id live1 --preset padrao \
+  --addons commitlint,knip,analyzer --observability sentry --analytics none \
+  --security csp,rate-limit --emails none --platform none --payments none \
+  --storage convex --no-push --no-deploy
+
+# Harness only, "decide with Pi":
+npx impactus --dir /Users/ana/my-app --stack depois
+
+# Harness only, layer by layer (Convex hides database/ORM):
+npx impactus --dir /Users/ana/my-app --stack frontend=nextjs,backend=convex,auth=clerk,blob=r2,automations=none,deploy=vercel
+
+# With pasted keys:
+npx impactus --dir /Users/ana/my-app --mode full --template-id live1 … --keys /Users/ana/.create-iai/keys/my-app.env
+```
+
+Endpoints, for the curious: `GET /` (the page), `GET /api/catalog`,
+`GET /api/browse` + `GET /api/dir-info` + `POST /api/pick-folder`,
+`POST /api/keys`, `POST /api/command`, `GET /api/auth`, `POST /api/login`
+(NDJSON stream), `POST /api/open-terminal`. Bodies are capped at 1 MB;
+everything degrades gracefully.
+
+## 14. Maintenance: `--verify`, `--update-runtime`, `imp update`
+
+### 14.1 Post-install audit (`--verify`)
+
+`npx impactus --verify --dir <folder>` audits an already-installed project
+without touching anything (`src/steps/verify.js`). Exit 0 = no errors;
+exit 1 = errors found — usable in the student's CI. `--json` replaces the
+human report with `{ ok, errors, warnings }` on stdout (same exit code).
+Also reachable as `imp init --verify --dir .`.
+
+The audit first detects the install type: **harness-only** projects (no
+addons config, no `convex/`, but a harness footprint) skip the template
+checks with explicit "skip" lines instead of false errors. The checks:
+
+| Finding | Level |
+|---|---|
+| `package.json` missing/invalid (full install — short-circuits the audit) | error |
+| `package.json` missing/invalid (harness-only) / without `name` | warn |
+| addons config missing (project from an older CLI) | warn |
+| `template.addons.json` still present (pruning did not run) | error |
+| orphan `live1:addon` markers anywhere in the tree | error |
+| `.env.local` missing | error |
+| core env keys empty/missing (`NEXT_PUBLIC_CONVEX_URL`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`) | error |
+| chosen-addon service keys missing (everything degrades gracefully) | warn |
+| `node_modules` / `convex/_generated` missing | warn |
+| `skills-lock.json` invalid | warn |
+| a locked skill missing from `.agents/skills/` (Cursor/Pi blind to it) | warn |
+| a locked skill DUPLICATED in `.pi/skills/` (Pi "Skill conflicts" panel — fix with `imp init --update-runtime` or delete the copy) | warn |
+
+```bash
+npx impactus --verify --dir my-saas          # human report
+npx impactus --verify --dir . --json | jq .ok   # CI gate
+```
+
+### 14.2 Runtime updates (`--update-runtime`)
+
+`npx impactus --update-runtime --dir <folder>` re-stamps the FIA/Pi RUNTIME of
+an already-installed project from the impactus version currently running
+(`src/steps/update-runtime.js`) — new FDAs, gates and prompts without a
+re-install. The contract:
+
+- **Manifest** — `setupFia` records `imp/.runtime-manifest.json`
+  (`{ impactus, stamped_at, files: { <relpath>: <sha1> } }`) covering every
+  file stamped from both template trees. The shas are the TEMPLATE's: the
+  stamp skips pre-existing files, so a file that differs from the template was
+  never written by us and stays "modified" (consent + backup before any
+  overwrite).
+- **Updatable paths only** (`FIA.runtimeUpdatablePaths`): `imp/modules/`,
+  `imp/fda_*.mjs`, `imp/scripts/`, `imp/package.json`, `.pi/skills/fia/`,
+  `.pi/prompts/`, `.pi/extensions/`. Never touched: `imp/fia.config.yaml`,
+  `imp/data/`, `imp/node_modules/`, anything outside the template trees.
+  Files the template no longer ships are LEFT in place — additive + replace,
+  never delete.
+- **Per file**: missing → add; byte-identical → skip; differs with the disk
+  sha matching the manifest (unmodified since the stamp) → overwrite; differs
+  otherwise (edited locally, or no manifest) → interactive runs ask per file —
+  Yes / **Yes to all** / No / **No to all**, the *-to-all answers stick for
+  the rest of the run — after one loud warning; non-interactive runs (`--yes`
+  or `--json`) skip and report unless `--force` (= yes to everything). Every
+  overwrite is backed up to `imp/.runtime-backup-<YYYYMMDD-HHmmss>/<relpath>`
+  first (gitignored).
+- **It also**: runs `migrateLegacyFiaLayout` first (see below); runs
+  `npm install` in `imp/` when `imp/package.json` changed (the ONLY failure
+  that makes it exit 1 after a successful plan); re-pins the three Pi
+  packages (student-customized entries skipped and reported); prunes stale
+  `.pi/skills/` copies; ensures the FIA gitignore entries; merges new
+  `FIA.npmScripts` (never clobbering yours — conflicts land as
+  `<name>:fia`); rewrites the manifest — overwritten files move to the new
+  baseline while skipped-modified ones KEEP the stamp sha, so the next run
+  still flags them.
+- `--json` report: `{ ok, dir, impactus, added[], updated[],
+  skippedModified[], unchanged (a count), backupDir, npmScriptsAdded[],
+  warnings[] }`.
+
+```bash
+npx impactus --update-runtime --dir .            # interactive per-file consent
+npx impactus --update-runtime --dir . --force    # overwrite everything (backed up)
+npx impactus --update-runtime --json --force     # CI: JSON report, no prompts
+imp init --update-runtime                        # same, via the launcher
+```
+
+**Legacy layout migration** (`migrateLegacyFiaLayout` — runs at the start of
+BOTH the update and the install stamp; idempotent, crash-resumable via a
+`.fia-migration-pending` marker): projects from older versions kept the
+runtime at `fia/` and `HARNESS.md`/`iai.config.json` at the root. The
+migration renames/merges `fia/` → `imp/`, moves the root files into `imp/`,
+rewrites `fia/…` runtime paths across `imp/`, `.pi/`, `.claude/`, `.cursor/`,
+package.json scripts and `.gitignore` (surgical — `.pi/skills/fia/` and
+unrelated `fia`-named folders are untouched), patches the fia-guard
+extension's literals, and updates the manifest keys so OUR path fix never
+shows up as a student edit.
+
+### 14.3 `imp update` and the launcher
+
+The `imp` launcher (installed globally by the FIA stamp, or `npm i -g
+impactus`) is a thin brand wrapper over the real `pi` binary — NOT a fork:
+
+| Invocation | Behavior |
+|---|---|
+| `imp` | Starts Pi in the current folder (installs Pi on demand). Banner only on a TTY; **piped output is byte-identical to `pi`'s**. |
+| `imp init [flags]` | The full impactus installer in place — every flag works (`imp init --harness-only -y`, `imp init --verify`, …). |
+| `imp update` | `npm install -g impactus@latest` + `pi update` (or install) + re-pin of the three Pi extension packages. Exit code keyed to the impactus self-update; the extension refresh is best-effort. |
+| `imp tui [args]` | Runs the project-stamped `imp/scripts/fia-tui.mjs` (errors with a `imp init` hint when the runtime is absent); `imp tui --once` passes through. |
+| `imp help` / `imp --version` | Help / bare version. |
+| anything else | Straight through to `pi` (e.g. `imp -p "prompt"`, `imp --continue`). |
+
+Version-notice choreography: imp launches Pi with `PI_SKIP_VERSION_CHECK=1`
+(suppressing Pi's pi-branded update banner), probes npm in the background
+during the session (TTY only), and prints ONE imp-branded "Updates available
+… Run `imp update`" block AFTER Pi exits (racing a 400 ms timeout so a quick
+one-shot session is never held hostage). Opt-outs: `IMP_SKIP_VERSION_CHECK`,
+`PI_OFFLINE`. The three Pi packages are exact-pinned precisely so Pi's own
+"Package Updates Available — run pi update --extensions" panel never shows;
+`imp update` re-pins them.
+
+## 15. Recipes — worked examples
+
+### 15.1 From zero, WITHOUT the template (own stack; works as guest)
+
+```bash
+npx impactus                 # pick "Build my own stack" (or "Not sure yet")
+cd my-app
+imp                          # open Pi
+/login openai-codex          # one time only (never Anthropic inside Pi)
+/idea                        # interview → PRD + the best stack (ai-docs/)
+/stack                       # research + docs per tech + CLIs/MCPs/skills
+/grill                       # stress-test the PRD before building
+/map                         # PRD → screens, tasks, milestones (opens the plan)
+/task                        # Task 01 (Foundation) via FDA
+/theme                       # the greenfield checkpoint (or `/theme accept`)
+/goal                        # every remaining task, one FDA each
+npm run tui                  # follow along in another terminal
+```
+
+Fully scripted variant (no prompts, guest-friendly):
+
+```bash
+npx impactus my-app --yes --stack backend=hono,db=neon,orm=drizzle,auth=clerk,blob=r2,frontend=nextjs,deploy=vercel,automations=none
+```
+
+### 15.2 From zero, WITH the ready-made template (signed-in students)
+
+```bash
+npx impactus                 # sign in; pick "Recommended stack (ready-made template)"
+# the CLI provisions everything: Convex + Clerk + JWT + keys (+ webhook/GitHub/deploy if chosen)
+cd my-app
+npm run dev:convex           # terminal 1 — backend (watch + codegen)
+npm run dev                  # terminal 2 — Next.js → http://localhost:3000
+
+# the app already runs — now shape it into YOUR product:
+imp
+/grill                       # sharpen the PRD (template features are the baseline)
+/map                         # plan screens + tasks on top of the template
+/goal                        # FDAs build it — or /dev in Claude Code, task by task
+```
+
+Non-interactive full install (CI or a second machine):
+
+```bash
+CREATE_IAI_TOKEN=<token> npx impactus my-saas --yes --preset saas --payments asaas --storage r2 --keys ~/.create-iai/keys/my-saas.env
+```
+
+### 15.3 An EXISTING web app (brownfield)
+
+```bash
+cd my-app
+npx impactus --dir .         # detects the project → harness + FIA only; nothing overwritten
+imp
+/absorb                      # as-built PRD + map + conventions + stack manifest + registry
+/kit                         # (recommended when the registry came out empty) DS audit → tasks
+/feature "CSV export on the reports page"   # delta spec + tasks, approved before running
+/bug "login loops after logout"             # proven RED, then the fix
+/quick "rename the Save button"             # small change, one audit line
+/task                        # execute — or /goal for everything approved
+```
+
+### 15.4 A failed FDA run — diagnose and resume
+
+```bash
+npm run fda:sessions                     # find the run id (status: failed)
+npm run fda:phases -- 3fa9c21b           # which phase failed
+npm run fda:tail   -- 3fa9c21b           # last events (raw JSONL)
+npm run fda:viewer                       # or drill down in the browser
+
+node imp/fda_plan_build_test.mjs --fda-id 3fa9c21b --resume
+# succeeded agent phases replay from saved results; tests re-run against the
+# CURRENT tree — you can fix code by hand first and the resume re-tests it.
+```
+
+### 15.5 Change which LLM each agent uses
+
+```bash
+npm run agents               # opens the viewer's Agents tab (or /agents inside pi)
+# pick engine (claude_code | pi | cursor), model, reasoning and a fallback chain
+# per agent; Save preserves the YAML comments and backs the file up. Locked
+# while an FDA runs; applies from the next run.
+```
+
+Or edit `imp/fia.config.yaml` by hand — remember the billing rule: Claude
+agents use `coding_agent: claude_code` (the plan); Claude INSIDE Pi bills per
+token as extra usage.
+
+### 15.6 Activate a service key later
+
+```bash
+# example: Stripe, after the install
+npx convex env set STRIPE_SECRET_KEY sk_test_...
+npx convex env set STRIPE_PRICE_ID price_...
+# the webhook: dashboard.stripe.com (Test mode) → Developers → Webhooks →
+# Add endpoint → https://<deployment>.convex.site/stripe-webhook, then:
+npx convex env set STRIPE_WEBHOOK_SECRET whsec_...
+```
+
+Every addon degrades gracefully until its keys exist — the final install
+summary and `--verify` both list what is still pending, and the web UI's AI
+prompts (§6.1) fetch keys for you.
+
+### 15.7 Keep an installed project current
+
+```bash
+imp update                        # impactus + Pi + the pinned extension packages
+npx impactus --update-runtime --dir .   # new FDAs/gates/prompts into imp/ + .pi/
+npx impactus --verify --dir .           # audit that everything is still intact
+```
+
+### 15.8 Go live
+
+```bash
+npm run launch:check              # read-only readiness (blockers/warnings, rung)
+imp                               # then, inside pi:
+/launch                           # Ready gate → Safe gate → BETA → PRODUCTION
+```
+
+## 16. Flag reference
 
 ```
 npx impactus [name] [options]
@@ -799,7 +1978,11 @@ Project
   --mode <value>           harness (harness only) | full (harness + template)
   --harness-only           Shortcut for --mode harness (does not install the template)
   --stack <value>          recomendada | propria | depois | category=option pairs
-                           (e.g. backend=hono,db=neon,orm=drizzle)
+                           (e.g. backend=hono,db=neon,orm=drizzle; categories:
+                           frontend, backend, database, orm, auth, blob,
+                           automations, deploy — anything missing stays "decide
+                           later"; aliases: db/banco, storage/arquivos,
+                           autenticacao, jobs/automacoes)
   --agent-files <mode>     Folder already has agent files (.claude, CLAUDE.md…):
                            add (default, only what's missing) | replace (backup + replace)
   --template-id <id>       Catalog template: live1 (default) | live2
@@ -829,13 +2012,15 @@ Services
                            own organizations in Convex — per-organization
                            data/billing, roles/permissions, /admin with org
                            management)
-  --skip-webhook           No Clerk → Convex webhook
+  --skip-webhook           No Clerk → Convex webhook (there is no positive
+                           --webhook flag: it needs a dashboard action, so it
+                           can only be turned on interactively)
   --storage <value>        convex | r2
   --skip-storage           Stays on Convex Storage without asking
   --repo <name>            GitHub repo name (default: slug)
   --public | --private     Visibility (default: private)
   --push | --no-push       Create remote repo and push (or not)
-  --skip-github            Not even a remote commit
+  --skip-github            Not even a local commit in that step
   --deploy | --no-deploy   Vercel deploy at the end
   --skip-deploy            Same as --no-deploy
   --no-harness             (full mode only) template WITHOUT the harness
@@ -849,7 +2034,7 @@ FIA and design
   --no-impeccable          Skips Impeccable (--skip-impeccable is the same)
 
 Access (sign-in is optional: it unlocks the templates + their automation;
-without it the installer delivers the harness + agent only)
+without it the installer delivers the harness + agent only — see §2)
   --login                  Authenticates this computer (browser) and exits
   --logout                 Removes/revokes the CLI token and exits
   --whoami                 Shows subscription status and exits
@@ -861,7 +2046,7 @@ General
   --port <n>               UI server port (default: 4599)
   --verify                 Audits an ALREADY-installed project (--dir) and exits
   --update-runtime         Re-stamps the FIA/Pi runtime of an installed project
-                           (--dir) from this impactus version and exits (§2.6);
+                           (--dir) from this impactus version and exits (§14.2);
                            config/data/local edits preserved, backups always
   --force                  With --update-runtime: overwrite locally modified
                            runtime files too (after the backup)
@@ -871,14 +2056,58 @@ General
 ```
 
 `--yes` semantics: `full` mode, `padrao` addon preset (change with
-`--preset`/groups), default shadcn block, no webhook/R2/deploy, **harness
-installed**, local commit without a remote repo, no integration-CLI logins.
-For harness only without prompts: `--harness-only` (or `--mode harness`).
-Without a valid login (or `CREATE_IAI_TOKEN`), `--yes` continues as **guest**
-— harness + agent only — and `--mode full`/`--stack template` error out
-instead of silently downgrading.
+`--preset`/groups), default shadcn block, no webhook/deploy, storage `convex`
+(EXCEPT `--storage r2` with all four `R2_*` keys in `--keys`, which
+configures R2 non-interactively), **harness installed**, local commit without
+a remote repo, no integration-CLI logins, FIA + Impeccable on. For harness
+only without prompts: `--harness-only` (or `--mode harness`). Without a valid
+login (or `CREATE_IAI_TOKEN`), `--yes` continues as **guest** — harness +
+agent only — and `--mode full`/`--stack recomendada` error out instead of
+silently downgrading.
 
-## 10. How to add a new addon
+## 17. Environment variables
+
+Recognized by the installer:
+
+| Variable | Effect |
+| --- | --- |
+| `CREATE_IAI_TOKEN` | CI/automation access token — the non-interactive way to run a full install. An invalid token fails loudly (never a silent guest downgrade). |
+| `CREATE_IAI_API` | Community API base override (same as `--api`; a custom base warns once — the token is sent to that host). |
+| `GH_TOKEN` / `GITHUB_TOKEN` | Accepted by the gh preflight as authentication (no `gh auth login` needed). |
+| `VERCEL_TOKEN` | Accepted by the vercel preflight as authentication. |
+| `LEFTHOOK=0` | The documented one-time escape hatch when the template's pre-commit lint blocks the initial commit. |
+
+Recognized by the FIA runtime inside a project:
+
+| Variable | Effect |
+| --- | --- |
+| `FIA_DB` | Trace database path (default `imp/data/fia.db`) — fia-query, viewer, TUI. |
+| `FIA_CONFIG` | Agent roster path (default `imp/fia.config.yaml`) — viewer, TUI. |
+| `FIA_AI_DOCS` | `ai-docs/` dir override — viewer/TUI Plan views, launch-check, env-preflight, quick-log. |
+| `FIA_PROJECT_ROOT` | Project root override for the viewer. |
+| `FIA_DEBUG` | Same as `--debug` on any FDA (full stack traces). |
+| `FIA_FDA_RUN` | Exported BY the runner into its child agents — makes the fda-lock hooks/extension silent for the run's own process tree. Never set it yourself. |
+| `ENGINEER_NAME` | Engineer identity stamped in the trace (fallback: `git config user.name` → `$USER`). |
+| `PI_PATH` / `CLAUDE_PATH` / `CURSOR_AGENT_PATH` | Engine binary overrides (`pi` / `claude` / `cursor-agent`). |
+| `PI_SESSIONS_DIR` | Override for the viewer's interactive-Pi session dir (`~/.pi/agent/sessions/<slug>`). |
+| `IAI_DECISION_LOG_NOW` | Fixed timestamp for decision-log/stack-research (tests). |
+| `OPENROUTER_API_KEY`, `XAI_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`, `FIREWORKS_API_KEY`, `DEEPSEEK_API_KEY`, `CEREBRAS_API_KEY`, `MISTRAL_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | Pi API-key providers (per-token billing — the subscription providers `openai-codex`/`github-copilot` log in via `/login` instead). |
+
+Recognized by the `imp` launcher:
+
+| Variable | Effect |
+| --- | --- |
+| `PI_SKIP_VERSION_CHECK=1` | Set by imp on every passthrough — suppresses Pi's own pi-branded update notice (imp prints its own after the session). |
+| `IMP_SKIP_VERSION_CHECK` / `PI_OFFLINE` | Skip imp's post-session update probe entirely. |
+
+State on disk, outside projects: `~/.create-iai/` (auth token, web-UI keys
+files, run logs — §2) and `~/.pi/agent/` (Pi's own credential store,
+settings and session logs; never imported from `~/.claude`/`~/.codex` —
+rotating refresh tokens invalidate each other).
+
+## 18. Extending: a new addon, a new template
+
+### 18.1 How to add a new addon
 
 1. **In the template (`live1`)**: implement the complete feature; wrap
    snippets in shared files with `live1:addon:<id>:start/:end`; add the entry
@@ -887,13 +2116,42 @@ instead of silently downgrading.
    `npm run test` and the build with everything on.
 2. **In the CLI**: add the option to the right group in `ADDON_GROUPS`
    (`src/config.js`); if there is official tooling, register it in
-   `ADDON_TOOLING`; if it needs a post-install instruction, `ADDON_NOTES`.
+   `ADDON_TOOLING`; if it needs a post-install instruction, `ADDON_NOTES`;
+   if it needs keys, a `SERVICES` entry (envs + AI prompt).
    Validate the value in `src/lib/args.js` if it belongs to a `single` group.
 3. **Test**: `npm test` in the CLI; apply the addon to a copy of the template
    (`node -e "import('./src/steps/addons.js').then(m => m.applyAddons({dir, addons:[...]}))"`)
    and run type-check/test/build there.
 
-## 11. CLI development
+### 18.2 How to add a new template
+
+A new `TEMPLATES` entry in `src/config.js` (id, repo, label/badge/hint/
+description, `available`, `strip`, `requires` capabilities, `tenancy`) + the
+repo on the community backend's allowlist (`cli-paid-gate.md`, private
+`impactus-internal-docs` repo) + `TEMPLATE_GITHUB_TOKEN` scope. The
+template's own `template.addons.json` may declare `groups`/`presets` — then
+its catalog wins after the download (§4.4) and it can expose new addon
+options without a CLI release. Capability steps the template does not
+declare in `requires` are skipped with a stable step counter.
+
+### 18.3 How to add a new stack technology
+
+One entry in `src/stack-catalog.js` (label/hint/role, docs + llms.txt,
+`skills` source, `cli` spec, `mcp` argv or `mcpNote`, `envs` dev×prod,
+optional `onlyWhen`/`forcedBy`/`testUsers`) — the wizard, the manifest
+renderer and the tooling step pick it up with no logic changes. The `/stack`
+research ledger later re-verifies the entry against reality (the catalog is
+the bootstrap, research wins).
+
+### 18.4 A new student-facing command
+
+Must be registered everywhere it is listed: the `.pi/prompts/<name>.md`
+prompt file, the Routing table in `.pi/skills/fia/SKILL.md` (the single
+source `/guide` routes from), the harness command file(s)
+(`.claude/commands/` + `.cursor/commands/` mirror), the `finish.js` final
+panels, the README and this DOCS.
+
+## 19. CLI development
 
 ```bash
 node bin/create-iai.js my-test            # runs the installer locally
@@ -914,13 +2172,19 @@ one canonical file + pointers (e.g. the semantic-fields catalog in the
 design-system skill; `test/semantic-fields.test.js` is the tripwire that no
 runtime loses its pointer).
 
-Structure: `bin/` (entrypoint) · `src/main.js` (pipeline) · `src/config.js`
-(catalogs: template, harness, addons, tooling, shadcn, MCPs) · `src/lib/`
-(args, addons/stripper, ui, proc, env-file, skills, clerk, log, util) ·
-`src/steps/` (one file per step). The local checkouts `live1/` and
-`harness/` are gitignored — each piece has its own repo.
+Structure: `bin/` (entrypoints: `create-iai.js` = `npx impactus`, `imp.js` =
+the launcher) · `src/main.js` (pipeline) · `src/config.js` (catalogs:
+community, template, harness, FIA, addons, tooling, services, shadcn, MCPs) ·
+`src/stack-catalog.js` (the stack layers) · `src/lib/` (args, addons/stripper,
+auth-client, stack, skills, keys, clerk, command, ui, proc, log, util…) ·
+`src/steps/` (one file per step) · `fia-templates/` + `pi-templates/` (the
+runtime stamped into projects) · `test/` (node:test). The local checkouts
+`live1/`, `live2/` and `harness/` are gitignored — each piece has its own
+repo. `lessons.md` (local-only, gitignored) is the living log of recurring
+problems; internal planning docs live in the private `impactus-internal-docs`
+repo — never add them back here (this repo is public).
 
 Publishing to npm: bump `version` in `package.json` + `npm publish` (the
 package ships `bin/`, `src/`, `fia-templates/`, `pi-templates/` and
 `README.md` — the FIA/Pi templates are stamped into projects by the CLI
-itself; only the SaaS template and the harness come from the gated API).
+itself; only the SaaS template and the harness come from the community API).

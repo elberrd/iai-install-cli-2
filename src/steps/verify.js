@@ -14,10 +14,13 @@
 //      the services for the chosen addons (missing = warning — everything
 //      degrades gracefully on its own);
 //   4. installation: node_modules and convex/_generated present;
-//   5. agent skills: every skill in skills-lock.json actually reachable by the
-//      engines — .agents/skills/<name>/ (Cursor) and, when the project has a
-//      .pi/, .pi/skills/<name>/ (the FIA agents). Warning-level: the project
-//      runs fine, one engine is just blind to the skill.
+//   5. agent skills: every skill in skills-lock.json actually present in
+//      .agents/skills/<name>/ — the ONE canonical store (Cursor and Pi read
+//      it directly; .claude/skills/ symlinks into it) — and, when the project
+//      has a .pi/, NOT duplicated in .pi/skills/<name>/ (Pi dedupes by
+//      realpath: a copy there means the "Skill conflicts" panel at every
+//      launch). Warning-level: the project runs fine, one engine is just
+//      blind to the skill (or Pi nags about the duplicate).
 
 import { existsSync } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';

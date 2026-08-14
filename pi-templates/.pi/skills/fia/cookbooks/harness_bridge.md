@@ -47,8 +47,10 @@ After the artifacts land, show them to the engineer: `npm run plan -- --detach` 
    - **Theme gate (greenfield checkpoint)**: the sequencer refuses any
      post-foundation task while no closed `theme` decision log exists in
      `ai-docs/decisions/` (foundation = the issue with `Kind: foundation`;
-     check: `node imp/scripts/decision-log.mjs latest theme --json` →
-     `"status": "closed"`). When it stops there, resolve with the engineer —
+     check: `node imp/scripts/decision-log.mjs list --command theme --json` →
+     ANY record with `"status": "closed"` passes — never `latest`: a newer
+     open log from an abandoned re-run must not cancel an earlier approval).
+     When it stops there, resolve with the engineer —
      never around them: offer `/theme` (recommended — interview + preview +
      approval) or "keep the current default theme", which is ALSO a recorded
      decision (`open theme --topic "accept default theme"` + `close <id>
