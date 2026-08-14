@@ -37,10 +37,20 @@
 # WARNING: Claude INSIDE Pi bills as per-token "extra usage" — to stay on the
 # Pro/Max plan, always use coding_agent: claude_code.
 #
-# fallbacks (optional, per agent or in defaults): an ordered list tried at the
-# START of a run when the primary engine is hard-unavailable (binary missing,
-# provider without login/key). The switch is logged loudly and recorded in the
-# trace (engine_fallback) — never silent, never mid-run.
+# fallbacks (optional, per agent or in defaults): an ordered list of up to 5
+# engines, walked in three stages:
+#   1. RUN START — the primary engine is hard-unavailable (binary missing,
+#      provider without login/key). Traced as engine_fallback.
+#   2. MID-RUN — the engine dies inside a phase (exits without a report, or its
+#      binary vanishes). The death is classified (login | limit | missing |
+#      crash) and recorded, the run switches to the next viable fallback IN
+#      PLACE and retries the phase. login/limit/missing switch on the first
+#      death; a crash retries the same engine once and switches on the second.
+#      Traced as engine_error + engine_relay.
+#   3. RESUME — `--resume --fda-id <id>` reads the interrupted run's death
+#      markers and walks the chain even though the binary checks pass; with no
+#      viable fallback it retries the primary out loud (limits reset).
+# Every switch is printed and traced — never silent.
 #   fallbacks:
 #     - { coding_agent: pi, model: openai-codex/gpt-5.6-sol, thinking: high }
 #
@@ -72,6 +82,11 @@ defaults:
   coding_agent: pi
   model: openai-codex/gpt-5.6-sol
   thinking: high
+  # relay: auto        # when an engine DIES mid-run: auto (the default when
+  #                      this key is absent) switches to the fallbacks in place
+  #                      and on --resume; resume = fail fast now, arm the chain
+  #                      only on --resume; off = never auto-switch (the death
+  #                      is still recorded and traced).
   harness_engineering: []
   tools:
     - read

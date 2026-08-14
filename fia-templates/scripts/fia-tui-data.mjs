@@ -111,6 +111,14 @@ export function listSessions(db, limit = 80) {
   });
 }
 
+function safeParse(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 /** Full drill-down of one session — same shape family as /api/session. */
 export function sessionDetail(db, fdaId) {
   if (!SAFE_ID.test(String(fdaId || ''))) return null;
@@ -143,7 +151,17 @@ export function sessionDetail(db, fdaId) {
   const phaseTokens = db
     .prepare('SELECT phase_id, SUM(tokens) AS tokens FROM events WHERE fda_id=? AND tokens > 0 GROUP BY phase_id')
     .all(fdaId);
-  return { session, phases, gates, agentSessions, phaseTokens };
+  // Engine trouble of this run (fallbacks, mid-run relays, deaths, handovers)
+  // so dashboards can show WHICH engine actually did the work and why.
+  const engineEvents = db
+    .prepare(
+      `SELECT started_at, type, name, payload_json FROM events
+       WHERE fda_id=? AND type IN ('engine_fallback','engine_relay','engine_error','engine_continuation')
+       ORDER BY rowid`,
+    )
+    .all(fdaId)
+    .map((e) => ({ started_at: e.started_at, type: e.type, name: e.name, payload: safeParse(e.payload_json) }));
+  return { session, phases, gates, agentSessions, phaseTokens, engineEvents };
 }
 
 /** Incremental event tail — `after` is the rowid cursor from the last call. */

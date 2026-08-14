@@ -4,6 +4,7 @@ import { Tracer } from './tracer.mjs';
 import { Run } from './runner.mjs';
 import { engineerName, newId, nowIso } from './utils.mjs';
 import { resolveEngines } from './engines.mjs';
+import { readEngineErrors, shouldArmFallback } from './continuation.mjs';
 
 function pidAlive(pid) {
   try {
@@ -114,12 +115,23 @@ export function acquireLock(dataDir, fdaId) {
 
 export function ensure(cfg, fdaId = null, { resume = false } = {}) {
   if (resume && !fdaId) throw new Error('resume requires the fda_id of the failed run');
+  const dataDir = cfg.defaults?.data_dir || 'imp/data';
 
-  // Engine resolution happens ONCE, before anything is traced: agents whose
-  // engine is hard-unavailable fall back down their declared chain; an agent
-  // this FDA requires (cfg._required, recorded by validate) with nothing
-  // available is a fail-fast — better than dying mid-run inside a phase.
-  const { decisions } = resolveEngines(cfg, cfg._required || null);
+  // Engine resolution happens before anything is traced: agents whose engine
+  // is hard-unavailable fall back down their declared chain; an agent this
+  // FDA requires (cfg._required, recorded by validate) with nothing available
+  // is a fail-fast — better than dying mid-run inside a phase. On --resume,
+  // the interrupted run's engine-failure markers count as unavailability too
+  // (that engine already proved it cannot finish), so the resumed run keeps
+  // moving on the fallbacks instead of dying on the same outage again.
+  const runtimeFailures = {};
+  if (resume && fdaId) {
+    const markers = readEngineErrors(join(dataDir, 'sessions', fdaId));
+    for (const [name, marker] of Object.entries(markers)) {
+      if (shouldArmFallback(marker)) runtimeFailures[name] = marker;
+    }
+  }
+  const { decisions } = resolveEngines(cfg, cfg._required || null, { runtimeFailures });
   const blocked = decisions.filter((d) => d.blocked && (cfg._required || []).includes(d.agent));
   if (blocked.length) {
     throw new Error(
@@ -130,7 +142,6 @@ export function ensure(cfg, fdaId = null, { resume = false } = {}) {
   }
 
   const id = fdaId || newId(8);
-  const dataDir = cfg.defaults?.data_dir || 'imp/data';
   acquireLock(dataDir, id);
   // Every child agent inherits this ({...process.env} in the engine spawns):
   // the session hooks and the Pi fda-lock extension stay silent inside the
@@ -152,7 +163,19 @@ export function ensure(cfg, fdaId = null, { resume = false } = {}) {
         fda_id: id,
         type: 'engine_fallback',
         name: d.agent,
-        payload: { from: d.from, to: d.to, reason: d.reason },
+        payload: { from: d.from, to: d.to, reason: d.reason, ...(d.runtime ? { runtime: true, kind: d.kind } : {}) },
+      });
+    }
+    // Runtime-only failure with no viable fallback: the resumed run retries
+    // the engine the student chose — say so out loud instead of dying at the
+    // door (limits reset, outages end).
+    if (d.retry_failed_engine) {
+      run.console.engineRetry(d.agent, `${d.reason} and no fallback is available — retrying it`);
+      tracer.event({
+        fda_id: id,
+        type: 'log',
+        name: 'engine_retry_after_failure',
+        payload: { agent: d.agent, reason: d.reason, kind: d.kind },
       });
     }
     // Loud, non-blocking warning: this engine bills per token via an API key,

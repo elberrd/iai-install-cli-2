@@ -29,3 +29,11 @@ node imp/fda_sdlc.mjs "<same prompt>" --fda-id <failed run id> --resume
 Only the failed phase and everything after it execute again. This is the
 default for any re-run; a fresh run (no `--resume`) is only for when the
 engineer explicitly wants to redo the whole flow.
+
+When the ENGINE itself died (expired login, plan limit, crash, provider
+outage), the resume also continues on that agent's `fallbacks:` chain instead
+of retrying the engine that already proved it cannot finish — and the
+substitute is handed the interrupted attempt's transcript so it picks up where
+the work stopped. Expect `engine_fallback` / `engine_relay` /
+`engine_continuation` in the trace; with no viable fallback the resume retries
+the original engine out loud (limits reset, outages end).

@@ -462,10 +462,15 @@ function RunDetail({ detail, now, height, width }) {
   // Window BOTH lists to the frame: on overflow Yoga silently drops
   // non-contiguous rows (no clipping, no scroll), so a long /goal run would
   // render an arbitrary sample of phases with nothing marked as missing.
-  const phaseRoom = Math.max(3, height - 8);
+  // Engine switches (run-start fallback or mid-run relay) — the student must
+  // see WHICH engine actually did the work without opening the trace db.
+  const relays = (detail.engineEvents || [])
+    .filter((e) => e.type === 'engine_fallback' || e.type === 'engine_relay')
+    .slice(-3);
+  const phaseRoom = Math.max(3, height - 8 - relays.length);
   const hiddenPhases = Math.max(0, phaseRows.length - phaseRoom);
   const shownPhases = hiddenPhases ? phaseRows.slice(-phaseRoom) : phaseRows;
-  const evRoom = Math.max(0, height - shownPhases.length - 6 - (hiddenPhases ? 1 : 0));
+  const evRoom = Math.max(0, height - shownPhases.length - relays.length - 6 - (hiddenPhases ? 1 : 0));
   // slice(-0) is slice(0) — it would return the WHOLE buffer, so guard zero.
   const events = evRoom > 0 ? (detail.events || []).slice(-evRoom) : [];
   return h(
@@ -485,6 +490,18 @@ function RunDetail({ detail, now, height, width }) {
       failedGates ? h(Text, { color: 'red' }, `${failedGates} gate fail${failedGates > 1 ? 's' : ''}`) : null,
     ),
     s.request ? h(Line, { color: 'gray' }, `“${trunc(s.request, width - 6)}”`) : null,
+    ...relays.map((e, i) =>
+      h(
+        Line,
+        { key: `relay${i}`, color: 'yellow' },
+        trunc(
+          `⚠ ${e.name}: ${e.payload?.from?.coding_agent} (${e.payload?.from?.model}) → ` +
+            `${e.payload?.to?.coding_agent} (${e.payload?.to?.model})` +
+            `${e.payload?.kind ? ` — ${e.payload.kind}` : ''}${e.type === 'engine_relay' ? ' (mid-run)' : ''}`,
+          width - 6,
+        ),
+      ),
+    ),
     hiddenPhases ? h(Line, { color: 'gray' }, `… ${hiddenPhases} earlier phase${hiddenPhases > 1 ? 's' : ''}`) : null,
     ...shownPhases,
     h(ContextGauge, { agentSessions: detail.agentSessions }),

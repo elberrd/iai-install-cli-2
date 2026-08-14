@@ -30,12 +30,28 @@ WARNING: Claude INSIDE Pi bills as per-token "extra usage" — to spend plan lim
 
 ## Fallbacks — per-agent `fallbacks:` chain
 
-Each agent may declare an ordered `fallbacks:` list (engine/model entries, same
-fields as the primary). It is tried at RUN START only, when the primary engine
-is unavailable — binary missing, or provider without login/key. The switch is
-logged and traced as `engine_fallback` — never silent, and never mid-run: a run
-that started on an engine finishes on it. Edit the chain visually in `/agents`
-or by hand in `imp/fia.config.yaml`.
+Each agent may declare an ordered `fallbacks:` list of up to 5 entries
+(engine/model, same fields as the primary). The chain is walked in three stages:
+
+1. **Run start** — the primary engine is unavailable: binary missing, or
+   provider without login/key. Traced as `engine_fallback`.
+2. **Mid-run** — the engine dies inside a phase (exits with no report, binary
+   gone). The death is classified (`login`|`limit`|`missing`|`crash`) and
+   recorded under `imp/data/sessions/<fda_id>/<agent>/engine_error.json`; the
+   run switches to the next viable fallback in place and retries the phase.
+   `login`/`limit`/`missing` switch on the first death; a `crash` retries the
+   same engine once and switches on the second. Traced as `engine_error` +
+   `engine_relay`. The substitute receives the interrupted attempt's transcript
+   as a handover, so it continues instead of restarting.
+3. **Resume** — `--resume --fda-id <id>` reads that run's markers and walks the
+   chain even when the binary checks pass (that engine already proved it cannot
+   finish); with no viable fallback it retries the primary out loud.
+
+`defaults.relay` in `imp/fia.config.yaml` sets the policy: `auto` (default —
+switch mid-run and on resume), `resume` (fail fast mid-run; fallbacks arm only
+on `--resume`), `off` (never auto-switch; deaths are still recorded). Every
+switch is printed and traced — never silent. Edit the chain visually in
+`/agents` or by hand in `imp/fia.config.yaml`.
 
 ## Add or change an agent (FDAs)
 
@@ -46,7 +62,7 @@ or by hand in `imp/fia.config.yaml`.
    - `writes:` allowlist — `[]` = read-only; omitted = anything except `protected_files`
    - `prompt_engineering.system/user` — paths under `imp/data/prompt_engineering/<name>/`
 2. Create `system.md` (role + Report JSON contract matching the zod schema) and `user.md` (placeholders `{{prompt}}`, `{{previous_envelope}}`, `{{context_handoff_dir}}`). Copy an existing agent's pair as base.
-3. Validate: any FDA run calls `validate(cfg, [...])` and fails fast on missing prompts or bad `coding_agent`. A missing API key does NOT fail at startup — it fails when that agent runs (or triggers the agent's `fallbacks:` chain, when one is declared).
+3. Validate: any FDA run calls `validate(cfg, [...])` and fails fast on missing prompts or bad `coding_agent`. A missing API key does NOT fail at startup — it fails when that agent runs, and an engine that dies at that point (or later, mid-phase) hands the work to the agent's `fallbacks:` chain via the mid-run relay, when one is declared.
 
 ## Mirror in interactive Pi (optional)
 
