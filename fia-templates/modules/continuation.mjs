@@ -149,6 +149,9 @@ const KIND_PHRASES = {
   limit: 'its subscription plan limit was hit',
   missing: 'its CLI binary stopped being available',
   crash: 'its CLI crashed',
+  // Interactive `imp handoff`: nothing died — the student chose to continue
+  // the conversation on another engine.
+  handoff: 'you are asked to continue it on another engine',
 };
 
 /**

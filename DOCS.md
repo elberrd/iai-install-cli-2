@@ -1888,6 +1888,7 @@ impactus`) is a thin brand wrapper over the real `pi` binary — NOT a fork:
 | `imp init [flags]` | The full impactus installer in place — every flag works (`imp init --harness-only -y`, `imp init --verify`, …). |
 | `imp update` | `npm install -g impactus@latest` + `pi update` (or install) + re-pin of the three Pi extension packages. Exit code keyed to the impactus self-update; the extension refresh is best-effort. |
 | `imp tui [args]` | Runs the project-stamped `imp/scripts/fia-tui.mjs` (errors with a `imp init` hint when the runtime is absent); `imp tui --once` passes through. |
+| `imp handoff [args]` | Runs the project-stamped `imp/scripts/handoff.mjs`: hands the newest interactive Pi conversation to the `claude` CLI with a continuation prompt pointing at the session transcript (same preamble the FDA relay uses). Works while Codex is down — that is the point. `--list` picks a session, `--session <id>` targets one, `--full` asks for a full transcript read, `--print` prints the prompt without launching. Also `npm run handoff`. |
 | `imp help` / `imp --version` | Help / bare version. |
 | anything else | Straight through to `pi` (e.g. `imp -p "prompt"`, `imp --continue`). |
 
