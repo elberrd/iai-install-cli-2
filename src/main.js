@@ -119,7 +119,7 @@ export async function main(flags = {}) {
     // "yes" — without deploy/push they are pure friction.
     [
       'CLIs — git, gh and vercel (+ login)',
-      () => ensureCliTools({ vercel: ctx.decisions?.deploy === true, ghAuth: ctx.decisions?.push === true, flags }),
+      () => ensureCliTools({ vercel: ctx.decisions?.deploy === true, ghAuth: ctx.decisions?.push === true, flags, ctx }),
       'core',
     ],
     // FIA subscriptions: the engines were probed in the prelude (checkEngines,
@@ -171,7 +171,7 @@ export async function main(flags = {}) {
           // neither gh nor the Vercel CLI is installed.
           [
             'CLIs — git',
-            () => ensureCliTools({ vercel: false, gh: false, ghAuth: false, flags }),
+            () => ensureCliTools({ vercel: false, gh: false, ghAuth: false, flags, ctx }),
           ],
           ['Harness — agent workflow', () => setupHarness(ctx)],
           // After the harness (which creates ai-docs/): the ai-docs/stack.md

@@ -196,7 +196,7 @@ template declares them in `requires` — see §4.4 and `src/lib/pipeline.js`).
 | #  | Step | File | Notes |
 | -- | ----- | ------- | ----- |
 | 6  | **Decisions — assemble the installation** | `steps/decisions.js` | ALL questions at once (template variant, addons, shadcn, deps, storage, webhook, GitHub, deploy, FIA) + summary/confirm |
-| 7  | CLIs (git, gh, vercel) | `steps/preflight.js` | Auto-install; logins only when push/deploy was chosen |
+| 7  | CLIs (git, gh, vercel) | `steps/preflight.js` | Auto-install (git: PM, or the official installer on a PM-less Windows / the native CLT dialog on a brew-less Mac); logins only when push/deploy was chosen. NEVER blocks: availability is re-probed on the machine (no "did you install it?" self-reporting) and anything still missing is skipped with the person's consent — the fix lands in the final summary and `ai-docs/inbox.md`, and the dependent steps (commit/push, publish, deploy) degrade to manual notes |
 | 8  | FIA — Pi install/update | `steps/preflight.js` | Codex login stays for AFTER the install; a failed Pi install degrades (continues without FIA) |
 | 9  | **Template download** | `steps/project.js` | Community gated API (tarball) → tmp; reads the manifest |
 | 10 | Install + prune + npm install | `steps/project.js` | Copies from tmp; applies addons BEFORE the install |
@@ -222,7 +222,7 @@ template declares them in `requires` — see §4.4 and `src/lib/pipeline.js`).
 
 | #  | Step | File | Notes |
 | -- | ----- | ------- | ----- |
-| 6  | CLIs (git) | `steps/preflight.js` | Binaries only — no gh, no Vercel (the harness always comes through the community API, token or not) |
+| 6  | CLIs (git) | `steps/preflight.js` | Binaries only — no gh, no Vercel (the harness always comes through the community API, token or not). Same never-blocks contract: git that can't be installed is skipped on request and the commit degrades |
 | 7  | Harness | `steps/harness.js` | Merge into the folder; runs `git init` if missing |
 | 8  | Stack — manifest, docs and tooling | `steps/stack-docs.js` | Manifest + `AGENTS.md` block + skills/CLIs/MCPs of the chosen techs (incl. Neon/Supabase dev DB) |
 | 9  | FIA — Pi + FDAs | `steps/fia.js` | Stamps `imp/` + `.pi/` |

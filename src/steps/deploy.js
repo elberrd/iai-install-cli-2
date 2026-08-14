@@ -5,6 +5,7 @@ import { ENV_FILE, DEPLOY_ENV_KEYS } from '../config.js';
 import { run } from '../lib/proc.js';
 import { getEnvVar } from '../lib/env-file.js';
 import { parseEnvFile } from './verify.js';
+import { toolPending } from './preflight.js';
 import * as ui from '../lib/ui.js';
 
 /**
@@ -31,6 +32,14 @@ export async function setupDeploy(ctx) {
     flags?.skipFia !== true &&
     flags?.fia !== false &&
     ctx.decisions?.fia !== false;
+
+  // The Vercel CLI (or its login) was skipped in the preflight: no deploy now
+  // — the pending list and the note below carry the manual route.
+  if (toolPending(ctx, 'vercel') || toolPending(ctx, 'vercel-auth')) {
+    ui.info('The Vercel CLI (or its login) was skipped in the preflight — skipping the deploy.');
+    ui.note(howToLater(slug, fiaPlanned), 'How to deploy later');
+    return;
+  }
 
   // The decision came from the decisions phase; the confirm below is just a
   // fallback for calls outside the standard pipeline.

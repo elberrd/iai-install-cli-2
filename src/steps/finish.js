@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { COMMUNITY } from '../config.js';
 import { has, run, runInherit } from '../lib/proc.js';
@@ -74,6 +74,34 @@ function greenfieldSteps(ctx, fiaNeedsLogin) {
   ];
 }
 
+/**
+ * Drop the preflight skips into ai-docs/inbox.md — the harness's idea inbox,
+ * which /feature, /quick and /spec already scan and promote. One line per
+ * item in the inbox format; idempotent by title so a re-run of the installer
+ * doesn't duplicate entries. Best-effort (the caller swallows errors): the
+ * panel above is the source the person sees either way.
+ */
+async function appendPendingToInbox(ctx) {
+  const aiDocs = join(ctx.dir, 'ai-docs');
+  if (!existsSync(aiDocs)) return; // no harness → nowhere the agents read
+  const inbox = join(aiDocs, 'inbox.md');
+  const existing = existsSync(inbox)
+    ? await readFile(inbox, 'utf8')
+    : [
+        '# Inbox — Ideas Captured, Not Yet Promoted',
+        '',
+        '> Format: `- [ ] YYYY-MM-DD — <one-line idea> (context: <optional>)`',
+        '',
+      ].join('\n');
+  const date = new Date().toISOString().slice(0, 10);
+  const lines = ctx.pendingTools
+    .filter((t) => !existing.includes(t.title))
+    .map((t) => `- [ ] ${date} — ${t.title} (context: skipped during the install; fix: ${t.fix})`);
+  if (!lines.length) return;
+  await writeFile(inbox, `${existing.trimEnd()}\n${lines.join('\n')}\n`);
+  ui.info('The skipped items were also noted in ai-docs/inbox.md (the agents pick pending work up from there).');
+}
+
 /** One-line stack summary for the final note (null without a manifest). */
 function stackSummaryLine(ctx) {
   if (ctx.stackPath === 'template') return 'Stack:   IAI recommended — manifest in ai-docs/stack.md';
@@ -96,6 +124,10 @@ export async function finish(ctx) {
   // the start of installTemplate) BEFORE the final commit, so a future run
   // doesn't mistake this folder for a half-finished installation.
   await rm(join(ctx.dir, STATE_MARKER), { force: true }).catch(() => {});
+
+  // Preflight skips go into ai-docs/inbox.md BEFORE the final commit below —
+  // writing them later would leave the tree dirty right after the install.
+  if (ctx.pendingTools?.length) await appendPendingToInbox(ctx).catch(() => {});
 
   // Final commit (best-effort): FIA, stack manifest and Impeccable land
   // AFTER the harness commit — without this the installation would end with a
@@ -197,6 +229,16 @@ export async function finish(ctx) {
     ui.note(
       pendingNotes.map((n) => `• ${n.text}`).join('\n'),
       'Addons — what is left to activate (each one works/degrades gracefully until then)',
+    );
+  }
+
+  // Tools skipped in the preflight (git/gh/vercel or their logins): one panel
+  // with the exact fix for each — and the same items dropped into
+  // ai-docs/inbox.md, where the agents already look for pending work.
+  if (ctx.pendingTools?.length) {
+    ui.note(
+      ctx.pendingTools.map((t) => `• ${t.title}\n  ${t.fix}`).join('\n'),
+      'Skipped during the install — finish later (you, or hand it to the agent)',
     );
   }
 
