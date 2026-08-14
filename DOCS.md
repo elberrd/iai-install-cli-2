@@ -1007,6 +1007,8 @@ npm run env:check     # node imp/scripts/env-preflight.mjs      (dev keys prefli
 npm run fda:status    # node imp/scripts/fda-lock.mjs status    (is an FDA running?)
 npm run docs:commit   # node imp/scripts/docs-commit.mjs        (ai-docs-only commit)
 npm run tui           # node imp/scripts/fia-tui.mjs            (terminal dashboard)
+npm run handoff       # node imp/scripts/handoff.mjs            (continue the newest
+                      #   Pi conversation in `claude` — see §14.3, `imp handoff`)
 ```
 
 ### 9.2 The FDA runners
