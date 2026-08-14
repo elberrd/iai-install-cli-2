@@ -2,8 +2,10 @@ import { existsSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { COMMUNITY } from '../config.js';
-import { run, runInherit } from '../lib/proc.js';
+import { has, run, runInherit } from '../lib/proc.js';
 import { piCodexReady } from '../lib/pi-auth.js';
+import { osKind } from '../lib/platform.js';
+import { CLAUDE_INSTALL_HINT } from './preflight.js';
 import { STACK_CATEGORIES, STACK_LATER } from '../stack-catalog.js';
 import { relToCwd, STATE_MARKER } from './project.js';
 import * as ui from '../lib/ui.js';
@@ -147,6 +149,34 @@ export async function finish(ctx) {
       .filter(Boolean)
       .join('\n'),
     'All set ✅',
+  );
+
+  // Engines roster: ONE panel, at the end, with the state of each engine and
+  // the exact command for whatever is missing. Presence is probed NOW — not
+  // reused from the preflight snapshot — because the user may have installed
+  // Claude Code in another terminal while this run was going. Nothing here is
+  // required: the professional decides which subscriptions to use.
+  const claudeReady = await has('claude');
+  const codexReady = piCodexReady();
+  ui.note(
+    [
+      claudeReady
+        ? '✅ Claude Code (Claude Pro/Max) — installed. Not logged in yet? Run `claude` once and finish in the browser.'
+        : `○ Claude Code (Claude Pro/Max) — not installed.\n   Install:  ${CLAUDE_INSTALL_HINT[osKind()]}\n   Then run \`claude\` once to log in.`,
+      ctx.fiaInstalled
+        ? codexReady
+          ? '✅ Codex (ChatGPT Plus/Pro, via Pi) — logged in.'
+          : `○ Codex (ChatGPT Plus/Pro, via Pi) — login pending.\n   Log in:  run \`${agentCmd(ctx)}\` and type /login openai-codex.`
+        : null,
+      '',
+      'Neither is mandatory. Agents give the best results with Claude and/or Codex,',
+      ctx.fiaInstalled
+        ? 'but Pi also accepts other providers/models — type /login inside Pi to see them.'
+        : 'but you can also work through Cursor or add engines later at any time.',
+    ]
+      .filter(Boolean)
+      .join('\n'),
+    'Engines — who runs your agents',
   );
 
   // Integrations report: what the keys step left ACTIVE and what is still

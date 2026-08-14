@@ -184,7 +184,7 @@ prelude, then the tail for the chosen mode).
 | #  | Step | File | Notes |
 | -- | ----- | ------- | ----- |
 | 1  | Access — sign in (optional) | `steps/auth.js` | Valid session → "Welcome back"; otherwise offers the device-flow login. Declining sets **guest mode** (§2) |
-| 2  | Claude Code | `steps/preflight.js` | Blocks if missing/logged out |
+| 2  | Engines — Claude Code and Codex | `steps/preflight.js` | Status only — NEVER blocks. Missing engine → install/login guidance and the run continues; the final summary repeats the roster with the exact commands |
 | 3  | Name and folder | `steps/project.js` | `.` installs in the current folder |
 | 4  | **How to start — mode + stack path** | `steps/mode.js` | Sets `ctx.mode` + `ctx.stackPath`; agent-files conflict policy asked here too |
 | 5  | Your stack — layer by layer | `steps/stack.js` | Only the `custom` path asks; may switch `ctx.mode` to `full` (never for guests) |

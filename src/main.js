@@ -6,7 +6,7 @@ import * as ui from './lib/ui.js';
 import { initLog, getLogPath, logLine, redactSecret } from './lib/log.js';
 import { run } from './lib/proc.js';
 import { ensureAuthenticated } from './steps/auth.js';
-import { ensureClaudeCode, ensureCliTools, ensureFiaAuth } from './steps/preflight.js';
+import { checkEngines, ensureCliTools, ensureFiaAuth } from './steps/preflight.js';
 import { promptProject, fetchTemplate, installTemplate, addMcps } from './steps/project.js';
 import { resolveTemplateId } from './steps/template.js';
 import { stepEnabled } from './lib/pipeline.js';
@@ -95,7 +95,7 @@ export async function main(flags = {}) {
   // the folder is prepared and the harness is merged into it.
   const preludeSteps = [
     ['Access — sign in to the community (optional)', () => ensureAuthenticated(ctx)],
-    ['Prerequisite: Claude Code', () => ensureClaudeCode(flags)],
+    ['Engines — Claude Code and Codex (status only, never blocks)', () => checkEngines(ctx)],
     ['Project — target folder (the project name is the folder name)', async () => Object.assign(ctx, await promptProject(flags))],
     ['How to start — ready-made template, your own stack, or decide later', () => selectInstallMode(ctx)],
     // Only the "build my stack" path asks here; the others pass straight through.
@@ -122,8 +122,8 @@ export async function main(flags = {}) {
       () => ensureCliTools({ vercel: ctx.decisions?.deploy === true, ghAuth: ctx.decisions?.push === true, flags }),
       'core',
     ],
-    // FIA subscriptions: Claude was already validated in the prelude
-    // (ensureClaudeCode); here we only make sure Pi is installed/updated — the
+    // FIA subscriptions: the engines were probed in the prelude (checkEngines,
+    // informational only); here we only make sure Pi is installed/updated — the
     // Codex login is the user's last step, AFTER the install finishes (the
     // final notes explain it).
     [

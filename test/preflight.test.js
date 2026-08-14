@@ -1,6 +1,22 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { installPlan } from '../src/steps/preflight.js';
+import { checkEngines, installPlan } from '../src/steps/preflight.js';
+
+// The engines probe is informational by contract: with NOTHING on PATH it must
+// still resolve (no prompt, no process.exit) and record the status in ctx.
+// A reintroduced gate would hang or kill this run — that's the guard.
+test('checkEngines: never blocks — resolves and records status even with no engine on PATH', async () => {
+  const originalPath = process.env.PATH;
+  process.env.PATH = '';
+  const ctx = {};
+  try {
+    await checkEngines(ctx);
+  } finally {
+    process.env.PATH = originalPath;
+  }
+  assert.equal(ctx.engines.claude, false);
+  assert.equal(typeof ctx.engines.codex, 'boolean');
+});
 
 // `installPlan` depends on the OS via osKind() (reads process.platform), so we
 // pin the platform in each case.

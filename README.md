@@ -229,10 +229,12 @@ the agent harness (skills, commands, gates) and the FIA runtime:
 - An **active [Impactus Academy](https://www.impactus.academy) enrollment**
   for the templates + automated pipeline (optional: without it the installer
   delivers the harness + agent only)
-- **Claude Code** installed and logged in with a Claude **Pro/Max**
-  subscription
-- For FIA's Codex roles: a **ChatGPT Plus/Pro** subscription (login at the
-  end via `/login openai-codex` in Pi)
+- Recommended, **not required** (the installer only warns and keeps going):
+  **Claude Code** with a Claude **Pro/Max** subscription, and/or — for FIA's
+  Codex roles — a **ChatGPT Plus/Pro** subscription (login at the end via
+  `/login openai-codex` in Pi). With neither, everything still installs; you
+  get the best results with one of these, and other providers/models can be
+  added later inside Pi with `/login`.
 
 Everything runs inside these subscriptions — no API keys, no per-token
 billing.
