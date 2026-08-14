@@ -1,8 +1,10 @@
-# CLAUDE.md — impactus (the IAI installer)
+# CLAUDE.md — IMPACTUS CLI (the IAI installer)
 
 ## What this is
 
-`impactus` is the IAI installer CLI, published on npm. Students run
+**IMPACTUS CLI** is the IAI installer, published on npm as `impactus` (the
+brand name is "IMPACTUS CLI"; the package/command stays lowercase — npm
+forbids spaces/uppercase and `npx impactus` is already public). Students run
 `npx impactus` (or the `imp` brand launcher) to stamp a project with the agent
 harness plus the FIA — the IAI Agent Factory: Pi as the interactive agent,
 deterministic FDAs (fully-automated dev agents), and subscription-based auth

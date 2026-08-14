@@ -33,7 +33,7 @@ import { finish } from './steps/finish.js';
 
 export async function main(flags = {}) {
   initLog();
-  ui.intro('impactus');
+  ui.intro('IMPACTUS CLI');
   ui.message(
     'IAI installer v2: agent harness + FIA (the IAI Agent Factory, with Pi and FDAs).\n' +
       'First I ask every decision and show a summary; you confirm and I run everything at once.',

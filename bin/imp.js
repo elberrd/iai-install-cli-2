@@ -53,7 +53,7 @@ function banner() {
 
 function helpText() {
   return `
-imp — the IMPACTUS Academy CLI (Pi + the IAI harness)
+imp — the IMPACTUS CLI launcher (Pi + the IAI harness)
 
 Usage:
   imp                    Start Pi in the current folder (installs Pi if missing)
