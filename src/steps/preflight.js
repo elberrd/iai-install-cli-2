@@ -1,64 +1,65 @@
 import process from 'node:process';
-import { existsSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { existsSync } from 'node:fs';
 import { has, run, runInherit } from '../lib/proc.js';
 import { ensurePiReady, piCodexReady } from '../lib/pi-auth.js';
 import { osKind, detectPackageManagers } from '../lib/platform.js';
 import * as ui from '../lib/ui.js';
 
-const CLAUDE_INSTALL_HINT = {
+export const CLAUDE_INSTALL_HINT = {
   mac: 'curl -fsSL https://claude.ai/install.sh | bash   (or: brew install --cask claude-code)',
   linux: 'curl -fsSL https://claude.ai/install.sh | bash',
   windows: 'irm https://claude.ai/install.ps1 | iex   (or: winget install Anthropic.ClaudeCode)',
 };
 
-// ── Gate 0: Claude Code (checked first of all) ──────────────────────────────
+// ── Engines: Claude Code and Codex (status only — NEVER blocks) ─────────────
+//
+// The installer itself never runs an agent. `claude` is only used to register
+// MCPs (`claude mcp add`, which degrades to a manual note when absent) and the
+// Codex login has always been the user's last step, inside Pi, AFTER the
+// install. The engines belong to the professional, not to the installer — a
+// missing one produces guidance and moves on; the final summary (finish.js)
+// shows the same roster with the exact commands. There is deliberately no
+// login probe for `claude`: no heuristic is reliable, and the `claude` CLI
+// walks the user through its own login on first run anyway.
 
-export async function ensureClaudeCode(flags = {}) {
-  ui.step('Checking Claude Code…');
-  if (!(await has('claude'))) {
-    ui.error('Claude Code not found.');
+export async function checkEngines(ctx = {}) {
+  ui.step('Checking the engines (Claude Code and Codex)…');
+  const claude = await has('claude');
+  const codex = piCodexReady();
+  ctx.engines = { claude, codex };
+
+  if (claude) {
+    ui.success('Claude Code found.');
+  } else {
+    ui.warn('Claude Code not found — optional: the install continues without it.');
+    ui.info(`To install later:  ${CLAUDE_INSTALL_HINT[osKind()]}   (then run \`claude\` once to log in)`);
+  }
+  if (codex) {
+    ui.success('Codex login found (Pi).');
+  } else {
+    ui.info('Codex login not done yet — normal: it is the last step, inside Pi (/login openai-codex).');
+  }
+
+  if (!claude && !codex) {
     ui.note(
       [
-        'Install Claude Code and log in before continuing:',
+        'Neither Claude Code nor a Codex login was found. Nothing stops here —',
+        'the engines are used by the agents AFTER the install, never by the installer.',
         '',
-        `  ${CLAUDE_INSTALL_HINT[osKind()]}`,
-        '',
-        'Then log in by running:  claude   (finish in the browser)',
-        '',
-        'Run this installer again when you are done.',
+        'You will get the best results with one of these subscriptions, but you can',
+        'also log in to other providers/models later, inside Pi, with /login.',
+        'The final summary shows the exact commands for every option.',
       ].join('\n'),
-      'Claude Code is required',
+      'No engine yet — the install continues',
     );
-    process.exit(1);
   }
-
-  // No reliable scriptable login gate for `claude` — best-effort heuristic.
-  if (!(await detectClaudeLogin())) {
-    ui.warn("I couldn't confirm whether you are logged in to Claude Code.");
-    const ok = flags.yes
-      ? true // non-interactive mode assumes the login was done
-      : await ui.confirm({
-          message: 'Have you already logged in to Claude Code (ran `claude` and authenticated)?',
-          initialValue: true,
-        });
-    if (!ok) {
-      ui.note(
-        'Run `claude`, finish the login in the browser and run this installer again.',
-        'Log in to Claude Code',
-      );
-      process.exit(1);
-    }
-  }
-  ui.success('Claude Code ready.');
 }
 
 /**
  * Ensure the Pi CLI (install/update) when FIA will be installed. NO login
  * here: the Codex `/login` is the user's last step, AFTER the install
  * finishes — opening Pi mid-install invited a Ctrl+C that killed the stamp
- * halfway. Claude Code is checked separately in ensureClaudeCode.
+ * halfway. Claude Code is probed separately in checkEngines (status only).
  */
 export async function ensureFiaAuth(flags = {}) {
   if (flags.skipFia || flags.fia === false) {
@@ -72,24 +73,6 @@ export async function ensureFiaAuth(flags = {}) {
   } else {
     ui.info('Codex login not done yet — that is fine: the install finishes everything and the login is the last step.');
   }
-}
-
-async function detectClaudeLogin() {
-  if (process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN) return true;
-  const credFile = join(homedir(), '.claude', '.credentials.json');
-  try {
-    if (existsSync(credFile) && statSync(credFile).size > 0) return true;
-  } catch {
-    /* ignore */
-  }
-  if (osKind() === 'mac') {
-    // Claude Code stores its OAuth token in the login keychain. The service
-    // name has varied across versions, so probe the known candidates.
-    for (const service of ['Claude Code-credentials', 'Claude Code', 'claude-code']) {
-      if ((await run('security', ['find-generic-password', '-s', service])).ok) return true;
-    }
-  }
-  return false;
 }
 
 // ── CLIs: Git, GitHub CLI, Vercel CLI ───────────────────────────────────────
