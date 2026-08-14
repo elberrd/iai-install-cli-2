@@ -4,7 +4,7 @@ import { Tracer } from './tracer.mjs';
 import { Run } from './runner.mjs';
 import { engineerName, newId, nowIso } from './utils.mjs';
 import { resolveEngines } from './engines.mjs';
-import { readEngineErrors, shouldArmFallback } from './continuation.mjs';
+import { readEngineErrors, relayModeOf, shouldArmFallback } from './continuation.mjs';
 
 function pidAlive(pid) {
   try {
@@ -124,8 +124,10 @@ export function ensure(cfg, fdaId = null, { resume = false } = {}) {
   // the interrupted run's engine-failure markers count as unavailability too
   // (that engine already proved it cannot finish), so the resumed run keeps
   // moving on the fallbacks instead of dying on the same outage again.
+  // relay 'off' means the student owns every engine switch — the resumed run
+  // must not walk the chain on its own either.
   const runtimeFailures = {};
-  if (resume && fdaId) {
+  if (resume && fdaId && relayModeOf(cfg) !== 'off') {
     const markers = readEngineErrors(join(dataDir, 'sessions', fdaId));
     for (const [name, marker] of Object.entries(markers)) {
       if (shouldArmFallback(marker)) runtimeFailures[name] = marker;
