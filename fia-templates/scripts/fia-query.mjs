@@ -21,9 +21,14 @@ if (!existsSync(dbPath)) {
 const db = new Database(dbPath, { readonly: true });
 
 if (cmd === 'sessions') {
+  // `relayed` counts engine switches (run-start fallback + mid-run relay) so
+  // a run that finished on a substitute engine is visible at a glance.
   const rows = db
     .prepare(
-      'SELECT fda_id, status, engineer, substr(request,1,60) AS request, total_tokens FROM sessions ORDER BY started_at DESC LIMIT 20',
+      `SELECT s.fda_id, s.status, s.engineer, substr(s.request,1,60) AS request, s.total_tokens,
+              (SELECT COUNT(*) FROM events e WHERE e.fda_id = s.fda_id
+                 AND e.type IN ('engine_fallback','engine_relay')) AS relayed
+       FROM sessions s ORDER BY s.started_at DESC LIMIT 20`,
     )
     .all();
   emit(rows);

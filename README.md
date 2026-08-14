@@ -119,7 +119,7 @@ imp tui                        # the project dashboard in the terminal
 | `/kit` | Design-system audit of existing code: as-built registry, gap report, design-only tasks. |
 | `/component`, `/theme`, `/design`, `/example` | Design system: add a component, change colors/fonts, redesign from references, register an external reference. |
 | `/launch` | Go live — public beta and production, with readiness gates. |
-| `/agents` | Visual roster editor: engine, model and fallbacks per FDA agent. |
+| `/agents` | Visual roster editor: engine, model and fallbacks per FDA agent — with automatic mid-run relay when an engine dies. |
 | `/status` | Progress + latest runs. |
 | `/guide [goal?]` | Lost? Reads the project state, confirms your goal in one question and charts the shortest route. |
 | `/note "idea"` | One line into `ai-docs/inbox.md` — zero questions. |

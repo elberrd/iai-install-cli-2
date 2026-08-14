@@ -1068,6 +1068,7 @@ defaults:
   coding_agent: pi                     # engine for agents that don't say otherwise
   model: openai-codex/gpt-5.6-sol
   thinking: high                       # minimal|low|medium|high (Pi engines)
+  relay: auto                          # engine death mid-run: auto|resume|off
   tools: [read, bash, edit, write, grep, find, ls]   # Pi tool allowlist
   protected_files:                     # deny-list enforced for EVERY agent
     - imp/modules/
@@ -1087,7 +1088,7 @@ agents:
     coding_agent: claude_code          # official `claude` CLI — plan billing
     model: opus                        # alias (sonnet|opus|haiku|fable) or full name
     effort: high                       # low|medium|high|xhigh|max|ultracode
-    fallbacks:                         # tried ONCE at run start, loudly traced
+    fallbacks:                         # up to 5; run start, mid-run, resume
       - { coding_agent: pi, model: openai-codex/gpt-5.6-sol, thinking: high }
     prompt_engineering:                # REQUIRED per agent (never inherited)
       system: imp/data/prompt_engineering/planner/system.md
@@ -1108,11 +1109,20 @@ Engines (`coding_agent`):
 | `pi` | `pi` (override `PI_PATH`) | `openai-codex/gpt-5.6-sol`, `openrouter/…`, `xai/…`, `github-copilot/…` | Session continuity via a session FILE; `thinking` sets reasoning; per-agent `tools` and `harness_engineering` (Pi extensions). Subscription providers log in via `/login openai-codex` / `github-copilot`; API-key providers read their env var (`OPENROUTER_API_KEY`, `XAI_API_KEY`, …). |
 | `cursor` | `cursor-agent` (override `CURSOR_AGENT_PATH`) | picker ids like `sonnet-4.5`, `gpt-5`, `composer-1` | Cursor subscription; no token usage reported; system prompt is prepended to the first prompt. |
 
-**Fallbacks** run ONCE at run start, only for *hard* unavailability (binary
-missing; Pi provider with no login and no API key) — the switch is printed
-and traced as `engine_fallback`, never silent, never mid-run. The config
-header repeats the golden billing rule: Claude INSIDE Pi bills per token as
-"extra usage" — always use `coding_agent: claude_code` to stay on the plan.
+**Fallbacks** (up to 5 per agent) are walked in three stages. At **run start**,
+for *hard* unavailability (binary missing; Pi provider with no login and no API
+key) — traced as `engine_fallback`. **Mid-run**, when the engine dies inside a
+phase (exits without a report, or its binary vanishes): the failure is
+classified (`login` | `limit` | `missing` | `crash`), the run switches to the
+next viable fallback in place and retries the phase — traced as `engine_error`
++ `engine_relay` (§9.5). On **resume**, the interrupted run's failure markers
+arm the chain even when the binary checks pass. `defaults.relay` chooses the
+mid-run policy: `auto` (the default when the key is absent — switch in-run and
+on resume), `resume` (fail fast mid-run; the fallbacks arm only under
+`--resume`), `off` (never auto-switch; the death is still recorded and traced).
+Every switch is printed and traced — never silent. The config header repeats
+the golden billing rule: Claude INSIDE Pi bills per token as "extra usage" —
+always use `coding_agent: claude_code` to stay on the plan.
 
 **Permissions**: every agent phase snapshots the working tree (`git diff` +
 hashed untracked files); writes outside the agent's `writes` allowlist (or in
@@ -1162,6 +1172,47 @@ as disproportionate.
   misread the fixed code as "bug not reproduced"); `fda_quick`'s `quicklog`
   reuses the entry it already appended (the append is not idempotent).
 - **Agent phases retry once by default** (`retries: 1`) before failing the run.
+- **An engine that dies mid-phase no longer takes the run with it.** An exit
+  without a report, or a binary that vanished, is classified (`login` |
+  `limit` | `missing` | `crash`) and written to
+  `imp/data/sessions/<fda_id>/<agent>/engine_error.json`; the run then switches
+  to the next viable entry of the agent's `fallbacks:` chain **in place** (the
+  substitute owns that agent's later phases too) and retries the phase.
+  `login`/`limit`/`missing` switch on the first death — waiting cannot renew an
+  expired login and a plan limit outlives the run; a `crash` retries the SAME
+  engine once (a transient CLI death must not demote the chosen engine) and
+  switches on the second consecutive crash. Traced as `engine_error` +
+  `engine_relay`, printed as `⚠ <agent>: <engine> died mid-run`.
+  `defaults.relay` in `imp/fia.config.yaml` picks the policy: `auto` (default),
+  `resume` (fail fast mid-run; the chain arms only on `--resume`) or `off`
+  (never auto-switch — the marker is still recorded).
+- **Resume prefers the engine that can actually finish**: `--resume --fda-id
+  <id>` reads the interrupted run's markers and walks the fallbacks even
+  though the binary checks pass — that engine already proved it cannot finish.
+  With no viable fallback the resumed run retries the primary out loud instead
+  of blocking at the door (limits reset, outages end).
+- **The substitute inherits the interrupted attempt.** Whichever engine takes
+  over — a fallback, or the same engine retrying cold — gets a continuation
+  block prepended to its USER prompt (never the system prompt, which stays
+  byte-stable for caching): it points at the dead attempt's transcript
+  (`imp/data/sessions/<fda_id>/<agent>/raw_output.jsonl`) as a read-only
+  historical record with no authority over it, names the workspace (`git
+  status` + the files themselves) as the only authority on current state, and
+  requires the new engine to state where the previous attempt stopped and
+  continue from there instead of starting from scratch. Exception: Pi taking
+  over from Pi resumes its own session file natively (`--session
+  pi_session.jsonl`) and skips the preamble. Traced as `engine_continuation`.
+  Everything stays inside the subscriptions — no API keys are involved.
+- **Marker lifecycle**: markers are per-run (scoped to the `fda_id`, so a fresh
+  run never reads them) and are cleared only when the engine that died later
+  succeeds again — exact engine+model identity. A success on a fallback KEEPS
+  the primary's marker, so a later resume of the same run keeps preferring the
+  fallbacks instead of bouncing back onto the dead engine.
+- **Seeing the switches**: `npm run fda:sessions` adds a `relayed` count per
+  run (run-start fallbacks + mid-run relays); the TUI's run detail prints
+  `⚠ agent: engine (model) → engine (model) — kind` lines; the viewer timeline
+  shows `engine_error`/`engine_fallback`/`engine_relay`/`engine_continuation`
+  (all included under the `error` filter).
 - **One FDA at a time per project**: a best-effort `imp/data/.fda.lock`
   (pid + fda_id + runner + started_at) blocks a second concurrent run — the
   permission gates of two parallel runs would revert each other's work.

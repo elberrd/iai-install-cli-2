@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import * as agentPi from './agent-pi.mjs';
@@ -6,6 +6,8 @@ import * as agentClaude from './agent-claude.mjs';
 import * as agentCursor from './agent-cursor.mjs';
 import * as prompts from './prompts.mjs';
 import * as permissions from './permissions.mjs';
+import * as continuation from './continuation.mjs';
+import { checkEngines, engineIssue } from './engines.mjs';
 import { makeStreamRecorder } from './stream-events.mjs';
 import { extractJson, getOutputSchema } from './envelopes.mjs';
 import { gateReport } from './gates.mjs';
@@ -13,6 +15,28 @@ import { gateReport } from './gates.mjs';
 const JSON_FIX_ATTEMPTS = 2;
 
 export class GateFailure extends Error {}
+
+/**
+ * An engine-level death — spawn failure or a non-zero exit without a report.
+ * The ONLY failures that may arm the relay: gate, parse and permission
+ * failures mean the engine worked and must never switch engines.
+ */
+export class EngineFailure extends Error {
+  constructor(message, { kind, coding_agent, model }) {
+    super(message);
+    this.kind = kind;
+    this.coding_agent = coding_agent;
+    this.model = model;
+  }
+}
+
+// Engine dispatch table, exported as a test seam: tests replace entries with
+// in-process fakes so relay behavior is testable without spawning any CLI.
+export const engineAdapters = {
+  claude_code: agentClaude.runClaude,
+  cursor: agentCursor.runCursor,
+  pi: agentPi.runPi,
+};
 
 export function loadConfig(path = 'imp/fia.config.yaml') {
   const raw = parseYaml(readFileSync(path, 'utf8')) || {};
@@ -103,7 +127,7 @@ async function send(run, phase, agent, promptText, systemText, sessionMeta) {
   const onEvent = makeStreamRecorder(run, phase, agent);
 
   if (agent.coding_agent === 'claude_code') {
-    return agentClaude.runClaude(
+    return engineAdapters.claude_code(
       {
         prompt: promptText,
         systemPrompt: systemText,
@@ -124,7 +148,7 @@ async function send(run, phase, agent, promptText, systemText, sessionMeta) {
   }
 
   if (agent.coding_agent === 'cursor') {
-    return agentCursor.runCursor(
+    return engineAdapters.cursor(
       {
         prompt: promptText,
         systemPrompt: systemText,
@@ -142,7 +166,7 @@ async function send(run, phase, agent, promptText, systemText, sessionMeta) {
     );
   }
 
-  return agentPi.runPi(
+  return engineAdapters.pi(
     {
       prompt: promptText,
       systemPrompt: systemText,
@@ -198,24 +222,20 @@ function stderrTail(rawOutputPath, fallbackText) {
   return lines.slice(-10);
 }
 
-/** Recovery hint matched against the failure text — cause + exact command. */
+/**
+ * Recovery hint matched against the failure text — cause + exact command.
+ * Routes through the shared classifier (continuation.mjs) so the hint shown
+ * to the student and the relay's arming decision can never disagree.
+ */
 function engineHint(text, agent) {
-  const t = String(text).toLowerCase();
-  if (
-    /log ?in|logged out|log out|credential|unauthorized|unauthenticated|authentication|auth error|401|token expired|expired token/.test(
-      t,
-    )
-  ) {
+  const kind = continuation.classifyEngineFailure(text);
+  if (kind === 'login') {
     const cmd =
       { claude_code: '`claude`', pi: '`pi` and then /login', cursor: '`cursor-agent login`' }[agent.coding_agent] ||
       agent.coding_agent;
     return `This looks like a login problem. Open a terminal, run ${cmd}, sign in again, then re-run this FDA.`;
   }
-  if (
-    /rate limit|rate-limit|limit reached|usage limit|weekly limit|too many requests|429|quota|overloaded|capacity/.test(
-      t,
-    )
-  ) {
+  if (kind === 'limit') {
     return 'This looks like your subscription plan limit. Limits reset on their own — wait a while and re-run this FDA. No extra payment is needed.';
   }
   return `The ${agent.coding_agent} CLI exited with an error before answering. Re-run this FDA; if it persists, run the CLI by hand to see the problem.`;
@@ -240,6 +260,107 @@ async function parseWithRetries(run, phase, call, result, sendFn) {
   }
 }
 
+const engineKey = (e) => `${e.coding_agent}\0${e.model}`;
+
+/**
+ * First declared fallback that is installed/authenticated and not yet tried
+ * in this phase — the same hard checks run-start resolution uses.
+ */
+function pickRelayFallback(agent, tried) {
+  const engines = checkEngines();
+  for (const fb of Array.isArray(agent.fallbacks) ? agent.fallbacks : []) {
+    if (!fb || !fb.coding_agent || !fb.model) continue;
+    if (tried.has(engineKey(fb))) continue;
+    if (engineIssue(fb, engines)) continue;
+    return fb;
+  }
+  return null;
+}
+
+/** The interrupted Pi session file of this agent, when it has content. */
+function piSessionPathIfAny(agentDir) {
+  const sessionFile = join(agentDir, 'pi_session.jsonl');
+  try {
+    if (statSync(sessionFile).size > 0) return sessionFile;
+  } catch {
+    /* absent */
+  }
+  return null;
+}
+
+/**
+ * The user prompt for one relay leg: the rendered template, preceded by a
+ * continuation preamble when a previous attempt of this run died mid-work.
+ * Pi resuming its own session skips the preamble — the session file passed
+ * via --session already carries the interrupted conversation.
+ */
+function composeUserText(run, phase, agent, agentDir, variables) {
+  const userText = prompts.render(agent.prompt_engineering.user, variables);
+  const marker = continuation.readEngineError(agentDir);
+  if (!marker) return userText;
+  const piSession = piSessionPathIfAny(agentDir);
+  if (agent.coding_agent === 'pi' && marker.coding_agent === 'pi' && piSession) {
+    run.console.note(`${agent.name}: continuing the interrupted Pi session natively (--session)`);
+    return userText;
+  }
+  const transcriptPath = join(agentDir, 'raw_output.jsonl');
+  try {
+    run.tracer.event({
+      fda_id: run.fdaId,
+      phase_id: phase.phase_id,
+      type: 'engine_continuation',
+      name: agent.name,
+      payload: {
+        kind: marker.kind,
+        from: { coding_agent: marker.coding_agent, model: marker.model },
+        transcript: transcriptPath,
+      },
+    });
+  } catch {
+    /* tracing must never block the attempt */
+  }
+  run.console.engineContinuation(agent.name, transcriptPath);
+  return (
+    continuation.buildContinuationPreamble({
+      marker,
+      transcriptPath,
+      piSessionPath: marker.coding_agent === 'pi' ? piSession : null,
+    }) + userText
+  );
+}
+
+/** Persist the death (marker + engine_error event) — never masks the error. */
+function recordEngineFailure(run, phase, agent, agentDir, error) {
+  const marker = continuation.writeEngineError(agentDir, {
+    agent: agent.name,
+    fda_id: run.fdaId,
+    coding_agent: agent.coding_agent,
+    model: agent.model,
+    kind: error.kind,
+    message: error.message,
+    phase: phase.params.name,
+  });
+  try {
+    run.tracer.event({
+      fda_id: run.fdaId,
+      phase_id: phase.phase_id,
+      type: 'engine_error',
+      name: agent.name,
+      payload: {
+        kind: error.kind,
+        coding_agent: agent.coding_agent,
+        model: agent.model,
+        phase: phase.params.name,
+        count: marker.count,
+        message: String(error.message || '').slice(0, 500),
+      },
+    });
+  } catch {
+    /* tracing must never mask the failure */
+  }
+  return marker;
+}
+
 export async function execute(run, phase, call) {
   const agent = resolve(run.cfg, phase.params.owner);
   const variables = {
@@ -248,12 +369,70 @@ export async function execute(run, phase, call) {
     context_handoff_dir: run.contextHandoffDir,
   };
   const systemText = prompts.render(agent.prompt_engineering.system, variables);
-  const userText = prompts.render(agent.prompt_engineering.user, variables);
   const agentDir = join(run.sessionDir, agent.name);
   mkdirSync(join(agentDir, 'prompts'), { recursive: true });
   prompts.savePromptDir(join(agentDir, 'prompts'), 'system.md', systemText);
-  prompts.savePromptDir(join(agentDir, 'prompts'), 'user.md', userText);
 
+  // relay: 'auto' switches engines in-run on engine death; 'resume' arms the
+  // fallbacks only on --resume; 'off' never auto-switches. The key lives in
+  // the student's config (user-owned), so absence must mean the default.
+  const relayMode = ['auto', 'resume', 'off'].includes(run.cfg.defaults?.relay) ? run.cfg.defaults.relay : 'auto';
+  const tried = new Set([engineKey(agent)]);
+
+  for (;;) {
+    // Composed and saved BEFORE the send so the audit copy under prompts/
+    // shows what was actually sent — continuation preamble included.
+    const userText = composeUserText(run, phase, agent, agentDir, variables);
+    prompts.savePromptDir(join(agentDir, 'prompts'), 'user.md', userText);
+    try {
+      const envelope = await attemptPhase(run, phase, call, agent, agentDir, systemText, userText);
+      continuation.clearEngineError(agentDir, agent);
+      return envelope;
+    } catch (error) {
+      if (!(error instanceof EngineFailure)) throw error;
+      const marker = recordEngineFailure(run, phase, agent, agentDir, error);
+      if (relayMode !== 'auto') throw error;
+      if (!continuation.shouldArmFallback(marker)) {
+        // A first crash retries the SAME engine once, cold, with the
+        // continuation preamble — one transient CLI death must not demote
+        // the engine the student chose.
+        run.console.engineRetry(agent.name, 'first crash — retrying the same engine once');
+        continue;
+      }
+      const next = pickRelayFallback(agent, tried);
+      if (!next) throw error;
+      const from = { coding_agent: agent.coding_agent, model: agent.model };
+      // Mutate in place (same semantics as resolveEngines): later phases owned
+      // by this agent stay on the substitute for the rest of the run.
+      agent.coding_agent = next.coding_agent;
+      agent.model = next.model;
+      if (next.effort !== undefined) agent.effort = next.effort;
+      if (next.thinking !== undefined) agent.thinking = next.thinking;
+      tried.add(engineKey(agent));
+      run.console.engineRelay(agent.name, from, { coding_agent: agent.coding_agent, model: agent.model }, error.kind);
+      try {
+        run.tracer.event({
+          fda_id: run.fdaId,
+          phase_id: phase.phase_id,
+          type: 'engine_relay',
+          name: agent.name,
+          payload: { from, to: { coding_agent: agent.coding_agent, model: agent.model }, kind: error.kind },
+        });
+      } catch {
+        /* tracing must never mask the relay */
+      }
+    }
+  }
+}
+
+/**
+ * One full attempt of the phase on the agent's CURRENT engine: session
+ * resolution, sends, gate loop, permission enforcement, envelope persistence
+ * and usage stamping. One call per relay leg — each leg owns its own tree
+ * snapshot, spend counters and enforced flag, so a dead leg's spend is
+ * stamped on the engine that burned it and never re-attributed.
+ */
+async function attemptPhase(run, phase, call, agent, agentDir, systemText, userText) {
   // Resume only a session we've actually seen; engines mint the real id on the
   // first send and corrections MUST continue that same session.
   let sessionId = resumeSessionId(run, agent);
@@ -279,17 +458,27 @@ export async function execute(run, phase, call) {
   const doSend = async (promptText) => {
     const result = await send(run, phase, agent, promptText, systemText, { sessionId });
     if (result.returncode === 127) {
-      throw new Error(`${agent.name} (${agent.coding_agent}): ${result.text}`);
+      throw new EngineFailure(`${agent.name} (${agent.coding_agent}): ${result.text}`, {
+        kind: 'missing',
+        coding_agent: agent.coding_agent,
+        model: agent.model,
+      });
     }
     // Any other non-zero exit without a parseable envelope (not logged in, plan
     // limit, invalid session…) fails IMMEDIATELY with the engine's own words —
     // burning JSON-fix attempts on it would only hide the real cause.
     if (result.returncode !== 0 && !containsEnvelope(result.text)) {
       const tail = stderrTail(rawOutputPath, result.text);
-      throw new Error(
+      const failureText = `${tail.join('\n')}\n${result.text}`;
+      throw new EngineFailure(
         `${agent.name} (${agent.coding_agent}) exited with code ${result.returncode} without a report.\n` +
           (tail.length ? `Engine output (last lines):\n  ${tail.join('\n  ')}\n` : '') +
-          engineHint(`${tail.join('\n')}\n${result.text}`, agent),
+          engineHint(failureText, agent),
+        {
+          kind: continuation.classifyEngineFailure(failureText),
+          coding_agent: agent.coding_agent,
+          model: agent.model,
+        },
       );
     }
     if (result.session_id) sessionId = result.session_id;

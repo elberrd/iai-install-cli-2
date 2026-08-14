@@ -244,3 +244,77 @@ test('resolveEngines: flags per-token billing on the engine that actually runs',
     assert.equal(decisions[0].api_key_provider, 'openrouter');
   });
 });
+
+// ── resolveEngines with runtimeFailures (resume relay arming) ────────────────
+
+test('resolveEngines: a runtime marker arms the chain even with the binary present', () => {
+  withEnvironment({ bins: ['claude', 'cursor-agent'] }, () => {
+    const cfg = {
+      agents: [
+        {
+          name: 'builder',
+          coding_agent: 'claude_code',
+          model: 'sonnet',
+          fallbacks: [{ coding_agent: 'cursor', model: 'composer' }],
+        },
+      ],
+    };
+    const { decisions } = resolveEngines(cfg, null, {
+      runtimeFailures: { builder: { coding_agent: 'claude_code', model: 'sonnet', kind: 'limit', count: 1 } },
+    });
+    assert.equal(decisions[0].changed, true);
+    assert.equal(decisions[0].runtime, true);
+    assert.equal(decisions[0].kind, 'limit');
+    assert.match(decisions[0].reason, /failed during the interrupted run \(limit\)/);
+    assert.equal(cfg.agents[0].coding_agent, 'cursor');
+  });
+});
+
+test('resolveEngines: a marker for a DIFFERENT identity is ignored (roster edited since)', () => {
+  withEnvironment({ bins: ['claude'] }, () => {
+    const cfg = { agents: [{ name: 'builder', coding_agent: 'claude_code', model: 'opus' }] };
+    const { decisions } = resolveEngines(cfg, null, {
+      runtimeFailures: { builder: { coding_agent: 'claude_code', model: 'sonnet', kind: 'limit', count: 1 } },
+    });
+    assert.equal(decisions[0].changed, false);
+    assert.equal(decisions[0].retry_failed_engine, undefined);
+    assert.equal(cfg.agents[0].model, 'opus');
+  });
+});
+
+test('resolveEngines: a fallback equal to the dead identity is skipped', () => {
+  withEnvironment({ bins: ['claude', 'cursor-agent'] }, () => {
+    const cfg = {
+      agents: [
+        {
+          name: 'builder',
+          coding_agent: 'claude_code',
+          model: 'sonnet',
+          // First entry repeats the dead engine — walking onto it would just
+          // die again; the chain must land on cursor.
+          fallbacks: [
+            { coding_agent: 'claude_code', model: 'sonnet' },
+            { coding_agent: 'cursor', model: 'composer' },
+          ],
+        },
+      ],
+    };
+    const { decisions } = resolveEngines(cfg, null, {
+      runtimeFailures: { builder: { coding_agent: 'claude_code', model: 'sonnet', kind: 'login', count: 1 } },
+    });
+    assert.deepEqual(decisions[0].to, { coding_agent: 'cursor', model: 'composer' });
+  });
+});
+
+test('resolveEngines: runtime-only failure with no fallback yields retry, never blocked', () => {
+  withEnvironment({ bins: ['claude'] }, () => {
+    const cfg = { agents: [{ name: 'builder', coding_agent: 'claude_code', model: 'sonnet' }] };
+    const { decisions } = resolveEngines(cfg, null, {
+      runtimeFailures: { builder: { coding_agent: 'claude_code', model: 'sonnet', kind: 'limit', count: 1 } },
+    });
+    assert.equal(decisions[0].blocked, undefined);
+    assert.equal(decisions[0].retry_failed_engine, true);
+    assert.match(decisions[0].reason, /failed during the interrupted run/);
+    assert.equal(cfg.agents[0].coding_agent, 'claude_code');
+  });
+});

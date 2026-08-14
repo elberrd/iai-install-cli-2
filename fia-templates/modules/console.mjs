@@ -35,6 +35,18 @@ export function createConsole(_tracer, _fdaId) {
           `    → falling back to ${to.coding_agent} (${to.model}) for this run`,
       );
     },
+    engineRelay(agent, from, to, kind) {
+      console.log(
+        `  ⚠ ${agent}: ${from.coding_agent} (${from.model}) died mid-run (${kind})\n` +
+          `    → relaying to ${to.coding_agent} (${to.model}) and continuing this phase`,
+      );
+    },
+    engineContinuation(agent, transcriptPath) {
+      console.log(`  · ${agent}: handing over the interrupted attempt's transcript (${transcriptPath})`);
+    },
+    engineRetry(agent, reason) {
+      console.log(`  ⚠ ${agent}: ${reason}`);
+    },
     sessionFinished(ok, tokens, cost, db) {
       console.log(`\n══ ${ok ? 'ACCEPTED' : 'FAILED'} — ${tokens} tokens, $${cost.toFixed(4)} — trace: ${db} ══\n`);
     },

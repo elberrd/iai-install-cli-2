@@ -228,3 +228,12 @@ test('viewer: no db yet → sessions list empty, page still serves', async () =>
     server.close();
   }
 });
+
+test('agents editor: the fallback cap comes from MAX_FALLBACKS (server and page agree)', async () => {
+  const { MAX_FALLBACKS } = await import('../fia-templates/modules/engines.mjs');
+  const { PAGE } = await import('../fia-templates/scripts/fia-viewer-page.mjs');
+  // The page's "+ add fallback" affordance must use the shared constant — a
+  // hardcoded smaller number silently hides chain slots the server accepts.
+  assert.match(PAGE, new RegExp(`fallbacks\\.length < ${MAX_FALLBACKS} \\?`));
+  assert.doesNotMatch(PAGE, /fallbacks\.length < 3 \?/);
+});

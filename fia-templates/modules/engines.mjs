@@ -11,7 +11,11 @@
  * Fallbacks are declared per agent in imp/fia.config.yaml:
  *   fallbacks:
  *     - { coding_agent: pi, model: openai-codex/gpt-5.6-sol, thinking: high }
- * Resolution happens ONCE, at run start — never mid-run.
+ * Resolution runs at every run start. A `--resume` additionally feeds the
+ * interrupted run's engine-failure markers in as `runtimeFailures`, so an
+ * engine that died at runtime (outage, plan limit, expired login) walks the
+ * chain even though the local checks pass. Mid-run, agents.mjs relays down
+ * the same chain on engine death (see modules/continuation.mjs).
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
@@ -183,18 +187,35 @@ export function apiKeyProvider(agent) {
   return provider;
 }
 
-export function resolveEngines(cfg, required = null) {
+/** Ceiling for a declared fallbacks chain — the viewer (server AND page) and
+ *  config validation all read THIS, so the caps can never drift apart. */
+export const MAX_FALLBACKS = 5;
+
+export function resolveEngines(cfg, required = null, { runtimeFailures = {} } = {}) {
   const engines = checkEngines();
   const decisions = [];
   for (const agent of cfg.agents || []) {
     if (required && !required.includes(agent.name)) continue;
-    const reason = engineIssue(agent, engines);
+    const hardReason = engineIssue(agent, engines);
+    // A marker from the interrupted run counts as unavailability even though
+    // the local checks pass — that engine already proved it cannot finish.
+    // Exact identity match only: a roster edited since the failure means the
+    // marker no longer describes this agent's engine.
+    const marker = runtimeFailures[agent.name];
+    const markerApplies =
+      !hardReason && marker && marker.coding_agent === agent.coding_agent && marker.model === agent.model;
+    const reason = hardReason || (markerApplies ? `failed during the interrupted run (${marker.kind})` : null);
     let decision;
     if (!reason) {
       decision = { agent: agent.name, changed: false };
     } else {
       const chain = Array.isArray(agent.fallbacks) ? agent.fallbacks : [];
-      const pick = chain.find((fb) => fb && !engineIssue(fb, engines));
+      const pick = chain.find(
+        (fb) =>
+          fb &&
+          !(markerApplies && fb.coding_agent === marker.coding_agent && fb.model === marker.model) &&
+          !engineIssue(fb, engines),
+      );
       if (pick) {
         const from = { coding_agent: agent.coding_agent, model: agent.model };
         agent.coding_agent = pick.coding_agent;
@@ -208,8 +229,17 @@ export function resolveEngines(cfg, required = null) {
           to: { coding_agent: pick.coding_agent, model: pick.model },
           reason,
         };
-      } else {
+        if (markerApplies) {
+          decision.runtime = true;
+          decision.kind = marker.kind;
+        }
+      } else if (hardReason) {
         decision = { agent: agent.name, changed: false, blocked: true, reason };
+      } else {
+        // Runtime-only unavailability with no viable fallback must never
+        // block: limits reset and outages end. Retry the engine the student
+        // chose — loudly, so the retry is a decision the student can see.
+        decision = { agent: agent.name, changed: false, retry_failed_engine: true, reason, kind: marker.kind };
       }
     }
     // Flag per-token billing on the engine that will ACTUALLY run (post-fallback).

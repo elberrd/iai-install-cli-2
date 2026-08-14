@@ -4,6 +4,8 @@
  * no native selects/checkboxes. Inner script uses string concatenation only
  * (this file wraps everything in one template literal).
  */
+import { MAX_FALLBACKS } from '../modules/engines.mjs';
+
 export const PAGE = `<!doctype html>
 <html lang="en">
 <head>
@@ -756,11 +758,14 @@ function evClass(type){
   if(type==='gate_pass') return ['ty-gatep','gate_pass'];
   if(type==='gate_fail') return ['ty-gatef','gate_fail'];
   if(type==='phase_start'||type==='phase_end') return ['ty-phase',type];
-  if(type==='error') return ['ty-error','error'];
+  if(type==='error'||type==='engine_error') return ['ty-error',type];
+  if(type==='engine_fallback'||type==='engine_relay') return ['ty-gatef',type];
+  if(type==='engine_continuation') return ['ty-log',type];
   if(type==='agent_start'||type==='agent_end') return ['ty-agent',type];
   if(type==='log') return ['ty-log','log'];
   return ['ty-other',type];
 }
+var ENGINE_EVENTS = ['engine_error','engine_fallback','engine_relay','engine_continuation'];
 function evMatches(type){
   var f = S.evFilter;
   if(f==='all') return true;
@@ -768,7 +773,7 @@ function evMatches(type){
   if(f==='gate') return type==='gate_pass'||type==='gate_fail';
   if(f==='phase') return type==='phase_start'||type==='phase_end';
   if(f==='log') return type==='log';
-  if(f==='error') return type==='error'||type==='gate_fail';
+  if(f==='error') return type==='error'||type==='gate_fail'||ENGINE_EVENTS.indexOf(type)>=0;
   return true;
 }
 function renderEvFilters(){
@@ -1948,7 +1953,7 @@ function renderAgentsMain(){
           agPickerHtml(a.name, 'f' + i, fb) + '<span class="rm" data-fbrm="' + esc(a.name) + '" data-i="' + i + '" title="remove">×</span></div>' +
           (fb.coding_agent !== 'cursor' ? '<div style="margin-left:22px">' + agLevelHtml(a.name, 'f' + i, fb) + '</div>' : '');
       }).join('') +
-      (e.fallbacks.length < 3 ? '<span class="afbadd" data-fbadd="' + esc(a.name) + '">+ add fallback</span>' : '') +
+      (e.fallbacks.length < ${MAX_FALLBACKS} ? '<span class="afbadd" data-fbadd="' + esc(a.name) + '">+ add fallback</span>' : '') +
       '</div></div>';
   });
   html += '</div>';

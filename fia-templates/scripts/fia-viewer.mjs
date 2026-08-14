@@ -28,7 +28,7 @@ import { parse as parseYaml, parseDocument } from 'yaml';
 import { PAGE } from './fia-viewer-page.mjs';
 import { piSessionsDirFor, listPiSessions, readPiSession, readPiRun } from './pi-sessions.mjs';
 import { readPlanOverview, readPlanScreens, readPlanTasks, readPlanDesign, readPlanDoc } from './plan-docs.mjs';
-import { checkEngines, PI_ENV_KEYS, PI_OAUTH_PROVIDERS } from '../modules/engines.mjs';
+import { checkEngines, MAX_FALLBACKS, PI_ENV_KEYS, PI_OAUTH_PROVIDERS } from '../modules/engines.mjs';
 
 const DEFAULT_DB = process.env.FIA_DB || 'imp/data/fia.db';
 const DEFAULT_CONFIG = process.env.FIA_CONFIG || 'imp/fia.config.yaml';
@@ -192,7 +192,8 @@ export function startViewer({
       if (a.effort != null && !EFFORTS.includes(a.effort)) return `${a.name}: effort must be ${EFFORTS.join('|')}`;
       if (a.thinking != null && !THINKING.includes(a.thinking)) return `${a.name}: thinking must be ${THINKING.join('|')}`;
       if (a.fallbacks !== undefined) {
-        if (!Array.isArray(a.fallbacks) || a.fallbacks.length > 5) return `${a.name}: fallbacks must be a list of at most 5`;
+        if (!Array.isArray(a.fallbacks) || a.fallbacks.length > MAX_FALLBACKS)
+          return `${a.name}: fallbacks must be a list of at most ${MAX_FALLBACKS}`;
         for (const fb of a.fallbacks) {
           if (!fb || !CODING_AGENTS.includes(fb.coding_agent) || !modelOk(fb.model)) {
             return `${a.name}: each fallback needs coding_agent and model`;

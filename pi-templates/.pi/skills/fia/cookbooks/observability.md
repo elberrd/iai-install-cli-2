@@ -14,6 +14,7 @@ Full observability app, live-updating every 2s:
 - **Timeline (Gantt)**: one lane per owner, roster colors, dashed = running, red outline = failed
 - **Click a bar** → drill-down tabs: Overview (engine/model/tools/writes/context %), Gates (checks + attempts), Output (typed envelope JSON), Prompts (compiled system/user)
 - **Event stream**: live tool calls with real durations, gate results, phase/agent lifecycle — filterable by type, click to expand payload
+- **Engine switches**: `engine_error`, `engine_fallback`, `engine_relay` and `engine_continuation` mark every engine death, substitution and handover (all ride the `error` filter); `npm run fda:sessions` shows a `relayed` count per run
 
 Tool calls are captured by `imp/modules/stream-events.mjs` from both engines (Pi `tool_execution_*`, Claude `tool_use`/`tool_result`).
 
