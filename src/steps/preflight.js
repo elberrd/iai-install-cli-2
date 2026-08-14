@@ -157,13 +157,35 @@ const GH_APT_SCRIPT = [
   'sudo apt-get install -y gh',
 ].join('\n');
 
-async function installOrInstruct(tool, plan, { docsUrl, manualHint, flags = {} } = {}) {
+// Where winget/choco put each tool on Windows. A fresh install updates the
+// PATH in the registry, but NOT in this already-running process — so the
+// post-install check would fail even after a successful install. Appending
+// the known dir to process.env.PATH fixes this run (children inherit it).
+const WINDOWS_INSTALL_DIRS = {
+  git: ['C:\\Program Files\\Git\\cmd'],
+  gh: ['C:\\Program Files\\GitHub CLI'],
+};
+
+async function refreshWindowsPath(tool) {
+  if (osKind() !== 'windows') return;
+  for (const dir of WINDOWS_INSTALL_DIRS[tool] || []) {
+    if (existsSync(dir) && !(process.env.PATH || '').includes(dir)) {
+      process.env.PATH = `${process.env.PATH};${dir}`;
+    }
+  }
+}
+
+async function installOrInstruct(tool, plan, { docsUrl, manualHint, verify, flags = {} } = {}) {
+  const check = verify || (() => has(tool));
   if (plan) {
     ui.info(`Installing ${tool}: ${plan.bin} ${plan.args.join(' ')}`);
     const r = await runInherit(plan.bin, plan.args);
-    if (r.ok && (await has(tool))) {
-      ui.success(`${tool} installed.`);
-      return;
+    if (r.ok) {
+      await refreshWindowsPath(tool);
+      if (await check()) {
+        ui.success(`${tool} installed.`);
+        return;
+      }
     }
     ui.warn(`I couldn't install ${tool} automatically.`);
   } else {
@@ -193,21 +215,42 @@ async function installOrInstruct(tool, plan, { docsUrl, manualHint, flags = {} }
     `Install ${tool}`,
   );
   const done = await ui.confirm({ message: `Have you installed ${tool}?`, initialValue: true });
-  if (!done || !(await has(tool))) {
+  await refreshWindowsPath(tool);
+  if (!done || !(await check())) {
     ui.error(`${tool} is still not available. Aborting.`);
     process.exit(1);
   }
   ui.success(`${tool} ready.`);
 }
 
+/**
+ * `which git` is not enough on macOS: a fresh Mac ships /usr/bin/git as a
+ * shim for the Xcode Command Line Tools, so git looks "installed" while it
+ * cannot actually run. `git --version` is the real probe — and when the CLT
+ * are missing it also makes macOS open the "Install Command Line Developer
+ * Tools?" dialog, which IS the native git installer there.
+ */
+async function gitWorks() {
+  if (!(await has('git'))) return false;
+  return (await run('git', ['--version'])).ok;
+}
+
 async function ensureGit(pms, flags = {}) {
   ui.step('Checking Git…');
-  if (await has('git')) {
+  if (await gitWorks()) {
     ui.success('Git installed.');
     return;
   }
   ui.warn('Git not found — installing…');
-  await installOrInstruct('git', installPlan('git', pms), { docsUrl: 'https://git-scm.com/downloads', flags });
+  await installOrInstruct('git', installPlan('git', pms), {
+    docsUrl: 'https://git-scm.com/downloads',
+    manualHint:
+      osKind() === 'mac'
+        ? 'xcode-select --install   (accept the "Install Command Line Developer Tools" dialog — it may already be on screen)'
+        : undefined,
+    verify: gitWorks,
+    flags,
+  });
 }
 
 async function ensureGh(pms, flags = {}, { requireAuth = true } = {}) {
