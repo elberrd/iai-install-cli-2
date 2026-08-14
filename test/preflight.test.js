@@ -32,6 +32,34 @@ test('installPlan: git on apt runs update before install', () => {
   assert.match(plan.args[1], /apt-get update;\s*sudo apt-get install -y git/);
 });
 
+test('installPlan: git on windows uses winget (Git.Git) or choco as fallback', () => {
+  assert.deepEqual(
+    onPlatform('win32', () => installPlan('git', { winget: true })),
+    {
+      bin: 'winget',
+      args: ['install', '--id', 'Git.Git', '-e', '--source', 'winget'],
+    },
+  );
+  assert.deepEqual(
+    onPlatform('win32', () => installPlan('git', { choco: true })),
+    {
+      bin: 'choco',
+      args: ['install', 'git', '-y'],
+    },
+  );
+  // gh on winget has its own id.
+  assert.equal(onPlatform('win32', () => installPlan('gh', { winget: true })).args[2], 'GitHub.cli');
+});
+
+test('installPlan: git on mac without brew → null (manual path suggests xcode-select)', () => {
+  // The step then instructs `xcode-select --install` via manualHint — a Mac
+  // without Homebrew still has the native CLT route for git.
+  assert.equal(
+    onPlatform('darwin', () => installPlan('git', {})),
+    null,
+  );
+});
+
 test('installPlan: non-apt paths stay unchanged', () => {
   assert.deepEqual(
     onPlatform('darwin', () => installPlan('gh', { brew: true })),
