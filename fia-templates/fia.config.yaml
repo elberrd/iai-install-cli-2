@@ -1,0 +1,210 @@
+# FIA — the IAI Agent Factory (agent roster for FDAs)
+#
+# ═══════════════════════════════════════════════════════════════════════════
+# EACH AGENT WITH ITS ENGINE AND MODEL — this file is the single source of
+# truth. FDAs never name a model; they name an AGENT (planner, builder…).
+# Visual editor: `npm run agents` (or /agents inside `pi`) — the Agents tab
+# reads and saves this file, preserving these comments.
+#
+# coding_agent (the engine):
+#   claude_code → official `claude` CLI — Claude Pro/Max subscription (plan
+#                 limits). Login: run `claude` once.
+#                 `model`: alias (sonnet | opus | haiku | fable) or full name
+#                 (e.g. claude-opus-5). Without `model`, the plan default.
+#                 `effort`: low | medium | high | xhigh | max | ultracode
+#                 (reasoning depth — available levels depend on the model).
+#   pi          → headless Pi — ANY Pi provider. `model` is provider/id.
+#                 Subscriptions via /login inside Pi: openai-codex
+#                 (ChatGPT Plus/Pro), github-copilot. API keys via env:
+#                   openrouter/…   → OPENROUTER_API_KEY  (one key, every model)
+#                   xai/…          → XAI_API_KEY         (Grok)
+#                   groq/…         → GROQ_API_KEY
+#                   google/…       → GEMINI_API_KEY
+#                   fireworks/…    → FIREWORKS_API_KEY
+#                   deepseek/…     → DEEPSEEK_API_KEY
+#                 Full list: Pi docs (providers). Models: `pi` → /model
+#   cursor      → Cursor Agent CLI — Cursor subscription. Login:
+#                 `cursor-agent login`. Models: `cursor-agent --list-models`
+#                 (e.g. sonnet-4.5, gpt-5, composer-1…). Cursor's "effort"
+#                 lives in the model id itself (e.g. sonnet-4.5-thinking).
+#
+# Effort/reasoning per engine:
+#   claude_code → `effort` field (low…ultracode)
+#   pi          → `thinking` field (minimal|low|medium|high) — on Codex this
+#                 is the model's reasoning effort
+#   cursor      → model-id variant (…-thinking)
+#
+# WARNING: Claude INSIDE Pi bills as per-token "extra usage" — to stay on the
+# Pro/Max plan, always use coding_agent: claude_code.
+#
+# fallbacks (optional, per agent or in defaults): an ordered list tried at the
+# START of a run when the primary engine is hard-unavailable (binary missing,
+# provider without login/key). The switch is logged loudly and recorded in the
+# trace (engine_fallback) — never silent, never mid-run.
+#   fallbacks:
+#     - { coding_agent: pi, model: openai-codex/gpt-5.6-sol, thinking: high }
+#
+# Ready-made examples (uncomment/adapt):
+#
+#   - name: planner             # Fable 5 on the Claude plan, max reasoning
+#     coding_agent: claude_code
+#     model: fable
+#     effort: xhigh
+#
+#   - name: builder             # Grok 4.5 straight on xAI
+#     coding_agent: pi
+#     model: xai/grok-4.5
+#
+#   - name: scout               # Kimi K3 via OpenRouter (one key for all)
+#     coding_agent: pi
+#     model: openrouter/moonshotai/kimi-k3
+#
+#   - name: builder             # GPT-5.6 via Copilot (GitHub subscription)
+#     coding_agent: pi
+#     model: github-copilot/gpt-5.6
+#
+#   - name: reviewer            # Cursor (subscription) — model from the picker
+#     coding_agent: cursor
+#     model: claude-opus-5-thinking-high
+# ═══════════════════════════════════════════════════════════════════════════
+
+defaults:
+  coding_agent: pi
+  model: openai-codex/gpt-5.6-sol
+  thinking: high
+  harness_engineering: []
+  tools:
+    - read
+    - bash
+    - edit
+    - write
+    - grep
+    - find
+    - ls
+  protected_files:
+    - imp/modules/
+    - imp/fia.config.yaml
+    - imp/fda_*.mjs
+    - imp/scripts/
+    - imp/data/prompt_engineering/
+  data_dir: imp/data
+  permissions:
+    # Changes that build tools make on their own during a phase (e.g. Next.js
+    # 16 generates AGENTS.md at build time) are reverted and logged as
+    # external_change — they never blame the agent. Included by default:
+    # AGENTS.md, next-env.d.ts, **/*.tsbuildinfo, .next/, .turbo/,
+    # node_modules/, coverage/, .eslintcache. Add your project's globs:
+    benign_paths: []
+
+observability:
+  db: imp/data/fia.db
+
+agents:
+  - name: planner
+    coding_agent: claude_code
+    model: opus
+    effort: high
+    thinking: high
+    color: "#a78bfa"
+    purpose: Turn a request into a plan the builder can implement without asking questions.
+    fallbacks:
+      - { coding_agent: pi, model: openai-codex/gpt-5.6-sol, thinking: high }
+    prompt_engineering:
+      system: imp/data/prompt_engineering/planner/system.md
+      user: imp/data/prompt_engineering/planner/user.md
+    writes:
+      - specs/
+      - ai-docs/
+    tools:
+      - read
+      - grep
+      - find
+      - ls
+      - bash
+      - write
+
+  - name: builder
+    coding_agent: pi
+    model: openai-codex/gpt-5.6-sol
+    thinking: medium
+    color: "#22d3ee"
+    purpose: Implement the plan exactly; report every changed file in the envelope.
+    fallbacks:
+      - { coding_agent: claude_code, model: sonnet, effort: high }
+    prompt_engineering:
+      system: imp/data/prompt_engineering/builder/system.md
+      user: imp/data/prompt_engineering/builder/user.md
+    tools:
+      - read
+      - grep
+      - find
+      - ls
+      - bash
+      - edit
+      - write
+
+  - name: scout
+    coding_agent: pi
+    model: openai-codex/gpt-5.6-sol
+    thinking: low
+    color: "#fbbf24"
+    purpose: Find and report where things live; change nothing in the repo.
+    fallbacks:
+      - { coding_agent: claude_code, model: haiku, effort: medium }
+    prompt_engineering:
+      system: imp/data/prompt_engineering/scout/system.md
+      user: imp/data/prompt_engineering/scout/user.md
+    writes: []
+    tools:
+      - read
+      - grep
+      - find
+      - ls
+      - bash
+      - write
+
+  - name: reviewer
+    coding_agent: claude_code
+    model: sonnet
+    effort: high
+    thinking: high
+    color: "#fb7185"
+    purpose: Confirm that what was built matches what was asked; change nothing.
+    fallbacks:
+      - { coding_agent: pi, model: openai-codex/gpt-5.6-sol, thinking: high }
+    prompt_engineering:
+      system: imp/data/prompt_engineering/reviewer/system.md
+      user: imp/data/prompt_engineering/reviewer/user.md
+    writes: []
+    tools:
+      - read
+      - grep
+      - find
+      - ls
+      - bash
+      - write
+
+  - name: documenter
+    coding_agent: pi
+    model: openai-codex/gpt-5.6-sol
+    thinking: medium
+    color: "#e879f9"
+    purpose: Write up the change from the diff; documentation only.
+    fallbacks:
+      - { coding_agent: claude_code, model: haiku, effort: medium }
+    prompt_engineering:
+      system: imp/data/prompt_engineering/documenter/system.md
+      user: imp/data/prompt_engineering/documenter/user.md
+    writes:
+      - app_docs/
+      - docs/
+      - "**/*.md"
+      - "*.md"
+    tools:
+      - read
+      - grep
+      - find
+      - ls
+      - bash
+      - write
+      - edit

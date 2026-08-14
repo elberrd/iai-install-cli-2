@@ -1,0 +1,27 @@
+node_modules
+
+# Teste manual em sandbox Daytona (efêmero) + a chave de API usada por ele.
+# Nada aqui é parte do produto: scripts descartáveis, logs e transcrições.
+daytona-test/
+.env.test
+
+# Template local — repositório Git independente.
+# NÃO versionar aqui: pushes dentro de live1/ vão para o repo do template.
+live1/
+
+# Estudo — clones de repos de terceiros só para análise local.
+# Nunca versionar: material não redistribuível.
+estudo/
+
+# Template multi-tenant local — repositório Git independente.
+# Mesma regra do live1/: checkout de desenvolvimento; a CLI baixa do gate.
+live2/
+
+# Harness local — repositório Git independente.
+# Mesma regra do live1/: checkout de desenvolvimento; a CLI baixa o harness
+# pela API gated da comunidade em tempo de instalação.
+harness/
+
+# Log vivo de lições (sintoma → causa → correção → guarda) — material de
+# trabalho interno, não faz parte do produto publicado. Fica só no disco.
+lessons.md

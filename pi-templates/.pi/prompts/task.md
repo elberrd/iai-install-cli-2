@@ -1,0 +1,29 @@
+---
+description: Execute ONE task via FDA (the next one, or the one I point to)
+argument-hint: "[number or description]"
+---
+Read `.pi/skills/fia/SKILL.md` and the cookbook `.pi/skills/fia/cookbooks/harness_bridge.md`, and follow Step 2.
+
+Requested task: $@ (if empty, the next unblocked one from `ai-docs/todos/issues/`).
+
+1. Delegate to the `task-sequencer` to generate the brief in `ai-docs/actual-todo/`
+   (it stops on the **theme gate** right after the greenfield foundation task —
+   no closed `theme` decision log yet. Resolve with me per the cookbook: `/theme`,
+   or record my explicit acceptance of the default theme — then re-delegate.
+   It also stops on the **env gate** before the foundation task itself —
+   `node imp/scripts/env-preflight.mjs` reports dev keys missing from
+   `.env.local`. Provision with me mid-flow per the cookbook: CLI parts
+   yourself, dashboard keys from me — then re-delegate)
+2. Run the FDA with the brief: `node imp/fda_plan_build_test.mjs ai-docs/actual-todo/<brief>.md`
+   (bigger/riskier task → `node imp/fda_sdlc.mjs …`, as the cookbook shows)
+3. Follow along and report to me: phases executed, gate results, tokens and commit (if any).
+   Brief with a `Spec: NNNN (…)` line → the FDA's spec-coverage gate is armed;
+   on success, confirm the spec's Traceability table gained the new test paths.
+
+Rules: you implement NOTHING — the FDA does the work. If the FDA fails (exit != 0), stop and show me the evidence (`npm run fda:phases -- <fda_id>`), without retrying on your own.
+
+When reporting success, if the task is testable in the browser, ALWAYS close with
+**How to test**: minimal command to start (ideally `npm run dev`), URL and the
+test steps for that task. If something is missing to run it (env, database, seed),
+apply Step 4 of the cookbook before reporting — whatever is interactive, ask me
+to run it and continue.

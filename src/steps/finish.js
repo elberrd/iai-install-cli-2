@@ -1,0 +1,284 @@
+import { existsSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { run, runInherit } from '../lib/proc.js';
+import { piCodexReady } from '../lib/pi-auth.js';
+import { STACK_CATEGORIES, STACK_LATER } from '../stack-catalog.js';
+import { relToCwd, STATE_MARKER } from './project.js';
+import * as ui from '../lib/ui.js';
+
+/**
+ * Next steps for "harness only" mode in a NEW project, per stack path:
+ *   discover → the conversation comes first (/idea extracts PRD + stack);
+ *   custom   → decide/document what's missing (/stack) and then the PRD;
+ *   fallback → the classic script (PRD → /start).
+ */
+// The command that opens the agent: `imp` when the global launcher was
+// installed (see ensureImpGlobal), the plain `pi` binary otherwise.
+const agentCmd = (ctx) => (ctx.impGlobal ? 'imp' : 'pi');
+
+function greenfieldSteps(ctx, fiaNeedsLogin) {
+  const pending = ctx.stackInfo?.pending?.length ?? 0;
+  const loginHint = fiaNeedsLogin
+    ? ', run /login openai-codex (only that one — Anthropic stays on the `claude` CLI)'
+    : '';
+
+  if (ctx.stackPath === 'discover') {
+    return ctx.fiaInstalled
+      ? [
+          `1. Run \`${agentCmd(ctx)}\`${loginHint} and type /idea — the interview extracts the PRD and the BEST STACK for it (everything lands in ai-docs/).`,
+          '2. /stack — generates the docs for each decided technology and installs CLIs, MCPs and skills.',
+          '3. /grill (sharpen the PRD) → /map → /task or /goal. In Claude Code/Cursor: /start and /dev.',
+          `Lost at any rung? /guide (inside \`${agentCmd(ctx)}\`) reads the state, confirms your goal and charts the route.`,
+        ]
+      : [
+          '1. Open Claude Code (or Cursor) in this folder and run /stack — decide the stack in conversation and generate the docs for each technology.',
+          '2. Fill in the PRD in ai-docs/PRD.md and run /start.',
+          '3. Then iterate with /dev, /sv and /test-ui.',
+        ];
+  }
+
+  if (ctx.stackPath === 'custom') {
+    const where = ctx.fiaInstalled ? `in \`${agentCmd(ctx)}\` or in Claude Code` : 'in Claude Code or Cursor';
+    return [
+      pending
+        ? `1. Your stack is in ai-docs/stack.md (${pending} layer(s) to decide). Run /stack ${where} — it decides what's missing, generates the docs for each technology and installs the tools.`
+        : `1. Your stack is in ai-docs/stack.md. Run /stack ${where} — it generates the docs for each technology (recommended before implementing).`,
+      ctx.fiaInstalled
+        ? `2. PRD: fill in ai-docs/PRD.md — or run \`${agentCmd(ctx)}\`${loginHint} and use /idea to shape it in conversation.`
+        : '2. Fill in the PRD in ai-docs/PRD.md (replace every {{placeholder}}).',
+      ctx.fiaInstalled
+        ? `3. /grill → /map → /task or /goal (in \`${agentCmd(ctx)}\`). In Claude Code/Cursor: /start and /dev.`
+        : '3. Open Claude Code or Cursor in this folder and run /start; then iterate with /dev, /sv and /test-ui.',
+      ctx.fiaInstalled
+        ? `Lost at any rung? /guide (inside \`${agentCmd(ctx)}\`) reads the state, confirms your goal and charts the route.`
+        : null,
+    ];
+  }
+
+  return [
+    '1. Fill in the PRD in ai-docs/PRD.md (replace every {{placeholder}}).',
+    '2. Open Claude Code or Cursor in this folder and run /start.',
+    '3. Then iterate with /dev, /sv and /test-ui.',
+    ctx.fiaInstalled
+      ? fiaNeedsLogin
+        ? `4. FIA: run \`${agentCmd(ctx)}\`, type /login openai-codex (only that one — Anthropic stays on the \`claude\` CLI); then: no PRD (or, later, a big new module), use /idea; with a PRD, /grill → /map → /task or /goal. /map opens the result (screens, tasks, design system) in the browser — after that it's just \`npm run plan\`.`
+        : `4. FIA: run \`${agentCmd(ctx)}\` — no PRD (or, later, a big new module), use /idea; with a PRD, /grill → /map → /task or /goal. /map opens the result (screens, tasks, design system) in the browser — after that it's just \`npm run plan\`.`
+      : null,
+    ctx.fiaInstalled
+      ? `Lost at any rung? /guide (inside \`${agentCmd(ctx)}\`) reads the state, confirms your goal and charts the route.`
+      : null,
+  ];
+}
+
+/** One-line stack summary for the final note (null without a manifest). */
+function stackSummaryLine(ctx) {
+  if (ctx.stackPath === 'template') return 'Stack:   IAI recommended — manifest in ai-docs/stack.md';
+  const info = ctx.stackInfo;
+  if (!info) return null;
+  const pending = info.pending?.length ?? 0;
+  if (pending === STACK_CATEGORIES.length) return 'Stack:   to decide — manifest in ai-docs/stack.md (everything pending)';
+  const decided = STACK_CATEGORIES.filter(
+    (c) => info.choices[c.id] !== STACK_LATER && info.choices[c.id] !== 'none',
+  ).map((c) => info.choices[c.id]);
+  return `Stack:   ${decided.join(' + ')}${pending ? ` (+${pending} layer(s) to decide)` : ''} — ai-docs/stack.md`;
+}
+
+export async function finish(ctx) {
+  const rel = relToCwd(ctx.dir);
+  const harnessOnly = ctx.mode === 'harness';
+  const fiaNeedsLogin = ctx.fiaInstalled && !piCodexReady();
+
+  // The install made it to the end: drop the crash-recovery marker (written at
+  // the start of installTemplate) BEFORE the final commit, so a future run
+  // doesn't mistake this folder for a half-finished installation.
+  await rm(join(ctx.dir, STATE_MARKER), { force: true }).catch(() => {});
+
+  // Final commit (best-effort): FIA, stack manifest and Impeccable land
+  // AFTER the harness commit — without this the installation would end with a
+  // dirty tree (and launch:check would flag a blocker right away).
+  if (existsSync(join(ctx.dir, '.git')) && (ctx.harnessInstalled || ctx.fiaInstalled || ctx.stackInfo)) {
+    const dirty = await run('git', ['status', '--porcelain'], { cwd: ctx.dir });
+    if (dirty.ok && dirty.stdout.trim()) {
+      await run('git', ['add', '-A'], { cwd: ctx.dir });
+      const commit = await run(
+        'git',
+        ['commit', '-q', '-m', 'chore: stack, FIA and tooling (create-iai)'],
+        { cwd: ctx.dir },
+      );
+      if (commit.ok) {
+        ui.info('Final commit created (stack, FIA and tooling).');
+        if (ctx.repoUrl) {
+          const push = await run('git', ['push'], { cwd: ctx.dir });
+          if (!push.ok) ui.warn('Could not push the final commit — run `git push` in the project folder.');
+        }
+      }
+    }
+  }
+
+  ui.note(
+    [
+      `Project: ${ctx.name}`,
+      `Folder:  ${ctx.dir}`,
+      ctx.convexUrl ? `Convex:  ${ctx.convexUrl}` : null,
+      ctx.clerkApp ? `Clerk:   ${ctx.clerkApp}` : null,
+      ctx.issuer ? `Issuer:  ${ctx.issuer}` : null,
+      ctx.shadcnPreset ? `Preset:  ${ctx.shadcnPreset} (shadcn/ui)` : null,
+      ctx.shadcnBlocks?.length ? `Blocks:  ${ctx.shadcnBlocks.join(', ')} (shadcn/ui)` : null,
+      ctx.repoUrl ? `GitHub:  ${ctx.repoUrl}` : null,
+      ctx.deployUrl ? `Deploy:  ${ctx.deployUrl}` : null,
+      stackSummaryLine(ctx),
+      // In "harness only" mode there is no template (storage/addons) — omit.
+      harnessOnly
+        ? null
+        : `Files:   ${ctx.storageBackend === 'r2' ? 'Cloudflare R2' : 'Convex Storage'} (Documents page)`,
+      ctx.addons ? `Addons:  ${ctx.addons.length ? ctx.addons.join(', ') : 'none'}` : null,
+      ctx.harnessInstalled ? 'Harness: installed — fill in ai-docs/PRD.md and run /start' : null,
+      ctx.fiaInstalled
+        ? fiaNeedsLogin
+          ? `FIA: installed — last step: run \`${agentCmd(ctx)}\` and type /login openai-codex (only that login)`
+          : `FIA: installed — run \`${agentCmd(ctx)}\` and use /fia, /map, /task, /goal (plan: npm run plan · agents: npm run agents · viewer: npm run fda:viewer · terminal dashboard: npm run tui)`
+        : null,
+    ]
+      .filter(Boolean)
+      .join('\n'),
+    'All set ✅',
+  );
+
+  // Integrations report: what the keys step left ACTIVE and what is still
+  // pending (with the keys — webhooks included — created via API).
+  if (ctx.serviceReport?.length) {
+    ui.note(
+      ctx.serviceReport
+        .map((s) => `${s.ok ? '✅' : '○'} ${s.label} — ${s.detail}`)
+        .join('\n'),
+      'Integrations — status',
+    );
+  }
+
+  // "How to activate later" notes only for what did NOT get ready above.
+  const configured = new Set((ctx.serviceReport ?? []).filter((s) => s.ok).map((s) => s.id));
+  const pendingNotes = (ctx.addonNotes ?? []).filter((n) => !configured.has(n.id));
+  if (pendingNotes.length) {
+    ui.note(
+      pendingNotes.map((n) => `• ${n.text}`).join('\n'),
+      'Addons — what is left to activate (each one works/degrades gracefully until then)',
+    );
+  }
+
+  // UI keys file: only offer to delete it when it was ACTUALLY consumed in
+  // this run (ctx.keysApplied). In harness mode (or if nothing was applied)
+  // the keys don't exist anywhere yet — keep it.
+  if (ctx.keysFilePath && existsSync(ctx.keysFilePath)) {
+    if (!ctx.keysApplied) {
+      ui.info(`Keys file was NOT used in this run — kept: ${ctx.keysFilePath}`);
+    } else if (ctx.flags?.yes) {
+      ui.info(`Keys file kept: ${ctx.keysFilePath} (delete it whenever you want).`);
+    } else {
+      const wipe = await ui.confirm({
+        message: `Delete the keys file ${ctx.keysFilePath}? (it has already been applied to the project)`,
+        initialValue: true,
+      });
+      if (wipe) {
+        await rm(ctx.keysFilePath, { force: true });
+        ui.success('Keys file deleted.');
+      }
+    }
+  }
+
+  // Account-less Neon database: highlighted reminder — without the claim it expires.
+  if (ctx.neonProvision?.claimUrl) {
+    ui.note(
+      [
+        'The DEV Postgres database was created on the spot, no account needed (Neon Launchpad).',
+        'CLAIM IT into your Neon account — otherwise it expires in ~72h:',
+        `  ${ctx.neonProvision.claimUrl}`,
+        '(The link is also in .env.local and in ai-docs/stack.md.)',
+      ].join('\n'),
+      'Neon — claim your database',
+    );
+  }
+
+  // In "harness only" mode there is no project ready to run — the next steps
+  // depend on the stack path (discover, custom or brownfield).
+  if (harnessOnly) {
+    const brownfield = Boolean(ctx.existingProject);
+    ui.note(
+      [
+        `cd ${rel}`,
+        '',
+        ...(brownfield
+          ? [
+              'EXISTING project — the path is having the system understand your code before touching it:',
+              '',
+              ctx.fiaInstalled
+                ? `1. Run \`${agentCmd(ctx)}\`${fiaNeedsLogin ? ', run /login openai-codex (only that one — Anthropic stays on the `claude` CLI)' : ''} and type /absorb — it generates the as-built PRD, the map, the conventions and the stack manifest (ai-docs/stack.md) of your system.`
+                : '1. Open Claude Code in this folder and run /absorb — it generates the as-built PRD, the map, the conventions and the stack manifest (ai-docs/stack.md) of your system.',
+              '2. New feature: /feature "what you want". Defect: /bug "the symptom".',
+              // /task and /goal are Pi prompts (not Claude Code commands) —
+              // say WHERE they run, or people type them in the wrong tool.
+              ctx.fiaInstalled
+                ? `3. Execute: inside \`${agentCmd(ctx)}\`, run /task (one task) or /goal (all of them).`
+                : '3. Implement with /dev in Claude Code, as always.',
+              ctx.fiaInstalled
+                ? `Lost at any rung? /guide (inside \`${agentCmd(ctx)}\`) reads the state, confirms your goal and charts the route.`
+                : null,
+            ]
+          : greenfieldSteps(ctx, fiaNeedsLogin)),
+        ctx.agentFilesBackup
+          ? `\nYour previous agent files are in ${ctx.agentFilesBackup} (nothing was deleted).`
+          : null,
+        '',
+        'Full guide: imp/HARNESS.md.',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      'Next steps',
+    );
+    ui.outro(ui.color.green('Done! Happy coding. 🚀'));
+    return;
+  }
+
+  ui.note(
+    [
+      `cd ${rel}`,
+      '',
+      '# Terminal 1 — Convex backend (watch + codegen):',
+      'npm run dev:convex',
+      '',
+      '# Terminal 2 — Next.js:',
+      'npm run dev        →  http://localhost:3000',
+      '',
+      '# (optional) sample data:',
+      'npm run seed',
+    ].join('\n'),
+    'Next steps',
+  );
+
+  ui.note(
+    [
+      'ALWAYS use http://localhost:3000 (avoid the network IP, e.g. 192.168.x.x —',
+      'Clerk in dev expects localhost).',
+      '',
+      'If the login screen keeps loading/loops, or you see a 431 error /',
+      '"instance keys do not match": those are cookies from a PREVIOUS Clerk',
+      'instance stored on this localhost. Each installation creates a new Clerk',
+      'app, and the browser still has the old app\'s cookie — hence the loop.',
+      '',
+      'Fix: open an incognito window (Cmd/Ctrl+Shift+N) OR clear the localhost',
+      'cookies (DevTools → Application → Cookies → localhost → Clear) and reload.',
+    ].join('\n'),
+    'Login — read this if it gets stuck',
+  );
+
+  const start = ctx.flags?.yes
+    ? false
+    : await ui.confirm({ message: 'Start Next.js now (npm run dev)?', initialValue: false });
+  if (start) {
+    ui.info('Tip: run `npm run dev:convex` in another terminal for backend hot-reload. Ctrl+C stops it.');
+    ui.info('Login stuck/looping? Use an incognito window or clear the localhost cookies.');
+    await runInherit('npm', ['run', 'dev'], { cwd: ctx.dir });
+  }
+
+  ui.outro(ui.color.green('Done! Happy coding. 🚀'));
+}

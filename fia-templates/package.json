@@ -1,0 +1,18 @@
+{
+  "name": "@iai/fia-runtime",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "chokidar": "^4.0.3",
+    "ink": "^7.0.0",
+    "marked": "^15.0.12",
+    "marked-terminal": "^7.3.0",
+    "react": "^19.2.0",
+    "yaml": "^2.8.2",
+    "zod": "^3.25.76"
+  }
+}
