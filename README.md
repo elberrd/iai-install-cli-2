@@ -1,4 +1,18 @@
-# IMPACTUS CLI
+<p align="center">
+  <img src="https://raw.githubusercontent.com/elberrd/impactus-cli/main/assets/impactus-cli-logo.jpeg" alt="IMPACTUS CLI logo" width="140" />
+</p>
+
+<h1 align="center">IMPACTUS CLI</h1>
+
+<p align="center">
+  The IAI installer — agent harness + FIA, running entirely on the AI subscriptions you already have.
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/impactus"><img src="https://img.shields.io/npm/v/impactus?label=npm&color=black" alt="npm version" /></a>
+  <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D22.12-black" alt="Node >= 22.12" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-black" alt="MIT license" /></a>
+</p>
 
 > [!WARNING]
 > **Alpha software.** IMPACTUS CLI `2.x` is in active development. Commands,
