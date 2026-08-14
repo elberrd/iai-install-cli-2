@@ -1,5 +1,6 @@
 import { run } from '../lib/proc.js';
 import { slugify } from '../lib/util.js';
+import { toolPending } from './preflight.js';
 import * as ui from '../lib/ui.js';
 
 /**
@@ -8,15 +9,24 @@ import * as ui from '../lib/ui.js';
  *
  * The local repo + initial template commit already exist (installTemplate).
  * Here we add a second commit with the user's customizations, then offer
- * `gh repo create` — the gh CLI is guaranteed installed/authenticated by the
- * preflight step. Flags: --skip-github, --push/--no-push, --repo <name>,
- * --private/--public, --yes (commit only, no push).
+ * `gh repo create`. The preflight prepares git/gh but never blocks on them —
+ * when one was skipped there, this step degrades to the manual instructions
+ * (the final summary and ai-docs/inbox.md repeat them). Flags: --skip-github,
+ * --push/--no-push, --repo <name>, --private/--public, --yes (commit only,
+ * no push).
  */
 export async function setupGithub(ctx) {
   const { dir, flags } = ctx;
 
   if (flags.skipGithub) {
     ui.info('Skipped (--skip-github): no commit and no push.');
+    return;
+  }
+
+  // Git was skipped in the preflight: without it there is no commit and no
+  // push — the pending list already carries the exact manual fix.
+  if (toolPending(ctx, 'git')) {
+    ui.info('Git was skipped in the preflight — no commit or GitHub publish in this install (see the final summary).');
     return;
   }
 
@@ -60,6 +70,23 @@ export async function setupGithub(ctx) {
   }
 
   // ── 2. Optional: create the GitHub repo + push ─────────────────────────────
+  // gh (or its login) skipped in the preflight → the commit above still
+  // happened; only the publish moves to the manual note.
+  if (toolPending(ctx, 'gh') || toolPending(ctx, 'gh-auth')) {
+    ui.note(
+      [
+        'The GitHub CLI (or its login) was skipped — whenever you want to publish:',
+        toolPending(ctx, 'gh') ? '  1. Install gh: https://cli.github.com' : null,
+        '  2. gh auth login',
+        `  3. gh repo create ${ctx.slug} --private --source=. --remote=origin --push`,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      'How to publish to GitHub later',
+    );
+    return;
+  }
+
   // The decision came from the decisions phase; the prompts below are only a
   // fallback for calls outside the standard pipeline.
   let wantsPush = ctx.decisions?.push ?? flags.push;

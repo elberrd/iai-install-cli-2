@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkEngines, installPlan } from '../src/steps/preflight.js';
+import {
+  checkEngines,
+  installOrInstruct,
+  installPlan,
+  pickGitWindowsAsset,
+  toolPending,
+} from '../src/steps/preflight.js';
 
 // The engines probe is informational by contract: with NOTHING on PATH it must
 // still resolve (no prompt, no process.exit) and record the status in ctx.
@@ -74,6 +80,64 @@ test('installPlan: git on mac without brew → null (manual path suggests xcode-
     onPlatform('darwin', () => installPlan('git', {})),
     null,
   );
+});
+
+test('installPlan: pacman/zypper/apk cover the PM-less Linux gaps (gh is github-cli on Arch/Alpine)', () => {
+  assert.deepEqual(
+    onPlatform('linux', () => installPlan('git', { pacman: true })),
+    { bin: 'sudo', args: ['pacman', '-S', '--noconfirm', 'git'] },
+  );
+  assert.deepEqual(
+    onPlatform('linux', () => installPlan('gh', { pacman: true })),
+    { bin: 'sudo', args: ['pacman', '-S', '--noconfirm', 'github-cli'] },
+  );
+  assert.deepEqual(
+    onPlatform('linux', () => installPlan('git', { zypper: true })),
+    { bin: 'sudo', args: ['zypper', 'install', '-y', 'git'] },
+  );
+  // openSUSE has no gh in the default repos — manual path.
+  assert.equal(
+    onPlatform('linux', () => installPlan('gh', { zypper: true })),
+    null,
+  );
+  assert.deepEqual(
+    onPlatform('linux', () => installPlan('gh', { apk: true })),
+    { bin: 'sudo', args: ['apk', 'add', 'github-cli'] },
+  );
+});
+
+// The Windows-without-winget/choco fallback downloads the OFFICIAL installer:
+// full `Git-*-64-bit.exe` (never PortableGit — self-extracting archive, no
+// PATH), and the arm64 build on Windows-on-ARM.
+test('pickGitWindowsAsset: picks the full installer for the arch, never PortableGit', () => {
+  const assets = [
+    { name: 'Git-2.46.0-arm64.exe', browser_download_url: 'https://x/arm64' },
+    { name: 'PortableGit-2.46.0-64-bit.7z.exe', browser_download_url: 'https://x/portable' },
+    { name: 'Git-2.46.0-64-bit.exe', browser_download_url: 'https://x/full' },
+    { name: 'Git-2.46.0-64-bit.tar.bz2', browser_download_url: 'https://x/tar' },
+  ];
+  assert.equal(pickGitWindowsAsset(assets, 'x64'), 'https://x/full');
+  assert.equal(pickGitWindowsAsset(assets, 'arm64'), 'https://x/arm64');
+  assert.equal(pickGitWindowsAsset([], 'x64'), null);
+  assert.equal(pickGitWindowsAsset(undefined, 'x64'), null);
+});
+
+// The never-abort contract (the screenshot bug): a tool that cannot be
+// installed under --yes must NOT process.exit — it returns false, records the
+// pending fix in ctx and the install carries on in skip mode.
+test('installOrInstruct: --yes with no plan skips (records pending), never aborts', async () => {
+  const ctx = {};
+  const ready = await installOrInstruct('definitely-not-a-real-tool-xyz', null, {
+    docsUrl: 'https://example.com/install',
+    flags: { yes: true },
+    ctx,
+    pending: { title: 'Install the tool', fix: 'see https://example.com/install', why: 'Feature X will be skipped.' },
+  });
+  assert.equal(ready, false);
+  assert.equal(ctx.pendingTools.length, 1);
+  assert.equal(ctx.pendingTools[0].id, 'definitely-not-a-real-tool-xyz');
+  assert.equal(toolPending(ctx, 'definitely-not-a-real-tool-xyz'), true);
+  assert.equal(toolPending(ctx, 'other'), false);
 });
 
 test('installPlan: non-apt paths stay unchanged', () => {

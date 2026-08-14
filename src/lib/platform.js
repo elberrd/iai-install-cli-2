@@ -13,7 +13,7 @@ export function osKind() {
  * @returns {Promise<Record<string, boolean>>}
  */
 export async function detectPackageManagers() {
-  const candidates = ['brew', 'apt-get', 'dnf', 'winget', 'choco', 'scoop'];
+  const candidates = ['brew', 'apt-get', 'dnf', 'pacman', 'zypper', 'apk', 'winget', 'choco', 'scoop'];
   const found = {};
   await Promise.all(
     candidates.map(async (pm) => {

@@ -7,6 +7,7 @@ import { presentAgentFiles, backupAgentFiles } from '../lib/agent-backup.js';
 import { run } from '../lib/proc.js';
 import { downloadErrorMessage, fetchTemplateToDir } from '../lib/template-fetch.js';
 import { migrateLegacyFiaLayout } from './update-runtime.js';
+import { toolPending } from './preflight.js';
 import * as ui from '../lib/ui.js';
 
 /**
@@ -165,6 +166,10 @@ export async function setupHarness(ctx) {
       if (push.ok) ui.success('Harness pushed to GitHub.');
       else ui.warn('Could not push the harness — run `git push` in the project folder.');
     }
+  } else if (toolPending(ctx, 'git')) {
+    // Git was skipped in the preflight — say why there is no commit instead
+    // of failing silently; the final summary carries the manual fix.
+    ui.info('Git not available — the harness was not committed (see the final summary).');
   }
 
   ctx.harnessInstalled = true;
