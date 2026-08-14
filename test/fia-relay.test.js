@@ -349,3 +349,68 @@ test('resume: a crash marker with count 1 does NOT arm the chain at ensure()', a
     assert.equal(cfg.agents[0].coding_agent, 'claude_code', 'single crash retries the chosen engine');
   });
 });
+
+test('relay off: resume does NOT arm the chain — the student owns every switch', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fia-relay-ensure-'));
+  const dataDir = join(root, 'data');
+  mkdirSync(join(dataDir, 'sessions', 'r12', 'builder'), { recursive: true });
+  writeFileSync(
+    join(dataDir, 'sessions', 'r12', 'builder', ENGINE_ERROR_FILE),
+    JSON.stringify({ agent: 'builder', coding_agent: 'claude_code', model: 'sonnet', kind: 'limit', count: 1 }),
+  );
+  const cfg = {
+    defaults: { data_dir: dataDir, relay: 'off' },
+    observability: { db: join(root, 'fia.db') },
+    agents: [
+      {
+        name: 'builder',
+        coding_agent: 'claude_code',
+        model: 'sonnet',
+        fallbacks: [{ coding_agent: 'cursor', model: 'composer' }],
+      },
+    ],
+  };
+  await withBins(['claude', 'cursor-agent'], async () => {
+    ensure(cfg, 'r12', { resume: true });
+    assert.equal(cfg.agents[0].coding_agent, 'claude_code', 'relay off must never auto-switch');
+    // No engine event at all — the jsonl may not even exist (nothing appended).
+    const eventsPath = join(dataDir, 'sessions', 'r12', 'events.jsonl');
+    const events = existsSync(eventsPath) ? readFileSync(eventsPath, 'utf8') : '';
+    assert.doesNotMatch(events, /engine_fallback/);
+  });
+});
+
+test('continuation preamble stays scoped to the phase that died', async () => {
+  const { run, phase, call } = makeSetup();
+  const prompts = [];
+  await withBins(['cursor-agent'], () =>
+    withAdapters(
+      {
+        claude_code: async () => deadResult('API Error: 429 usage limit reached'),
+        cursor: async (req) => {
+          prompts.push(req.prompt);
+          return okResult();
+        },
+      },
+      async () => {
+        // Phase `build` dies on claude and relays to cursor (preamble expected)…
+        await execute(run, phase, call);
+        // …then a LATER phase of the same agent runs. The marker persists (so a
+        // --resume keeps preferring the fallbacks), but this phase was never
+        // attempted — its prompt must stay clean.
+        const review = {
+          phase_id: 'run1_02_review',
+          fda_id: 'run1',
+          params: { name: 'review', owner: 'builder', kind: 'agent' },
+        };
+        await execute(run, review, { prompt: 'review the thing', outputType: 'GenericOutput', gates: [] });
+      },
+    ),
+  );
+  assert.equal(prompts.length, 2);
+  assert.match(prompts[0], /^## Continuation of an interrupted run/);
+  assert.doesNotMatch(prompts[1], /Continuation of an interrupted run/);
+  assert.match(prompts[1], /Task: review the thing/);
+  // The marker is still there for a future resume.
+  assert.ok(existsSync(join(run.sessionDir, 'builder', ENGINE_ERROR_FILE)));
+});

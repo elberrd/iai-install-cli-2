@@ -142,3 +142,14 @@ test('preamble: includes the Pi session file only when given', () => {
   assert.match(preamble, /pi_session\.jsonl — the previous attempt's full session file \(Pi format\)/);
   assert.match(preamble, /its CLI crashed/);
 });
+
+// ── relayModeOf (the ONE policy normalizer) ──────────────────────────────────
+
+test('relayModeOf: absence and unknown values mean auto; resume/off pass through', async () => {
+  const { relayModeOf } = await import('../fia-templates/modules/continuation.mjs');
+  assert.equal(relayModeOf({}), 'auto');
+  assert.equal(relayModeOf({ defaults: {} }), 'auto');
+  assert.equal(relayModeOf({ defaults: { relay: 'banana' } }), 'auto');
+  assert.equal(relayModeOf({ defaults: { relay: 'resume' } }), 'resume');
+  assert.equal(relayModeOf({ defaults: { relay: 'off' } }), 'off');
+});

@@ -1118,10 +1118,11 @@ phase (exits without a report, or its binary vanishes): the failure is
 classified (`login` | `limit` | `missing` | `crash`), the run switches to the
 next viable fallback in place and retries the phase — traced as `engine_error`
 + `engine_relay` (§9.5). On **resume**, the interrupted run's failure markers
-arm the chain even when the binary checks pass. `defaults.relay` chooses the
-mid-run policy: `auto` (the default when the key is absent — switch in-run and
-on resume), `resume` (fail fast mid-run; the fallbacks arm only under
-`--resume`), `off` (never auto-switch; the death is still recorded and traced).
+arm the chain even when the binary checks pass (skipped under `relay: off`).
+`defaults.relay` chooses the policy: `auto` (the default when the key is
+absent — switch in-run and on resume), `resume` (fail fast mid-run; the
+fallbacks arm only under `--resume`), `off` (never auto-switch, mid-run OR on
+resume; the death is still recorded and traced).
 Every switch is printed and traced — never silent. The config header repeats
 the golden billing rule: Claude INSIDE Pi bills per token as "extra usage" —
 always use `coding_agent: claude_code` to stay on the plan.

@@ -132,6 +132,19 @@ export function clearEngineError(agentDir, { coding_agent, model }) {
 }
 
 /**
+ * The relay policy from the student's config: 'auto' (switch mid-run and on
+ * resume), 'resume' (arm only on --resume) or 'off' (never auto-switch —
+ * deaths are still recorded). The key lives in user-owned imp/fia.config.yaml,
+ * so absence (and any unknown value) means the default. ONE normalizer shared
+ * by the mid-run relay (agents.mjs) and the resume arming (session.mjs) — the
+ * two readers of this policy must never disagree.
+ */
+export function relayModeOf(cfg) {
+  const value = cfg?.defaults?.relay;
+  return value === 'resume' || value === 'off' ? value : 'auto';
+}
+
+/**
  * Does this marker justify switching engines? login/limit/missing arm on the
  * first death (waiting cannot fix an expired login mid-run, and a limit will
  * outlive the run). A single crash may be transient noise — the same engine

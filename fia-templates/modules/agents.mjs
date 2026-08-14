@@ -297,7 +297,11 @@ function piSessionPathIfAny(agentDir) {
 function composeUserText(run, phase, agent, agentDir, variables) {
   const userText = prompts.render(agent.prompt_engineering.user, variables);
   const marker = continuation.readEngineError(agentDir);
-  if (!marker) return userText;
+  // Only the phase that actually died gets the handover: the marker outlives
+  // the relay (so --resume keeps preferring the fallbacks), but a later,
+  // never-attempted phase of the same agent must not be told it was
+  // interrupted — its prompt stays clean.
+  if (!marker || marker.phase !== phase.params.name) return userText;
   const piSession = piSessionPathIfAny(agentDir);
   if (agent.coding_agent === 'pi' && marker.coding_agent === 'pi' && piSession) {
     run.console.note(`${agent.name}: continuing the interrupted Pi session natively (--session)`);
@@ -374,9 +378,8 @@ export async function execute(run, phase, call) {
   prompts.savePromptDir(join(agentDir, 'prompts'), 'system.md', systemText);
 
   // relay: 'auto' switches engines in-run on engine death; 'resume' arms the
-  // fallbacks only on --resume; 'off' never auto-switches. The key lives in
-  // the student's config (user-owned), so absence must mean the default.
-  const relayMode = ['auto', 'resume', 'off'].includes(run.cfg.defaults?.relay) ? run.cfg.defaults.relay : 'auto';
+  // fallbacks only on --resume; 'off' never auto-switches.
+  const relayMode = continuation.relayModeOf(run.cfg);
   const tried = new Set([engineKey(agent)]);
 
   for (;;) {
