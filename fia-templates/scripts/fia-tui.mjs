@@ -941,7 +941,10 @@ function App({ opts }) {
     }, 1000);
     let watcher = null;
     let deb = null;
-    if (existsSync(opts.aiDocsDir)) {
+    // --once renders a single frame and leaves — a watcher would never fire
+    // AND trips a libuv fs-event assert on Windows short paths (RUNNER~1
+    // temp dirs), so smoke frames skip it entirely.
+    if (!opts.once && existsSync(opts.aiDocsDir)) {
       watcher = chokidar.watch(opts.aiDocsDir, { ignoreInitial: true, ignored: (p) => p.includes('node_modules') });
       watcher.on('all', () => {
         clearTimeout(deb);
