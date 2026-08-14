@@ -122,6 +122,7 @@ export const FIA = {
     'imp/data/fia.db-wal',
     'imp/data/fia.db-shm',
     'imp/data/backups/',
+    'imp/data/handoff/',
     'imp/.runtime-backup-*/',
   ],
   // Runtime update contract (`--update-runtime`). The stamp records a manifest

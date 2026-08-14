@@ -49,6 +49,7 @@ Short commands (prompt templates in `.pi/prompts/`) are the student entry points
 | `/absorb [focus]` | existing project → as-built PRD + map + conventions + stack manifest + component registry | — |
 | `/kit` | existing code → design-system audit: as-built registry + `/ui-components`, gap report vs the core kit, approved design-only tasks (`Kind: kit`) | components |
 | `/status` | progress + latest runs | observability |
+| `imp handoff` (terminal, outside Pi) | Codex outage — continue the newest Pi conversation in the `claude` CLI (`--list` picks a session) | update_roster |
 
 For anything else, route by request:
 
