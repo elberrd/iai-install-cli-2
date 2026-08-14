@@ -140,7 +140,7 @@ export async function fetchTemplate(ctx) {
   // (still gated).
   if (!ctx.authToken) {
     throw new Error(
-      'Without a community login the template cannot be downloaded. Run the CLI again and finish the login.',
+      'The template download requires the community sign-in — run the installer again and choose "Sign in" (only the harness + agent install without it).',
     );
   }
   const branch = flags.templateRef || '';

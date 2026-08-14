@@ -34,9 +34,9 @@ export function unknownCapabilities(requires = []) {
  * Used in harness mode (which has no decisions phase). In full mode the
  * preflight now looks at the DECISION (ctx.decisions.push/deploy) — gh/vercel
  * are only prepared when the user said "yes". GitHub CLI login is only
- * needed when a push can happen: with a student token, both the template
- * and the harness come through the gate (steps/harness.js uses the API
- * whenever `ctx.authToken` exists; `gh` is only a dev fallback without a token).
+ * needed when a push can happen: template and harness always come through
+ * the community API (the harness even without a token — guest mode), so
+ * harness mode never touches `gh` at all.
  *
  * Mirrors the precedence of steps/github.js.
  */

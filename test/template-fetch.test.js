@@ -26,6 +26,13 @@ before(async () => {
   tarballBytes = readFileSync(tgz);
 
   server = createServer((req, res) => {
+    // The harness is the free tier: served WITHOUT any Authorization header
+    // (mirrors PUBLIC_TEMPLATES on the community server). A `Bearer null`
+    // string would fall through to 403 — proving the header is truly absent.
+    if (req.url.startsWith('/api/cli/template/harness') && !req.headers['authorization']) {
+      res.writeHead(200, { 'content-type': 'application/gzip' });
+      return res.end(tarballBytes);
+    }
     if (req.url.startsWith('/api/cli/template/') && req.headers['authorization'] === 'Bearer good') {
       res.writeHead(200, { 'content-type': 'application/gzip' });
       return res.end(tarballBytes);
@@ -51,6 +58,21 @@ test('fetchTemplateToDir: downloads and extracts without the tarball root direct
   assert.ok(existsSync(join(dest, 'package.json')));
   assert.ok(existsSync(join(dest, 'convex', 'schema.ts')));
   assert.equal(JSON.parse(await readFile(join(dest, 'package.json'), 'utf8')).name, 'live1');
+});
+
+test('fetchTemplateToDir: null token sends NO Authorization header (guest harness download)', async () => {
+  const dest = mkdtempSync(join(tmpdir(), 'create-iai-out-'));
+  const res = await fetchTemplateToDir(base, null, 'harness', dest);
+  assert.equal(res.ok, true);
+  assert.ok(existsSync(join(dest, 'package.json')));
+});
+
+test('downloadErrorMessage: missing sign-in → says how to sign in, never "just retry"', () => {
+  const m = downloadErrorMessage('template', 'missing_token');
+  assert.match(m, /requires the community sign-in/);
+  assert.match(m, /impactus --login/);
+  assert.doesNotMatch(m, /Try again in a moment/);
+  assert.match(downloadErrorMessage('harness', 'http_401'), /sign-in/);
 });
 
 test('fetchTemplateToDir: token without access → reason passed through', async () => {

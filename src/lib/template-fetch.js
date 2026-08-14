@@ -43,6 +43,9 @@ export async function fetchTemplateToDir(apiBase, token, name, destDir, ref) {
  * matters is between "wait and try again" and "retrying won't help":
  *
  *   no_active_enrollment → inactive subscription, it's on the student;
+ *   missing_token / http_401 → the download needs the sign-in (a guest run
+ *     reached a gated name, or the server does not serve this one anonymously
+ *     yet) — retrying won't help, signing in will;
  *   server_misconfigured → missing env on the community server (e.g. the
  *     GitHub token that fetches the private repos). Saying "try again in a
  *     moment" here makes the student retry forever an error only the
@@ -62,6 +65,13 @@ export async function fetchTemplateToDir(apiBase, token, name, destDir, ref) {
 export function downloadErrorMessage(what, reason) {
   if (reason === 'no_active_enrollment') {
     return `Your subscription is no longer active — the ${what} could not be downloaded.`;
+  }
+  if (reason === 'missing_token' || reason === 'http_401') {
+    return [
+      `The ${what} download requires the community sign-in.`,
+      'Authenticate with `npx impactus --login` (or run the installer again and',
+      'choose "Sign in") and repeat the command.',
+    ].join('\n');
   }
   if (reason === 'server_misconfigured') {
     return [
