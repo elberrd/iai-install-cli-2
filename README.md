@@ -66,34 +66,134 @@ npx impactus
 
 The wizard asks **everything up front** (sign-in, project folder, how to
 start, stack, addons), shows a summary, and only then executes the whole
-install at once. From there:
+install at once. After it finishes you work in **two cockpits**:
 
-1. **Describe the product.** Fill in `ai-docs/PRD.md` — or let Pi extract it
-   from an interview: run `imp` and type `/idea`. In Claude Code, `/grill`
-   sharpens the PRD one question at a time.
-2. **Plan.** `/start` (Claude Code/Cursor) or `/map` (Pi) turns the PRD into
-   screens, tasks and a design system — everything versioned under `ai-docs/`.
-3. **Build.** Interactive: `/dev` (test-first) with `/sv` and `/test-ui`.
-   Automated: inside `pi`, `/task` runs ONE task as an FDA and `/goal` runs
-   them all — deterministic sequencing, quality gates, commit hygiene.
-4. **Follow along.** `npm run tui` (terminal dashboard), `npm run fda:viewer`
-   (web viewer), `npm run plan` (the plan `/map` created), `npm run agents`
-   (which engine/model each FDA uses).
-5. **Lost at any point?** `/guide` (inside `pi`) reads the project state and
-   charts the route.
+- **Claude Code / Cursor** — the harness slash commands, for interactive
+  building (`/start`, `/dev`, `/sv`, `/test-ui`…).
+- **Pi** (the `imp` command opens it) — the FIA: planning interviews
+  (`/idea`, `/map`) and the fully-automated runs (`/task`, `/goal`), with
+  dashboards via `npm run tui` and `npm run fda:viewer`.
 
-The `imp` launcher (`npm i -g impactus`):
-
-```bash
-imp init     # install into the current folder (same as npx impactus)
-imp          # start Pi here (installs Pi if it's missing)
-imp update   # update impactus + Pi + the pinned Pi extension packages
-imp tui      # the project dashboard in the terminal
-```
+The flow, in short: **describe** the product (PRD) → **plan** (map, screens,
+tasks) → **build** (interactively or via FDAs) → **follow along**
+(dashboards) → **launch**. Every step below is optional and resumable — and
+`/guide` (inside `pi`) always tells you the next best command.
 
 One login is left for the very end: inside `pi`, `/login openai-codex` (for
 the Codex roles). Claude runs through the official `claude` CLI you already
 use — the CLI never asks for an API key.
+
+### Installer & launcher commands
+
+```bash
+npx impactus                   # install (the wizard asks everything up front)
+npx impactus --login           # authenticate this computer (browser, one time)
+npx impactus --whoami          # subscription status
+npx impactus --logout          # revoke + remove the local token
+npx impactus --verify --dir .  # audit an installed project (read-only)
+npx impactus --update-runtime --dir .  # re-stamp imp/ + .pi/ from a newer CLI
+
+npm i -g impactus              # installs the `imp` launcher:
+imp init                       # install into the current folder (same as npx impactus)
+imp                            # open Pi here (installs Pi if it's missing)
+imp update                     # update impactus + Pi + the pinned Pi extensions
+imp tui                        # the project dashboard in the terminal
+```
+
+### Inside `pi` (run `imp`) — plan and automate
+
+| Command | What it does |
+| --- | --- |
+| `/idea [topic]` | Interview from scratch → PRD + the best stack for it. On an existing system it adds a new `## Module:` chapter instead. |
+| `/stack [tech?]` | Decides pending stack layers, generates docs for each technology in `ai-docs/apis/`, installs CLIs, MCPs and skills. |
+| `/grill [target]` | Stress-tests the PRD one question at a time, recording every decision. |
+| `/prd [focus]` | Quick reviewer opinion on the PRD. |
+| `/map` | PRD → map + screens + tasks + milestones; opens the plan in the browser when done. |
+| `/task [n]` | Runs ONE task end to end via FDA (implements, tests, gates, commits). |
+| `/goal` | Runs ALL tasks until done — the fully-automated mode. |
+| `/feature "what you want"` | New feature in an existing system: delta interview → delta spec + new tasks. |
+| `/bug "the symptom"` | Records the defect, proves a valid failing test first (RED), then fixes it. |
+| `/quick "small change"` | Triage: a genuinely small change ships in one sitting; anything bigger routes to `/feature` or `/bug`. |
+| `/spec [capability]` | Durable spec — requirements + BDD scenarios + traceability gates. |
+| `/absorb [focus]` | Existing project → as-built PRD, map, conventions, stack manifest and component registry. |
+| `/kit` | Design-system audit of existing code: as-built registry, gap report, design-only tasks. |
+| `/component`, `/theme`, `/design`, `/example` | Design system: add a component, change colors/fonts, redesign from references, register an external reference. |
+| `/launch` | Go live — public beta and production, with readiness gates. |
+| `/agents` | Visual roster editor: engine, model and fallbacks per FDA agent. |
+| `/status` | Progress + latest runs. |
+| `/guide [goal?]` | Lost? Reads the project state, confirms your goal in one question and charts the shortest route. |
+| `/note "idea"` | One line into `ai-docs/inbox.md` — zero questions. |
+| `/fia` | Factory overview. |
+
+### In Claude Code / Cursor — the harness, interactive building
+
+| Command | What it does |
+| --- | --- |
+| `/start` | Initializes the project from the PRD: map, screens, tasks and design system. |
+| `/dev [task?]` | Executes a dev task test-first (no argument = the next frontier task). |
+| `/sv` | Save: build verification + git commit + database backup. |
+| `/test-ui [flow?]` | Tests the UI in a real browser, with automated sign-in and issue detection. |
+| `/team [task]` | Multi-agent orchestration: parallel specialist agents on one task. |
+| `/restore` | Rolls code + database back to a previous save (destructive — confirms first). |
+| `/grill`, `/stack`, `/absorb`, `/quick`, `/spec`, `/feature`, `/bug`, `/component`, `/theme`, `/design`, `/example`, `/kit`, `/launch`, `/note` | The same planning, spec and design-system commands also live here. |
+
+### Dashboards & utilities (npm scripts stamped into the project)
+
+```bash
+npm run tui           # terminal dashboard: tasks, specs, milestones, runs
+npm run plan          # web viewer, "Plan" tab — everything /map created
+npm run agents        # web viewer, "Agents" tab — engine/model per FDA
+npm run fda:viewer    # the full web viewer (observability of every run)
+npm run launch:check  # launch readiness: blockers/warnings before going live
+npm run env:check     # which keys your declared stack still needs in .env.local
+npm run fda:status    # is an FDA running in this repo right now?
+npm run docs:commit   # commit ai-docs/ artifacts (docs only)
+```
+
+### Example 1 — from zero, WITHOUT the template (your own stack; works as guest)
+
+```bash
+npx impactus              # pick "Build my own stack" (or "I don't know yet")
+cd my-app
+imp                       # open Pi
+/login openai-codex       # one time only
+/idea                     # interview → PRD + the best stack (all into ai-docs/)
+/stack                    # docs for each tech + CLIs, MCPs and skills
+/grill                    # stress-test the PRD before building
+/map                      # PRD → screens, tasks, milestones (opens the plan)
+/task 1                   # first task via FDA — or /goal to run them all
+npm run tui               # follow along in another terminal
+```
+
+### Example 2 — from zero, WITH the ready-made template (signed-in students)
+
+```bash
+npx impactus              # sign in; pick "Recommended stack (ready-made template)"
+# the CLI provisions everything: Convex + Clerk + keys + webhooks (+ GitHub/deploy)
+cd my-app
+npm run dev:convex        # terminal 1 — backend (watch + codegen)
+npm run dev               # terminal 2 — Next.js → http://localhost:3000
+
+# the app already runs — now shape it into YOUR product:
+imp                       # open Pi
+/grill                    # sharpen the PRD (template features are the baseline)
+/map                      # plan screens + tasks on top of the template
+/goal                     # let the FDAs build it — or /dev in Claude Code, task by task
+```
+
+### Example 3 — an EXISTING web app (brownfield)
+
+```bash
+cd my-app
+npx impactus --dir .      # detects the existing project → harness + FIA only,
+                          # nothing in your code is overwritten
+imp
+/absorb                   # as-built PRD + map + conventions + stack manifest
+/feature "CSV export on the reports page"   # new feature → delta spec + tasks
+/bug "login loops after logout"             # defect → proven RED, then the fix
+/quick "rename the Save button"             # small change, no ceremony
+/task                     # execute — or /goal for everything approved
+```
 
 ## What you get
 
