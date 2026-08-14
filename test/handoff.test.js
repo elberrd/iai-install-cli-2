@@ -10,6 +10,12 @@ import { piSessionsDirFor } from '../fia-templates/scripts/pi-sessions.mjs';
 // derives the SAME path through piSessionsDirFor, so both sides always agree.
 const SCRIPT = join(import.meta.dirname, '..', 'fia-templates', 'scripts', 'handoff.mjs');
 
+// Pi derives its per-project sessions dir from a POSIX cwd slug — on native
+// Windows the slug embeds `C:\...` and cannot even be mkdir'd. Native-Windows
+// FIA is a known open debt (lessons 2026-08-14); WSL is the supported path.
+const WIN_SKIP =
+  process.platform === 'win32' && 'Pi session slugs are POSIX-cwd based; native-Windows FIA is an open debt';
+
 function makeWorld({ withSession = true } = {}) {
   // realpath both: the child's process.cwd() resolves symlinks (macOS /var →
   // /private/var), and the sessions-dir slug is derived from that resolved cwd.
@@ -49,7 +55,7 @@ function runHandoff(world, args, env = {}) {
   });
 }
 
-test('handoff --list shows the project sessions', () => {
+test('handoff --list shows the project sessions', { skip: WIN_SKIP }, () => {
   const world = makeWorld();
   const r = runHandoff(world, ['--list']);
   assert.equal(r.status, 0, r.stderr);
@@ -58,7 +64,7 @@ test('handoff --list shows the project sessions', () => {
   assert.match(r.stdout, /Build the pricing page/);
 });
 
-test('handoff --print builds the continuation prompt, saves it and launches nothing', () => {
+test('handoff --print builds the continuation prompt, saves it and launches nothing', { skip: WIN_SKIP }, () => {
   const world = makeWorld();
   const r = runHandoff(world, ['--print']);
   assert.equal(r.status, 0, r.stderr);
@@ -79,14 +85,14 @@ test('handoff --print builds the continuation prompt, saves it and launches noth
   assert.match(prompt, /Pick up the conversation recorded in that transcript/);
 });
 
-test('handoff --full asks for the complete transcript read', () => {
+test('handoff --full asks for the complete transcript read', { skip: WIN_SKIP }, () => {
   const world = makeWorld();
   const r = runHandoff(world, ['--print', '--full']);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /Read the COMPLETE session transcript/);
 });
 
-test('handoff without sessions explains and exits 1', () => {
+test('handoff without sessions explains and exits 1', { skip: WIN_SKIP }, () => {
   const world = makeWorld({ withSession: false });
   const r = runHandoff(world, []);
   assert.equal(r.status, 1);
@@ -94,7 +100,7 @@ test('handoff without sessions explains and exits 1', () => {
   assert.match(r.stderr, /Start one with `imp` first/);
 });
 
-test('handoff --session with an unknown id refuses with the --list hint', () => {
+test('handoff --session with an unknown id refuses with the --list hint', { skip: WIN_SKIP }, () => {
   const world = makeWorld();
   const r = runHandoff(world, ['--session', 'nope']);
   assert.equal(r.status, 1);
@@ -102,7 +108,7 @@ test('handoff --session with an unknown id refuses with the --list hint', () => 
   assert.match(r.stderr, /--list/);
 });
 
-test('handoff degrades when the `claude` CLI is missing: prompt saved, clear hint', () => {
+test('handoff degrades when the `claude` CLI is missing: prompt saved, clear hint', { skip: WIN_SKIP }, () => {
   const world = makeWorld();
   // PATH holds only node's own dir — `claude` cannot resolve anywhere.
   const r = runHandoff(world, [], { PATH: dirname(process.execPath) });
