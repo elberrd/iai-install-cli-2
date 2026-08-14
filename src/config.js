@@ -163,6 +163,9 @@ export const FIA = {
     'fda:status': 'node imp/scripts/fda-lock.mjs status',
     // Pathspec-limited commit of ai-docs/ artifacts (docs only, refuses mid-FDA).
     'docs:commit': 'node imp/scripts/docs-commit.mjs',
+    // Continue the newest interactive Pi conversation in the `claude` CLI
+    // (continuation prompt + transcript on disk — works while Codex is down).
+    handoff: 'node imp/scripts/handoff.mjs',
     // Terminal dashboard (read-only): tasks, specs, milestones and runs in the
     // terminal — the TUI twin of the web viewer (decision record: tui-plan.md,
     // private impactus-internal-docs repo).

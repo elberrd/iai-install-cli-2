@@ -61,6 +61,8 @@ Usage:
                          all impactus flags work — see \`imp init --help\`)
   imp update             Update impactus, Pi and the Pi extension packages
   imp tui                Terminal dashboard — tasks, specs and runs (same as npm run tui)
+  imp handoff            Continue the newest Pi conversation in the \`claude\` CLI
+                         (works while Codex is down; --list picks a session)
   imp help               Show this help
   imp --version          Print the impactus version
 
@@ -149,6 +151,20 @@ if (cmd === 'tui') {
   }
   const { runInherit } = await import('../src/lib/proc.js');
   const r = await runInherit(process.execPath, ['imp/scripts/fia-tui.mjs', ...rest]);
+  process.exit(r.exitCode);
+}
+
+if (cmd === 'handoff') {
+  // Same contract as `imp tui`: the script is stamped per project so it
+  // version-matches the runtime modules it imports (continuation preamble).
+  const { existsSync } = await import('node:fs');
+  if (!existsSync('imp/scripts/handoff.mjs')) {
+    console.error('No FIA runtime in this folder (imp/scripts/handoff.mjs not found).');
+    console.error('Run `imp init` in your project folder first — or `npx impactus --update-runtime` on an older install.');
+    process.exit(1);
+  }
+  const { runInherit } = await import('../src/lib/proc.js');
+  const r = await runInherit(process.execPath, ['imp/scripts/handoff.mjs', ...rest]);
   process.exit(r.exitCode);
 }
 
