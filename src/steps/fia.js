@@ -185,6 +185,7 @@ export async function setupFia(ctx) {
       'Visual timeline: npm run fda:viewer  ·  What /map created: npm run plan',
       'Terminal dashboard (tasks, specs, runs — live): npm run tui',
       'Checks: npm run env:check (dev keys the stack needs)  ·  npm run launch:check (before going live)',
+      'Codex down? `imp handoff` continues your newest Pi conversation in the `claude` CLI.',
       '',
       ...(ctx.impGlobal
         ? [

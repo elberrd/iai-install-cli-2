@@ -140,6 +140,9 @@ export async function finish(ctx) {
           ? `FIA: installed — last step: run \`${agentCmd(ctx)}\` and type /login openai-codex (only that login)`
           : `FIA: installed — run \`${agentCmd(ctx)}\` and use /fia, /map, /task, /goal (plan: npm run plan · agents: npm run agents · viewer: npm run fda:viewer · terminal dashboard: npm run tui)`
         : null,
+      ctx.fiaInstalled
+        ? 'Codex outage? `imp handoff` continues your newest Pi conversation in the `claude` CLI.'
+        : null,
     ]
       .filter(Boolean)
       .join('\n'),

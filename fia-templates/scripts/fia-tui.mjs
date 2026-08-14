@@ -465,7 +465,7 @@ function RunDetail({ detail, now, height, width }) {
   // Engine switches (run-start fallback or mid-run relay) — the student must
   // see WHICH engine actually did the work without opening the trace db.
   const relays = (detail.engineEvents || [])
-    .filter((e) => e.type === 'engine_fallback' || e.type === 'engine_relay')
+    .filter((e) => (e.type === 'engine_fallback' || e.type === 'engine_relay') && e.payload?.from && e.payload?.to)
     .slice(-3);
   const phaseRoom = Math.max(3, height - 8 - relays.length);
   const hiddenPhases = Math.max(0, phaseRows.length - phaseRoom);
@@ -497,7 +497,10 @@ function RunDetail({ detail, now, height, width }) {
         trunc(
           `⚠ ${e.name}: ${e.payload?.from?.coding_agent} (${e.payload?.from?.model}) → ` +
             `${e.payload?.to?.coding_agent} (${e.payload?.to?.model})` +
-            `${e.payload?.kind ? ` — ${e.payload.kind}` : ''}${e.type === 'engine_relay' ? ' (mid-run)' : ''}`,
+            // Run-start fallbacks carry `reason` (no kind unless runtime-armed);
+            // mid-run relays carry `kind` — show whichever explains the switch.
+            `${e.payload?.kind || e.payload?.reason ? ` — ${e.payload.kind || e.payload.reason}` : ''}` +
+            `${e.type === 'engine_relay' ? ' (mid-run)' : ''}`,
           width - 6,
         ),
       ),

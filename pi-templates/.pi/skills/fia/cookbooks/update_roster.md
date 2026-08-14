@@ -53,6 +53,11 @@ on `--resume`), `off` (never auto-switch; deaths are still recorded). Every
 switch is printed and traced — never silent. Edit the chain visually in
 `/agents` or by hand in `imp/fia.config.yaml`.
 
+The interactive twin: when the Codex provider is down (so Pi itself cannot
+answer), `imp handoff` in a terminal — outside Pi — continues the newest Pi
+conversation in the `claude` CLI with the same continuation handover
+(`--list` picks a session, `--print` shows the prompt without launching).
+
 ## Add or change an agent (FDAs)
 
 1. Edit `imp/fia.config.yaml` — the file is protected for agents; the ENGINEER edits it (or uses `/agents`):

@@ -124,6 +124,12 @@ export function ensure(cfg, fdaId = null, { resume = false } = {}) {
   // the interrupted run's engine-failure markers count as unavailability too
   // (that engine already proved it cannot finish), so the resumed run keeps
   // moving on the fallbacks instead of dying on the same outage again.
+  // A typo in defaults.relay must not silently become 'auto': say so once.
+  const relayRaw = cfg.defaults?.relay;
+  if (relayRaw !== undefined && relayRaw !== relayModeOf(cfg)) {
+    console.log(`  ⚠ unknown relay mode "${relayRaw}" in imp/fia.config.yaml — using "auto" (valid: auto | resume | off)`);
+  }
+
   // relay 'off' means the student owns every engine switch — the resumed run
   // must not walk the chain on its own either.
   const runtimeFailures = {};
