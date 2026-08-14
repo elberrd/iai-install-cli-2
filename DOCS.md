@@ -1,4 +1,4 @@
-# impactus — Full documentation
+# IMPACTUS CLI — Full documentation
 
 Reference manual for **CLI v2**: architecture, pipeline, addons, template,
 harness, **FIA — the IAI Agent Factory** and how to extend it. Getting started:

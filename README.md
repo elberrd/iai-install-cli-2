@@ -1,12 +1,12 @@
-# impactus
+# IMPACTUS CLI
 
 > [!WARNING]
-> **Alpha software.** impactus `2.x` is in active development. Commands,
+> **Alpha software.** IMPACTUS CLI `2.x` is in active development. Commands,
 > flags, templates and the stamped runtime change between releases without
 > deprecation cycles. Pin a version if you need stability, and expect to run
 > `npx impactus --update-runtime` in installed projects often.
 
-The installer for the IAI method: it stamps a project with the agent harness
+The IAI method's installer (npm package `impactus`): it stamps a project with the agent harness
 plus the **FIA** — the IAI Agent Factory: **Pi** as the interactive agent,
 deterministic **FDAs** (fully-automated dev agents) and subscription-based
 authentication (Claude through the official `claude` CLI, Codex through Pi —
@@ -72,7 +72,7 @@ reference. `npx impactus --help` lists every flag.
 
 ## Status & support
 
-impactus is **alpha** and distributed to enrolled students. Bug reports and
+IMPACTUS CLI is **alpha** and distributed to enrolled students. Bug reports and
 reproductions are welcome in the
 [issues](https://github.com/elberrd/iai-install-cli-2/issues); support and
 onboarding happen inside the academy community.
