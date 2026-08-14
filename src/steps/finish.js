@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import { COMMUNITY } from '../config.js';
 import { run, runInherit } from '../lib/proc.js';
 import { piCodexReady } from '../lib/pi-auth.js';
 import { STACK_CATEGORIES, STACK_LATER } from '../stack-catalog.js';
@@ -235,6 +236,20 @@ export async function finish(ctx) {
         .join('\n'),
       'Next steps',
     );
+    // Guest run (no sign-in): remind what stayed locked and how to unlock it.
+    if (ctx.guest) {
+      ui.note(
+        [
+          'This install ran WITHOUT the community sign-in: harness + agent only.',
+          'Signing in as a student unlocks the ready-made templates and the fully',
+          'automated pipeline (Convex, Clerk, keys, webhooks, GitHub, deploy).',
+          '',
+          `Subscribe or renew: ${COMMUNITY.checkoutUrl}`,
+          'Already a student? npx impactus --login  (then run the installer again)',
+        ].join('\n'),
+        'Unlock the full installer',
+      );
+    }
     ui.outro(ui.color.green('Done! Happy coding. 🚀'));
     return;
   }

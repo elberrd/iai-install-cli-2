@@ -123,7 +123,9 @@ export async function revokeToken(apiBase, token, timeoutMs = 10000) {
 }
 
 /**
- * Downloads the private (gated) template tarball. Writes to `destPath`.
+ * Downloads a template tarball through the community API. Writes to `destPath`.
+ * `token` may be null: the harness is served without one (the free tier) —
+ * the gated names (live1/live2) answer 401/missing_token instead.
  * Capped at 2 minutes so a frozen connection never hangs the install forever;
  * on timeout the reason is `download_timeout`, and any other network failure
  * (DNS, refused, offline) is `network_error` — never a raw throw
@@ -136,7 +138,7 @@ export async function downloadTemplate(apiBase, token, name, destPath, ref, time
   const signal = AbortSignal.timeout(timeoutMs); // also aborts the body read
   try {
     const res = await fetch(`${apiBase}/api/cli/template/${encodeURIComponent(name)}${qs}`, {
-      headers: { authorization: `Bearer ${token}` },
+      headers: token ? { authorization: `Bearer ${token}` } : {},
       signal,
     });
     if (!res.ok) {

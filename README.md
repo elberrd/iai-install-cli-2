@@ -18,12 +18,22 @@ npx impactus
 
 ## Who can use it
 
-The installer is exclusive to **[Impactus Academy](https://www.impactus.academy)
-students with an active enrollment**. On first run it opens the browser to
-authorize your computer (OAuth device flow); the project templates and the
-agent harness are delivered by the academy's gated API — they are **not** in
-this repository or in the npm package, and the CLI has no clone path. Access
-is revalidated on every use.
+Anyone can run the installer — **signing in is optional and asked right at
+the start**:
+
+- **Signed in** ([Impactus Academy](https://www.impactus.academy) student with
+  an active enrollment): the full installer — the ready-made project templates
+  plus the whole automated template pipeline (cloud provisioning, keys,
+  webhooks, GitHub, deploy).
+- **Without signing in** (guest mode): the CLI still installs the **agent
+  harness + the FIA agents**, but nothing from the templates — the CLI shows
+  the limitation up front and again in the final summary.
+
+Login uses the OAuth device flow (browser, one time per computer); access is
+revalidated on every use. Templates and harness are delivered by the academy's
+API — they are **not** in this repository or in the npm package, and the CLI
+has no clone path (the harness is served without a token; the templates
+require an active enrollment).
 
 ```bash
 npx impactus --login    # authenticate this computer
@@ -56,6 +66,8 @@ command passes straight through to the real `pi` binary.
 
 - **Node.js >= 22.12**
 - An **active [Impactus Academy](https://www.impactus.academy) enrollment**
+  for the templates + automated pipeline (optional: without it the installer
+  delivers the harness + agent only)
 - **Claude Code** installed and logged in with a Claude **Pro/Max**
   subscription
 - For FIA's Codex roles: a **ChatGPT Plus/Pro** subscription (login at the
@@ -81,5 +93,6 @@ onboarding happen inside the academy community.
 
 [MIT](./LICENSE) — covers this repository: the installer CLI and the runtime
 it stamps (`fia-templates/`, `pi-templates/`). The project templates and the
-agent harness are proprietary, live in private repositories and are delivered
-only to enrolled students — they are not part of this package.
+agent harness are proprietary and live in private repositories — they are not
+part of this package. The templates are delivered only to enrolled students;
+the harness is served by the academy's API to any installer run.

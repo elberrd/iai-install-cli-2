@@ -1,12 +1,14 @@
 // Central configuration for the impactus installer.
 
-// ── Community (paid-student gate via device flow) ────────────────────────────
-// The CLI only installs for students with an ACTIVE subscription in the
-// community. Login uses the OAuth 2.0 Device Authorization Grant (RFC 8628)
-// against the /api/cli/* endpoints served by the community's Convex deployment
-// (.convex.site); both the template AND the private harness are downloaded
-// through it (tarball) — the student never needs GitHub access, and the CLI
-// has no direct-clone path.
+// ── Community (student gate via device flow — sign-in is OPTIONAL) ───────────
+// Signing in (ACTIVE subscription) unlocks the full installer; without it the
+// CLI still delivers the harness + FIA ("guest mode" — steps/auth.js) but
+// nothing from the templates. Login uses the OAuth 2.0 Device Authorization
+// Grant (RFC 8628) against the /api/cli/* endpoints served by the community's
+// Convex deployment (.convex.site); template AND harness are downloaded
+// through it (tarball) — the harness even without a token, the templates only
+// with one. The student never needs GitHub access, and the CLI has no
+// direct-clone path.
 //
 // `apiBase` must point to the community's PRODUCTION deployment — the same one
 // the www.impactus.academy site uses (verified against the production bundle).
@@ -75,8 +77,9 @@ export const DEFAULT_TEMPLATE_ID = 'live1';
 
 // Harness — optional agent-workflow scaffold (/start, /dev, /sv, /test-ui, …)
 // merged INTO the generated project as the last install step. Private
-// repository, downloaded EXCLUSIVELY through the community's gated API
-// (paid-student token) — there is no direct GitHub clone.
+// repository, downloaded EXCLUSIVELY through the community's API — served
+// even WITHOUT a token (the free tier: guests install harness + FIA); there
+// is no direct GitHub clone.
 // Merge rules (see src/steps/harness.js):
 //   - files that already exist in the project are NEVER overwritten;
 //   - the harness README.md is saved as imp/HARNESS.md (the project README wins);

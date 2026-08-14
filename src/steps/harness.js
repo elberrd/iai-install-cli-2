@@ -61,23 +61,19 @@ export async function setupHarness(ctx) {
     }
   }
 
-  // ── Download (gated — the ONLY path) ───────────────────────────────────────
-  // The harness is private and only comes out of the community API, with the
-  // paying-student token. `ensureAuthenticated` runs before everything and
-  // exits the CLI without a login; this guard is defense in depth — there is
-  // no direct-clone fallback.
-  if (!ctx.authToken) {
-    throw new Error(
-      'Without a community login the harness cannot be downloaded. Run the CLI again and complete the login.',
-    );
-  }
+  // ── Download (community API — the ONLY path) ───────────────────────────────
+  // With a student token the request is authenticated; without one (guest
+  // mode — sign-in declined in steps/auth.js) the server hands the harness
+  // out anonymously: harness + FIA are the free tier. The TEMPLATES remain
+  // token-gated (steps/project.js) and steps/mode.js never lets a guest reach
+  // them. There is no direct-clone fallback in either case.
   const tmpRoot = mkdtempSync(join(tmpdir(), 'create-iai-harness-'));
   const tmpClone = join(tmpRoot, 'repo');
   try {
     await ui.spin(
       'Downloading the harness…',
       async () => {
-        const res = await fetchTemplateToDir(ctx.apiBase, ctx.authToken, 'harness', tmpClone);
+        const res = await fetchTemplateToDir(ctx.apiBase, ctx.authToken ?? null, 'harness', tmpClone);
         if (!res.ok) {
           throw new Error(downloadErrorMessage('harness', res.reason));
         }

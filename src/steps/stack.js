@@ -115,29 +115,38 @@ export async function collectStack(ctx) {
     for (const err of result.errors) ui.warn(err);
 
     // Chose exactly the recommended stack? The template delivers it all ready.
+    // Guests can't take it (the download is sign-in gated) — say why and keep
+    // building from the manifest instead of offering a dead end.
     if (!ctx.existingProject && !result.pending.length && matchesTemplateStack(result.choices)) {
-      const useTemplate = await ui.confirm({
-        message:
-          'These choices are exactly the recommended stack — the ready-made template delivers everything assembled and tested (much faster than building from scratch). Use the template?',
-        initialValue: true,
-      });
-      if (useTemplate) {
-        ctx.mode = 'full';
-        ctx.stackPath = 'template';
-        ctx.stack = null;
-        // The file-storage choice was already made here — it becomes the
-        // storage decision of the template flow (flags win ⇒ no repeat question).
-        if (flags.storage == null && !flags.skipStorage) {
-          flags.storage = result.choices.blob === 'r2' ? 'r2' : 'convex';
+      if (ctx.guest) {
+        ui.info(
+          'These choices are exactly the recommended stack — signed-in students get it as a ready-made template. ' +
+            'Without sign-in the agent builds it from the manifest instead.',
+        );
+      } else {
+        const useTemplate = await ui.confirm({
+          message:
+            'These choices are exactly the recommended stack — the ready-made template delivers everything assembled and tested (much faster than building from scratch). Use the template?',
+          initialValue: true,
+        });
+        if (useTemplate) {
+          ctx.mode = 'full';
+          ctx.stackPath = 'template';
+          ctx.stack = null;
+          // The file-storage choice was already made here — it becomes the
+          // storage decision of the template flow (flags win ⇒ no repeat question).
+          if (flags.storage == null && !flags.skipStorage) {
+            flags.storage = result.choices.blob === 'r2' ? 'r2' : 'convex';
+          }
+          // The automations layer lives OUTSIDE the app — the template does not
+          // cover it, so anything other than "none" (Modal, or an honest
+          // "decide later") survives the switch and lands in the manifest.
+          if (result.choices.automations !== 'none') {
+            ctx.templateStackOverrides = { automations: result.choices.automations };
+          }
+          ui.success('Switched to the ready-made template — the next questions assemble the rest of the install.');
+          return;
         }
-        // The automations layer lives OUTSIDE the app — the template does not
-        // cover it, so anything other than "none" (Modal, or an honest
-        // "decide later") survives the switch and lands in the manifest.
-        if (result.choices.automations !== 'none') {
-          ctx.templateStackOverrides = { automations: result.choices.automations };
-        }
-        ui.success('Switched to the ready-made template — the next questions assemble the rest of the install.');
-        return;
       }
     }
 

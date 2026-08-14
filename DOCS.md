@@ -19,8 +19,9 @@ harness, **FIA — the IAI Agent Factory** and how to extend it. Getting started
 | **Template** | private repo (community gated API) | Next.js 16 + Convex + Clerk + shadcn/Tailwind v4 app, with EVERYTHING implemented — **optional** |
 
 The CLI **does not bundle** the template or the harness: both are downloaded at
-install time **exclusively through the community gated API** (paying-student
-token) — there is no direct GitHub clone.
+install time **exclusively through the community API** — there is no direct
+GitHub clone. The templates require the paying-student token; the harness is
+also served **without** one (guest mode installs harness + FIA only).
 
 **Tenancy**: `--tenancy single` (default) downloads live1; `--tenancy multi`
 downloads **live2** — multi-tenant with organizations owned by the
@@ -218,11 +219,11 @@ prelude, then the tail for the chosen mode).
 
 | #  | Step | File | Notes |
 | -- | ----- | ------- | ----- |
-| 1  | Access — community student | `steps/auth.js` | Device-flow login; validates the subscription |
+| 1  | Access — sign in (optional) | `steps/auth.js` | Valid session → "Welcome back"; otherwise offers the device-flow login. Declining sets **guest mode**: harness + FIA only, every template path locked (announced on the spot) |
 | 2  | Claude Code | `steps/preflight.js` | Blocks if missing/logged out |
 | 3  | Name and folder | `steps/project.js` | `.` installs in the current folder |
-| 4  | **How to start — mode + stack path** | `steps/mode.js` | Sets `ctx.mode` + `ctx.stackPath` |
-| 5  | Your stack — layer by layer | `steps/stack.js` | Only the "build my own stack" path asks; may switch `ctx.mode` to `full` |
+| 4  | **How to start — mode + stack path** | `steps/mode.js` | Sets `ctx.mode` + `ctx.stackPath`; in guest mode the template path is locked (flags forcing it error out) |
+| 5  | Your stack — layer by layer | `steps/stack.js` | Only the "build my own stack" path asks; may switch `ctx.mode` to `full` (never for guests) |
 
 **`full` mode (harness + template):** each step declares a CAPABILITY
 (`core` always runs; `convex`/`clerk`/`shadcn`/`storage`/`mcps` only when the
@@ -257,7 +258,7 @@ template declares them in `requires` — see §2.4 and `src/lib/pipeline.js`).
 
 | #  | Step | File | Notes |
 | -- | ----- | ------- | ----- |
-| 6  | CLIs (git, gh) | `steps/preflight.js` | Binaries only — no gh login and no Vercel; with a community token even the gh install is skipped |
+| 6  | CLIs (git) | `steps/preflight.js` | Binaries only — no gh, no Vercel (the harness always comes through the community API, token or not) |
 | 7  | Harness | `steps/harness.js` | Merge into the folder; runs `git init` if missing |
 | 8  | Stack — manifest, docs and tooling | `steps/stack-docs.js` | Manifest + `AGENTS.md` block + skills/CLIs/MCPs of the chosen techs (incl. Neon/Supabase dev DB) |
 | 9  | FIA — Pi + FDAs | `steps/fia.js` | Stamps `imp/` + `.pi/` |
@@ -439,7 +440,8 @@ the browser sends the binary STRAIGHT to storage via signed URL.
 ## 8. Harness
 
 **The installer's base — always installed**, in both modes. Downloads the
-harness through the community gated API (paying-student token — the only path)
+harness through the community API (the only path — with the student token, or
+anonymously in guest mode: harness + FIA are the free tier)
 and merges **without overwriting anything** — existing files
 win, the harness `README.md` becomes `imp/HARNESS.md`, and its `AGENTS.md` is
 appended to the project's between the `<!-- harness-start/end -->` markers.
@@ -846,7 +848,8 @@ FIA and design
                            no API key; default on. Requires Node >= 22.12
   --no-impeccable          Skips Impeccable (--skip-impeccable is the same)
 
-Access (the CLI is exclusive to students with an active subscription)
+Access (sign-in is optional: it unlocks the templates + their automation;
+without it the installer delivers the harness + agent only)
   --login                  Authenticates this computer (browser) and exits
   --logout                 Removes/revokes the CLI token and exits
   --whoami                 Shows subscription status and exits
@@ -871,6 +874,9 @@ General
 `--preset`/groups), default shadcn block, no webhook/R2/deploy, **harness
 installed**, local commit without a remote repo, no integration-CLI logins.
 For harness only without prompts: `--harness-only` (or `--mode harness`).
+Without a valid login (or `CREATE_IAI_TOKEN`), `--yes` continues as **guest**
+— harness + agent only — and `--mode full`/`--stack template` error out
+instead of silently downgrading.
 
 ## 10. How to add a new addon
 

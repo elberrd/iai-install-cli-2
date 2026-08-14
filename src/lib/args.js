@@ -307,7 +307,8 @@ Options:
   --terminal, --no-ui      Accepted for compatibility (the terminal is already the default)
   --port <n>               UI server port (default: 4599)
 
-  Access (the CLI is exclusive to community students with an active subscription):
+  Access (sign-in is optional: it unlocks the templates + their automation;
+  without it the installer delivers the harness + agent only):
   --login                  Authenticates this computer (opens the browser) and exits
   --logout                 Removes/revokes this computer's CLI token and exits
   --whoami                 Shows your subscription status and exits

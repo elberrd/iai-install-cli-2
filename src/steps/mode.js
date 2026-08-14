@@ -46,6 +46,23 @@ export async function selectInstallMode(ctx) {
     !ctx.resumingInstall && !ctx.createdDir && Boolean(ctx.dir) &&
     (existsSync(join(ctx.dir, 'package.json')) || existsSync(join(ctx.dir, '.git')));
 
+  // ── Guest mode (no sign-in): only harness paths exist ──────────────────────
+  // The template download and its whole automation are token-gated
+  // (steps/auth.js already announced the limitation). A flag that forces the
+  // template is a HARD error — silently downgrading a scripted full install
+  // would surprise whoever wrote the script.
+  const guest = Boolean(ctx.guest);
+  const needsSignIn = (what) =>
+    new Error(
+      `${what} needs the community sign-in — run the installer again and choose "Sign in" ` +
+        '(or authenticate first with `npx impactus --login`; automation uses CREATE_IAI_TOKEN).',
+    );
+  if (guest && ctx.resumingInstall) {
+    // The leftover marker means a half-finished FULL install: only the gated
+    // template flow can resume it safely (see the resume note further down).
+    throw needsSignIn('Resuming the unfinished template install in this folder');
+  }
+
   // ── --stack decides path AND mode ──────────────────────────────────────────
   if (flags.stack != null) {
     const parsed = parseStackFlag(flags.stack);
@@ -56,6 +73,9 @@ export async function selectInstallMode(ctx) {
     }
     for (const err of parsed.errors) ui.warn(err);
     const impliedMode = parsed.path === 'template' ? 'full' : 'harness';
+    if (guest && impliedMode === 'full') {
+      throw needsSignIn(`--stack ${flags.stack} (the ready-made template)`);
+    }
     if ((flags.mode === 'full' || flags.mode === 'harness') && flags.mode !== impliedMode) {
       throw new Error(
         `--mode ${flags.mode} conflicts with --stack ${flags.stack} — the recommended stack is the template (full); ` +
@@ -71,6 +91,7 @@ export async function selectInstallMode(ctx) {
   }
 
   if (flags.mode === 'harness' || flags.mode === 'full') {
+    if (guest && flags.mode === 'full') throw needsSignIn('--mode full (harness + template)');
     ctx.mode = flags.mode;
     ctx.stackPath =
       flags.mode === 'full' ? 'template' : ctx.existingProject ? 'brownfield' : 'discover';
@@ -79,6 +100,12 @@ export async function selectInstallMode(ctx) {
   }
 
   if (flags.yes) {
+    if (guest) {
+      ctx.mode = 'harness';
+      ctx.stackPath = ctx.existingProject ? 'brownfield' : 'discover';
+      ui.info('Mode: harness only (not signed in — the template is unavailable).');
+      return agentFilesPolicy(ctx);
+    }
     ctx.mode = ctx.existingProject ? 'harness' : 'full';
     ctx.stackPath = ctx.existingProject ? 'brownfield' : 'template';
     ui.info(
@@ -101,6 +128,14 @@ export async function selectInstallMode(ctx) {
       ].join('\n'),
       'Existing project',
     );
+    // Guest: "harness + template" does not exist — the recommended path is the
+    // only one, so there is nothing to select.
+    if (guest) {
+      ctx.mode = 'harness';
+      ctx.stackPath = 'brownfield';
+      ui.info('Mode: harness only (the "harness + template" option needs the community sign-in).');
+      return agentFilesPolicy(ctx);
+    }
     const mode = await ui.select({
       message: 'Choose what to install:',
       initialValue: 'harness',
@@ -136,15 +171,18 @@ export async function selectInstallMode(ctx) {
     );
   }
 
-  // ── New project: the three paths ───────────────────────────────────────────
+  // ── New project: the three paths (two without sign-in) ─────────────────────
   ui.note(
     [
       'The harness (agent workflow: /start, /dev, /sv, /launch…) is ALWAYS',
       'installed. The question is HOW to start the project:',
       '',
-      '  • Recommended stack — ready-made template: Next.js + Convex (database+',
-      '    backend with no API layer) + Clerk (login) + Cloudflare R2 (files) +',
-      '    Vercel. The fastest path: up and running in minutes.',
+      guest
+        ? '  • Recommended stack (ready-made template) — LOCKED: it needs the\n' +
+          '    community sign-in. Run the installer again and sign in to use it.'
+        : '  • Recommended stack — ready-made template: Next.js + Convex (database+\n' +
+          '    backend with no API layer) + Clerk (login) + Cloudflare R2 (files) +\n' +
+          '    Vercel. The fastest path: up and running in minutes.',
       '  • Build my own stack — you choose layer by layer (e.g. without Convex',
       '    you get your own API with Hono + Neon/Supabase database + Drizzle ORM)',
       '    and the agent builds the app guided by the docs the system generates.',
@@ -157,13 +195,15 @@ export async function selectInstallMode(ctx) {
 
   const path = await ui.select({
     message: 'How do you want to start?',
-    initialValue: 'template',
+    initialValue: guest ? 'custom' : 'template',
     options: [
-      {
-        value: 'template',
-        label: 'Recommended stack (ready-made template)',
-        hint: 'Next.js + Convex + Clerk + R2 — the fastest path',
-      },
+      guest
+        ? null
+        : {
+            value: 'template',
+            label: 'Recommended stack (ready-made template)',
+            hint: 'Next.js + Convex + Clerk + R2 — the fastest path',
+          },
       {
         value: 'custom',
         label: 'Build my own stack',
@@ -174,7 +214,7 @@ export async function selectInstallMode(ctx) {
         label: "I don't know what I need yet",
         hint: 'installs the harness; Pi (/idea) extracts the PRD and stack with you',
       },
-    ],
+    ].filter(Boolean),
   });
 
   ctx.stackPath = path;

@@ -44,8 +44,10 @@ export async function main(flags = {}) {
 
   // Early gate (before login): if --template-id/--tenancy ask for an unknown
   // or unpublished template, warn right away. Every download (template AND
-  // harness) goes exclusively through the community's gated API — there is no
-  // direct GitHub clone (see steps/project.js and steps/harness.js).
+  // harness) goes exclusively through the community's API — there is no
+  // direct GitHub clone. The templates require the student token; the harness
+  // is also served WITHOUT one (guest mode installs harness + FIA only — see
+  // steps/auth.js, steps/mode.js and steps/harness.js).
   {
     const { id } = resolveTemplateId(flags);
     if (id && !TEMPLATES[id]) {
@@ -92,7 +94,7 @@ export async function main(flags = {}) {
   // template stack runs before it; in 'harness' mode nothing else runs — only
   // the folder is prepared and the harness is merged into it.
   const preludeSteps = [
-    ['Access — community student', () => ensureAuthenticated(ctx)],
+    ['Access — sign in to the community (optional)', () => ensureAuthenticated(ctx)],
     ['Prerequisite: Claude Code', () => ensureClaudeCode(flags)],
     ['Project — target folder (the project name is the folder name)', async () => Object.assign(ctx, await promptProject(flags))],
     ['How to start — ready-made template, your own stack, or decide later', () => selectInstallMode(ctx)],
@@ -163,14 +165,13 @@ export async function main(flags = {}) {
   const tailSteps = (mode) =>
     mode === 'harness'
       ? [
-          // The harness comes through the community gate (no clone): git comes
-          // in for the local commit and nothing is pushed to GitHub, so with a
-          // community token the gh binary would never be used — skip installing
-          // it. Without a token (dev runs outside the gate) gh stays as the
-          // fallback. Vercel CLI is not installed.
+          // The harness always comes through the community API (with or
+          // without a token — guests get it anonymously): git comes in for the
+          // local commit, nothing is pushed to GitHub and no clone happens, so
+          // neither gh nor the Vercel CLI is installed.
           [
-            'CLIs — git and gh',
-            () => ensureCliTools({ vercel: false, gh: !ctx.authToken, ghAuth: false, flags }),
+            'CLIs — git',
+            () => ensureCliTools({ vercel: false, gh: false, ghAuth: false, flags }),
           ],
           ['Harness — agent workflow', () => setupHarness(ctx)],
           // After the harness (which creates ai-docs/): the ai-docs/stack.md
