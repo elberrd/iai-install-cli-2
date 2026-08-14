@@ -6,15 +6,32 @@
 > deprecation cycles. Pin a version if you need stability, and expect to run
 > `npx impactus --update-runtime` in installed projects often.
 
-The IAI method's installer (npm package `impactus`): it stamps a project with the agent harness
-plus the **FIA** — the IAI Agent Factory: **Pi** as the interactive agent,
-deterministic **FDAs** (fully-automated dev agents) and subscription-based
-authentication (Claude through the official `claude` CLI, Codex through Pi —
-never API keys, never per-token billing).
+**IMPACTUS CLI** (npm package `impactus`) is the installer of the **IAI
+method**. It exists so students and followers of
+**[IMPACTUS Academy](https://www.impactus.academy)** can do **assisted vibe
+coding** in a simpler and more professional way: you describe the product, the
+agents plan, build and test it — and the method keeps everything traceable
+(PRD, specs, decision log, quality gates), so what comes out is a real,
+maintainable codebase instead of a throwaway prototype.
 
 ```bash
 npx impactus
 ```
+
+One command stamps your project with the **agent harness** plus the **FIA**,
+running entirely inside the AI subscriptions you already have (Claude Pro/Max
+and ChatGPT Plus/Pro) — no API keys, no per-token billing.
+
+## What the names mean
+
+| Name | What it is |
+| --- | --- |
+| **IAI** | The method taught at IMPACTUS Academy for building production software with AI agents. This CLI is its installer. |
+| **FIA** | The **IAI Agent Factory** — the agent runtime stamped into your project (`imp/` + `.pi/`): Pi as the interactive agent, the FDAs as the workforce, plus an observability database, quality gates and dashboards. |
+| **FDA** | **Fully-automated Dev Agent** — a deterministic, non-interactive agent run (`imp/fda_*.mjs`) that takes a task end to end: implements, tests, passes the quality gates and commits, with every step recorded. |
+| **Pi** | The interactive agent you talk to (the `imp` command opens it): `/idea`, `/map`, `/task`, `/goal`, `/guide`… It plans with you and dispatches the FDAs. |
+| **Harness** | The agent-workflow scaffold for Claude Code and Cursor (`/start`, `/dev`, `/sv`, 9 specialist agents, skills and gates) — the base of every install. |
+| **imp** | The brand launcher (`npm i -g impactus`) — a thin wrapper over the real `pi` binary, not a fork. |
 
 ## Who can use it
 
@@ -41,6 +58,43 @@ npx impactus --whoami   # subscription status
 npx impactus --logout   # revoke + remove the local token
 ```
 
+## Quick start
+
+```bash
+npx impactus
+```
+
+The wizard asks **everything up front** (sign-in, project folder, how to
+start, stack, addons), shows a summary, and only then executes the whole
+install at once. From there:
+
+1. **Describe the product.** Fill in `ai-docs/PRD.md` — or let Pi extract it
+   from an interview: run `imp` and type `/idea`. In Claude Code, `/grill`
+   sharpens the PRD one question at a time.
+2. **Plan.** `/start` (Claude Code/Cursor) or `/map` (Pi) turns the PRD into
+   screens, tasks and a design system — everything versioned under `ai-docs/`.
+3. **Build.** Interactive: `/dev` (test-first) with `/sv` and `/test-ui`.
+   Automated: inside `pi`, `/task` runs ONE task as an FDA and `/goal` runs
+   them all — deterministic sequencing, quality gates, commit hygiene.
+4. **Follow along.** `npm run tui` (terminal dashboard), `npm run fda:viewer`
+   (web viewer), `npm run plan` (the plan `/map` created), `npm run agents`
+   (which engine/model each FDA uses).
+5. **Lost at any point?** `/guide` (inside `pi`) reads the project state and
+   charts the route.
+
+The `imp` launcher (`npm i -g impactus`):
+
+```bash
+imp init     # install into the current folder (same as npx impactus)
+imp          # start Pi here (installs Pi if it's missing)
+imp update   # update impactus + Pi + the pinned Pi extension packages
+imp tui      # the project dashboard in the terminal
+```
+
+One login is left for the very end: inside `pi`, `/login openai-codex` (for
+the Codex roles). Claude runs through the official `claude` CLI you already
+use — the CLI never asks for an API key.
+
 ## What you get
 
 One command takes a project from zero to running locally — a SaaS starter
@@ -50,17 +104,8 @@ the agent harness (skills, commands, gates) and the FIA runtime:
 - **`imp/`** — the FDA runner: deterministic sequencers, quality gates, an
   observability SQLite, the terminal TUI and the web viewer.
 - **`.pi/`** — Pi's project config: prompts, the `fia` skill and cookbooks.
-- **`imp`** — the launcher, installed globally with `npm i -g impactus`:
-
-```bash
-imp init     # install into the current folder (same as npx impactus)
-imp          # start Pi here (installs Pi if it's missing)
-imp update   # update impactus + Pi + the pinned Pi extension packages
-imp tui      # the project dashboard in the terminal
-```
-
-`imp` is a thin brand wrapper, **not a Pi fork** — anything that isn't an imp
-command passes straight through to the real `pi` binary.
+- **`ai-docs/`** — the project's living documentation: PRD, stack manifest,
+  specs, decisions, design system.
 
 ## Requirements
 
