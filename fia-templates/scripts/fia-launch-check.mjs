@@ -191,6 +191,9 @@ function listFiles(dir, exts, acc = [], depth = 0) {
 export function runLaunchChecks(root = process.cwd(), opts = {}) {
   root = resolve(root);
   const aiDocsDir = opts.aiDocsDir || process.env.FIA_AI_DOCS || join(root, 'ai-docs');
+  // Repo-relative path for reports — always forward slashes, so a finding
+  // reads the same (and diffs the same) on Windows and POSIX.
+  const rel = (f) => f.slice(root.length + 1).replaceAll('\\', '/');
   const checks = [];
   const add = (section, id, level, status, label, detail = null, fix = null) =>
     checks.push({ section, id, level, status, label, ...(detail ? { detail } : {}), ...(fix ? { fix } : {}) });
@@ -360,7 +363,7 @@ export function runLaunchChecks(root = process.cwd(), opts = {}) {
       for (const dir of uiDirs) {
         for (const f of listFiles(dir, ['.tsx', '.jsx'])) {
           if (/[/\\]emails?[/\\]/.test(f)) continue; // react-email inlines styles by design
-          if (hex.test(readIf(f) || '')) offenders.push(f.slice(root.length + 1));
+          if (hex.test(readIf(f) || '')) offenders.push(rel(f));
         }
       }
       add('Work', 'theme_tokens', 'warn', offenders.length === 0 ? 'pass' : 'fail', 'No hardcoded hex colors in UI components', offenders.length ? offenders.slice(0, 5).join(', ') + (offenders.length > 5 ? ` (+${offenders.length - 5})` : '') : null, offenders.length ? 'use the theme CSS variables — raw hex is invisible to /theme (design-system skill, rule 8)' : null);
@@ -417,7 +420,7 @@ export function runLaunchChecks(root = process.cwd(), opts = {}) {
     for (const f of convexFiles) {
       if (/[/\\]lib[/\\]/.test(f)) continue;
       const src = readIf(f) || '';
-      if (/=\s*(query|mutation)\s*\(/.test(src)) rawFns.push(f.slice(root.length + 1));
+      if (/=\s*(query|mutation)\s*\(/.test(src)) rawFns.push(rel(f));
     }
     add('Security', 'raw_functions', 'warn', rawFns.length === 0 ? 'pass' : 'fail', 'No raw query/mutation outside convex/lib', rawFns.length ? rawFns.slice(0, 5).join(', ') : null, rawFns.length ? 'use authedQuery/authedMutation (security skill, pillar 1)' : null);
   } else {
@@ -425,7 +428,7 @@ export function runLaunchChecks(root = process.cwd(), opts = {}) {
   }
 
   const uiFiles = [...listFiles(join(root, 'app'), ['.tsx', '.ts']), ...listFiles(join(root, 'components'), ['.tsx'])];
-  const danger = uiFiles.filter((f) => /dangerouslySetInnerHTML/.test(readIf(f) || '')).map((f) => f.slice(root.length + 1));
+  const danger = uiFiles.filter((f) => /dangerouslySetInnerHTML/.test(readIf(f) || '')).map(rel);
   add('Security', 'dangerous_html', 'warn', danger.length === 0 ? 'pass' : 'fail', 'No dangerouslySetInnerHTML', danger.slice(0, 5).join(', ') || null, danger.length ? 'never with user content — React escapes by default' : null);
 
   const httpTs = readIf(join(root, 'convex', 'http.ts'));

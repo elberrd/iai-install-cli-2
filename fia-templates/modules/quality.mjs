@@ -31,6 +31,10 @@ async function runSpec(spec, run) {
         cwd: run.repoRoot,
         env: run.env,
         stdio: ['ignore', 'pipe', 'pipe'],
+        // npm/npx are .cmd shims on Windows and Node (>= 20.12) refuses to
+        // spawn those without a shell. POSIX keeps the direct, quoting-safe
+        // spawn.
+        shell: process.platform === 'win32',
       });
       child.stdout?.on('data', (d) => (stdout += d));
       child.stderr?.on('data', (d) => (stderr += d));

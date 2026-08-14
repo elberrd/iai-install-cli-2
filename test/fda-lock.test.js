@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, cpSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, cpSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -14,6 +14,10 @@ import { acquireLock } from '../fia-templates/modules/session.mjs';
 
 const SCRIPT = join(import.meta.dirname, '..', 'fia-templates', 'scripts', 'fda-lock.mjs');
 const SHIM = join(import.meta.dirname, '..', 'harness', '.claude', 'hooks', 'fda-lock.mjs');
+// The shims live in the harness — a SEPARATE repo checked out here only in
+// dev (gitignored, absent on a fresh clone/CI). Same pattern as
+// consistency.test.js: skip, never fail, when the checkout is missing.
+const NO_HARNESS = 'harness/ not present (nested repo, absent on fresh checkout)';
 
 /** A temp project root, optionally holding imp/data/.fda.lock with `lock`. */
 function projectWith(lock) {
@@ -131,7 +135,7 @@ test('renderWarn shows fda_id, runner and start time', () => {
   assert.match(text, /2026-08-13T12:00:00Z/);
 });
 
-test('harness shim: silent without FIA, delegates when imp/ exists', () => {
+test('harness shim: silent without FIA, delegates when imp/ exists', { skip: !existsSync(SHIM) && NO_HARNESS }, () => {
   // No imp/scripts → import fails → exit 0, no output, nothing blocked.
   const bare = projectWith(LIVE);
   mkdirSync(join(bare, '.claude', 'hooks'), { recursive: true });
@@ -186,7 +190,7 @@ function runCursorShim(root, payload, env = {}) {
   return JSON.parse(r.stdout);
 }
 
-test('cursor hook: denies a repo write while a run is live, allows reads', () => {
+test('cursor hook: denies a repo write while a run is live, allows reads', { skip: !existsSync(CURSOR_SHIM) && NO_HARNESS }, () => {
   const root = cursorProject(LIVE);
   const deny = runCursorShim(root, { command: 'rm src/app.ts', workspace_roots: [root], cwd: root });
   assert.equal(deny.permission, 'deny');
@@ -197,7 +201,7 @@ test('cursor hook: denies a repo write while a run is live, allows reads', () =>
   assert.deepEqual(read, { permission: 'allow' });
 });
 
-test('cursor hook: dead lock, missing runtime, own run tree and bad stdin all allow', () => {
+test('cursor hook: dead lock, missing runtime, own run tree and bad stdin all allow', { skip: !existsSync(CURSOR_SHIM) && NO_HARNESS }, () => {
   const dead = cursorProject(DEAD);
   assert.deepEqual(runCursorShim(dead, { command: 'rm src/x.ts', workspace_roots: [dead] }), {
     permission: 'allow',
@@ -249,10 +253,16 @@ test('acquireLock: refuses a live holder, replaces a dead one, atomic create', (
   assert.equal(JSON.parse(readFileSync(join(garbage, 'imp', 'data', '.fda.lock'), 'utf8')).fda_id, 'stolen');
 });
 
-test('acquireLock: EPERM means ALIVE — a lock held by another user is never stolen', () => {
-  // pid 1 (launchd/init) exists and belongs to root: kill(1, 0) from an
-  // unprivileged test process raises EPERM. The writer must treat that as a
-  // live run — exactly like the reader (activeFdaLock) — and refuse.
-  const root = projectWith({ pid: 1, fda_id: 'rooted', runner: 'fda_build', started_at: '2026-08-13T12:00:00Z' });
-  assert.throws(() => acquireLock(join(root, 'imp', 'data'), 'newrun'), /already active/);
-});
+test(
+  'acquireLock: EPERM means ALIVE — a lock held by another user is never stolen',
+  // kill(1, 0) → EPERM is POSIX (pid 1 = launchd/init, owned by root). On
+  // Windows there is no deterministic pid that raises EPERM for a test.
+  { skip: process.platform === 'win32' && 'POSIX-only: no deterministic EPERM pid on Windows' },
+  () => {
+    // pid 1 (launchd/init) exists and belongs to root: kill(1, 0) from an
+    // unprivileged test process raises EPERM. The writer must treat that as a
+    // live run — exactly like the reader (activeFdaLock) — and refuse.
+    const root = projectWith({ pid: 1, fda_id: 'rooted', runner: 'fda_build', started_at: '2026-08-13T12:00:00Z' });
+    assert.throws(() => acquireLock(join(root, 'imp', 'data'), 'newrun'), /already active/);
+  },
+);

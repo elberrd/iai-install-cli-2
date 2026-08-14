@@ -133,7 +133,9 @@ test('pi sessions: quiet-but-recent is idle, only real silence is finished', () 
 
 test('pi helpers: project slug dir and subagent name parsing', () => {
   assert.equal(
-    piSessionsDirFor('/Users/x/proj', '/home/u'),
+    // join() is platform-native (backslashes on Windows); the slug logic is
+    // what this asserts, so normalize the separators before comparing.
+    piSessionsDirFor('/Users/x/proj', '/home/u').replaceAll('\\', '/'),
     '/home/u/.pi/agent/sessions/--Users-x-proj--',
   );
   assert.equal(agentFromSessionName('subagent-start-mapper-5e8a33b2-02c5-44fa-8ed8-f8fccd67bdd1'), 'start-mapper');

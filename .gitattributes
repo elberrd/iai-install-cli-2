@@ -1,0 +1,5 @@
+# LF everywhere, on every platform. The repo ships a Node CLI plus templates
+# that are stamped byte-for-byte into student projects — a CRLF checkout on
+# Windows (git autocrlf) would change what gets stamped AND break tests that
+# compare file content after git operations.
+* text=auto eol=lf

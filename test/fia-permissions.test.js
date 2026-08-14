@@ -10,6 +10,9 @@ function initGitRepo(root) {
   execFileSync('git', ['init'], { cwd: root, stdio: 'ignore' });
   execFileSync('git', ['config', 'user.email', 'fia@test.dev'], { cwd: root, stdio: 'ignore' });
   execFileSync('git', ['config', 'user.name', 'FIA Test'], { cwd: root, stdio: 'ignore' });
+  // Windows runners default autocrlf=true globally — a revert would restore
+  // CRLF bytes and break the literal content comparisons below.
+  execFileSync('git', ['config', 'core.autocrlf', 'false'], { cwd: root, stdio: 'ignore' });
   writeFileSync(join(root, 'README.md'), '# test\n');
   execFileSync('git', ['add', 'README.md'], { cwd: root, stdio: 'ignore' });
   execFileSync('git', ['commit', '-m', 'init'], { cwd: root, stdio: 'ignore' });
