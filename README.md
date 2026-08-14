@@ -74,7 +74,7 @@ reference. `npx impactus --help` lists every flag.
 
 IMPACTUS CLI is **alpha** and distributed to enrolled students. Bug reports and
 reproductions are welcome in the
-[issues](https://github.com/elberrd/iai-install-cli-2/issues); support and
+[issues](https://github.com/elberrd/impactus-cli/issues); support and
 onboarding happen inside the academy community.
 
 ## License

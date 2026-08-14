@@ -39,13 +39,13 @@
   ],
   "author": "Impactus Academy (https://www.impactus.academy)",
   "license": "MIT",
-  "homepage": "https://github.com/elberrd/iai-install-cli-2#readme",
+  "homepage": "https://github.com/elberrd/impactus-cli#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/elberrd/iai-install-cli-2.git"
+    "url": "git+https://github.com/elberrd/impactus-cli.git"
   },
   "bugs": {
-    "url": "https://github.com/elberrd/iai-install-cli-2/issues"
+    "url": "https://github.com/elberrd/impactus-cli/issues"
   },
   "dependencies": {
     "@clack/prompts": "^0.11.0",
