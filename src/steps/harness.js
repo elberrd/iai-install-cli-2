@@ -6,6 +6,7 @@ import { HARNESS } from '../config.js';
 import { presentAgentFiles, backupAgentFiles } from '../lib/agent-backup.js';
 import { run } from '../lib/proc.js';
 import { downloadErrorMessage, fetchTemplateToDir } from '../lib/template-fetch.js';
+import { collectHarnessManifest, writeHarnessManifest } from '../lib/harness-manifest.js';
 import { migrateLegacyFiaLayout } from './update-runtime.js';
 import { toolPending } from './preflight.js';
 import * as ui from '../lib/ui.js';
@@ -145,6 +146,18 @@ export async function setupHarness(ctx) {
       else if (result === 'created') ui.success('AGENTS.md created with the harness instructions.');
       else ui.info('AGENTS.md already contained the harness block — kept.');
     }
+
+    // Stamp manifest — sha per file the (adapted) clone shipped, the baseline
+    // `imp doctor` classifies against and `imp fix` restores from. Files the
+    // merge KEPT record the harness sha on purpose ("differs from the stamp"
+    // is the truth for them). Best-effort: a failure here never aborts the
+    // install — doctor/fix just skip the harness checks.
+    try {
+      await writeHarnessManifest(dir, await collectHarnessManifest(tmpClone));
+      ui.info('Harness stamp manifest recorded (imp/.harness-manifest.json — read by imp doctor/fix).');
+    } catch (err) {
+      ui.warn(`Could not record the harness manifest: ${err?.message || err} — imp doctor/fix will skip the harness checks.`);
+    }
   } finally {
     await rm(tmpRoot, { recursive: true, force: true });
   }
@@ -270,9 +283,11 @@ function reportKeptFiles(keptFiles, { harnessOnly = true } = {}) {
 /**
  * Append the harness agent instructions to the project's AGENTS.md between
  * markers. Idempotent: if the start marker is already there, do nothing.
+ * Exported for `imp fix` (restoring a deleted harness block reuses the exact
+ * same merge).
  * @returns {Promise<'appended'|'created'|'skipped'>}
  */
-async function mergeAgentsMd(projectFile, harnessContent) {
+export async function mergeAgentsMd(projectFile, harnessContent) {
   const block = [HARNESS.markerStart, '', harnessContent.trim(), '', HARNESS.markerEnd].join('\n');
   if (!existsSync(projectFile)) {
     await writeFile(projectFile, block + '\n', 'utf8');

@@ -34,6 +34,7 @@ test('imp: help exits 0 and prints the brand + usage', async () => {
   assert.match(res.stdout, /imp init/);
   assert.match(res.stdout, /imp update/);
   assert.match(res.stdout, /imp doctor/);
+  assert.match(res.stdout, /imp fix/);
   assert.match(res.stdout, /login openai-codex/);
 });
 

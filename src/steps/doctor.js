@@ -39,6 +39,7 @@ import {
 } from '../lib/pi-auth.js';
 import { CLAUDE_INSTALL_HINT } from './preflight.js';
 import { collectFindings } from './verify.js';
+import { classifyHarnessState, readHarnessManifest } from '../lib/harness-manifest.js';
 
 const NODE_FLOOR = [22, 12];
 
@@ -203,6 +204,30 @@ async function projectSection(cwd) {
     rows.push(info('.mcp.json not found — no MCP servers registered for this project.'));
   }
 
+  // Harness stamp: classify against imp/.harness-manifest.json when the
+  // install recorded one. Missing files are fixable (`imp fix` restores
+  // them); files that differ are the student's (or template-owned) and are
+  // only reported — never an error.
+  const harnessManifest = await readHarnessManifest(cwd);
+  if (harnessManifest) {
+    const state = await classifyHarnessState(harnessManifest, cwd);
+    if (state.missing.length) {
+      rows.push(
+        warn(
+          `${state.missing.length} harness file(s) missing (deleted?) — e.g. ${state.missing.slice(0, 4).join(', ')}${state.missing.length > 4 ? ', …' : ''}. Restore with \`imp fix\`.`,
+        ),
+      );
+    }
+    if (state.modified.length) {
+      rows.push(info(`${state.modified.length} harness file(s) differ from the stamp — your edits or template-owned variants (left alone).`));
+    }
+    if (!state.missing.length && !state.modified.length) {
+      rows.push(ok(`Harness stamp intact (${state.pristine} file(s) match imp/.harness-manifest.json).`));
+    }
+  } else if (existsSync(join(cwd, 'imp', 'HARNESS.md'))) {
+    rows.push(info('No harness stamp manifest (project from an older CLI) — the next `npx impactus --harness-only --dir .` run records one.'));
+  }
+
   // Full install audit, summarized: the detailed report stays in --verify.
   try {
     const findings = await collectFindings(cwd);
@@ -262,5 +287,8 @@ export async function runDoctor(flags = {}, impactusVersion = '0.0.0') {
       ? 'Everything the system needs is in place (○/⚠ items are optional or have their command above).'
       : pc.red('Problems found — each ✖ above ends with the command that fixes it.'),
   );
+  if (report.sections.some((s) => s.rows.some((r) => r.level === 'warn' || r.level === 'error'))) {
+    console.log(pc.dim('Repairable findings can be applied with `imp fix` — it shows the plan and asks before touching anything.'));
+  }
   return report.ok;
 }
