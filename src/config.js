@@ -197,7 +197,10 @@ export const IMPECCABLE = {
 export const MCPS = [
   {
     name: 'playwright',
-    args: ['mcp', 'add', 'playwright', 'npx', '@playwright/mcp@latest'],
+    // `--` keeps `-y` out of claude's own flag parsing; without `-y`, npx asks
+    // "Ok to proceed?" on a cold cache and the MCP stdio channel dies
+    // ("Connection closed" — the classic first-run-on-Windows report).
+    args: ['mcp', 'add', 'playwright', '--', 'npx', '-y', '@playwright/mcp@latest'],
   },
   {
     name: 'convex',
