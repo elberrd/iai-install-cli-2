@@ -113,6 +113,7 @@ imp                            # open Pi here (installs Pi if it's missing)
 imp update                     # update impactus + Pi + the pinned Pi extensions
 imp tui                        # the project dashboard in the terminal
 imp doctor                     # read-only checkup: subscriptions, CLIs, Pi, project
+imp fix                        # repair what doctor found (plan + consent; restores missing files only)
 imp handoff                    # continue the newest Pi conversation in `claude`
                                # (Codex outage? your work keeps moving)
 ```

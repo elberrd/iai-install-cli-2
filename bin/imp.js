@@ -63,6 +63,10 @@ Usage:
   imp tui                Terminal dashboard — tasks, specs and runs (same as npm run tui)
   imp doctor             Read-only checkup: subscriptions (Claude/Codex/Cursor),
                          CLIs, Pi and this project (--json for machine output)
+  imp fix                Repair what doctor found: shows the plan, asks first,
+                         restores only what is MISSING (never overwrites edits).
+                         Flags: --dry-run, --yes, --json (plan only), --commit
+                         (one git commit per fix), --allow-dirty
   imp handoff            Continue the newest Pi conversation in the \`claude\` CLI
                          (works while Codex is down; --list picks a session)
   imp help               Show this help
@@ -148,6 +152,22 @@ if (cmd === 'doctor') {
   if (!json) banner();
   const { runDoctor } = await import('../src/steps/doctor.js');
   const healthy = await runDoctor({ json }, pkg.version);
+  process.exit(healthy ? 0 : 1);
+}
+
+if (cmd === 'fix') {
+  // Restore-only remediation with a consent gate — see src/steps/fix.js.
+  // `--json` prints the plan only (machine-readable output never mutates).
+  const json = rest.includes('--json');
+  if (!json) banner();
+  const { runFix } = await import('../src/steps/fix.js');
+  const healthy = await runFix({
+    json,
+    dryRun: rest.includes('--dry-run'),
+    yes: rest.includes('--yes') || rest.includes('-y'),
+    allowDirty: rest.includes('--allow-dirty'),
+    commit: rest.includes('--commit'),
+  });
   process.exit(healthy ? 0 : 1);
 }
 
