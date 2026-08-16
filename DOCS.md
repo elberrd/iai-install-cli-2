@@ -23,7 +23,7 @@ harness, **FIA — the IAI Agent Factory** and how to extend it. Getting started
 11. [The design-system layer](#11-the-design-system-layer)
 12. [Pi command reference](#12-pi-command-reference)
 13. [The web UI (`--ui`)](#13-the-web-ui---ui)
-14. [Maintenance: `--verify`, `--update-runtime`, `imp update`](#14-maintenance---verify---update-runtime-imp-update)
+14. [Maintenance: `imp doctor`, `imp fix`, `--verify`, `--update-runtime`, `imp update`](#14-maintenance-imp-doctor-imp-fix---verify---update-runtime-imp-update)
 15. [Recipes — worked examples](#15-recipes--worked-examples)
 16. [Flag reference](#16-flag-reference)
 17. [Environment variables](#17-environment-variables)
@@ -863,7 +863,29 @@ The harness also ships `.claude/settings.json` with
 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` (required by `/team`) and the two
 fda-lock hooks (SessionStart warn + PreToolUse gate — the read-only guard
 while an FDA runs, §9.5), plus `.mcp.json`/`.cursor/mcp.json` with the
-`playwright` and `convex` MCP servers.
+`playwright` and `convex` MCP servers. Both are launched through npx **with
+`-y`**: without it, a cold npx cache puts its "Ok to proceed?" prompt on the
+MCP stdio channel and the server dies before the handshake — the classic
+"Connection closed" on a student's first run (Windows especially). `imp
+doctor` warns about any npx MCP server missing the flag and `imp fix` adds it
+(§14.4–14.5).
+
+**The stamp manifest.** Right after the merge, the step writes
+`imp/.harness-manifest.json` — the harness counterpart of
+`imp/.runtime-manifest.json` (§14.2). It is built from the ADAPTED clone
+(`README.md` already renamed to `imp/HARNESS.md`, `AGENTS.md` removed for the
+marker merge, template-owned paths discarded), so its keys are exactly the
+project-relative paths the harness shipped; each value is the sha1 of the
+harness content, or `link:<target>` for a symlink (the merge copies links
+verbatim, so the recorded target is what a healthy disk must show).
+
+That baseline is what makes a missing/pristine/modified classification
+possible for harness files: `imp doctor` reports it and `imp fix` restores
+the missing ones. A file the merge KEPT — the project's version won the
+no-overwrite rule — records the HARNESS sha on purpose: it then reads as
+"differs from the stamp", which is the truth, and it keeps `imp fix` from
+ever silently overwriting your version. Projects installed by an older CLI
+have no manifest (doctor says so); the next harness stamp records one.
 
 ### 8.1 Command reference (Claude Code / Cursor — all 21)
 
@@ -1788,7 +1810,23 @@ Endpoints, for the curious: `GET /` (the page), `GET /api/catalog`,
 (NDJSON stream), `POST /api/open-terminal`. Bodies are capped at 1 MB;
 everything degrades gracefully.
 
-## 14. Maintenance: `--verify`, `--update-runtime`, `imp update`
+## 14. Maintenance: `imp doctor`, `imp fix`, `--verify`, `--update-runtime`, `imp update`
+
+The maintenance ladder — cheapest first, each rung reporting what the next
+one repairs:
+
+| The question | The command |
+|---|---|
+| "what is broken?" | `imp doctor` — read-only checkup of the machine AND the install (§14.4) |
+| "put back what disappeared" | `imp fix` — restore-only, plan + one y/N (§14.5) |
+| "my `imp/` + `.pi/` came from an older CLI" | `npx impactus --update-runtime --dir .` (§14.2) |
+| "audit this install in CI" | `npx impactus --verify --dir . --json` (§14.1) |
+| "update the CLI itself, Pi and the extensions" | `imp update` (§14.3) |
+
+The split is deliberate: **doctor never writes, fix never overwrites**. A
+checkup is therefore always safe to run, and the one command that can change
+your files only ever *adds back* what is missing — everything that exists but
+differs is reported, never touched.
 
 ### 14.1 Post-install audit (`--verify`)
 
@@ -1891,8 +1929,8 @@ impactus`) is a thin brand wrapper over the real `pi` binary — NOT a fork:
 | `imp init [flags]` | The full impactus installer in place — every flag works (`imp init --harness-only -y`, `imp init --verify`, …). |
 | `imp update` | `npm install -g impactus@latest` + `pi update` (or install) + re-pin of the three Pi extension packages. Exit code keyed to the impactus self-update; the extension refresh is best-effort. |
 | `imp tui [args]` | Runs the project-stamped `imp/scripts/fia-tui.mjs` (errors with a `imp init` hint when the runtime is absent); `imp tui --once` passes through. |
-| `imp doctor [--json]` | Read-only checkup — detection only, fixes nothing. Four sections: engines/subscriptions (Claude Code on PATH, the Codex login inside Pi, the Cursor CLI — all informative, never required), core CLIs (node floor, git, npm; gh/vercel as optional), Pi & imp (Pi version, the three pinned extension packages, the same update probe the launcher uses, timeboxed at 4 s), and — when run inside a project — the install: FIA runtime present, `.mcp.json` hygiene (an npx server without `-y` dies on a cold cache with "Connection closed"), the harness stamp state (missing/modified vs `imp/.harness-manifest.json`) and a summarized `--verify` audit (full report stays in `npx impactus --verify`). Every finding ends in the exact command that fixes it. Exit 0 = no error-level finding; `--json` prints `{ ok, sections }` with no banner. |
-| `imp fix [flags]` | The remediating sibling of doctor — **restore-only**: it recreates what is MISSING (deleted harness files via `imp/.harness-manifest.json` + a fresh API download, runtime files the stamp manifest recorded, skills from skills-lock.json, the AGENTS.md harness block) and adds missing `-y` flags to npx MCP servers; it NEVER overwrites a file that exists with different content (those are reported as notes — updating outdated files stays with `--update-runtime`, adopting harness versions with `--agent-files replace`). A bare run prints the plan and asks one y/N; project-touching fixes require a clean git tree. Flags: `--dry-run` / `--json` (plan only, never mutate), `--yes` (skip the ask; required in CI — a non-TTY run without it prints the plan and exits 1), `--allow-dirty` (skip the git gate), `--commit` (one git commit per applied fix). Ends by re-planning: exit 0 only when nothing is left. |
+| `imp doctor [--json]` | Read-only checkup of the machine and, inside a project, of the install — detection only, fixes nothing. Full reference: §14.4. |
+| `imp fix [flags]` | The remediating sibling of doctor — restore-only, plan → one y/N → apply. Full reference: §14.5. |
 | `imp handoff [args]` | Runs the project-stamped `imp/scripts/handoff.mjs`: hands the newest interactive Pi conversation to the `claude` CLI with a continuation prompt pointing at the session transcript (same preamble the FDA relay uses). Works while Codex is down — that is the point. `--list` picks a session, `--session <id>` targets one, `--full` asks for a full transcript read, `--print` prints the prompt without launching. Also `npm run handoff`. |
 | `imp help` / `imp --version` | Help / bare version. |
 | anything else | Straight through to `pi` (e.g. `imp -p "prompt"`, `imp --continue`). |
@@ -1905,6 +1943,91 @@ one-shot session is never held hostage). Opt-outs: `IMP_SKIP_VERSION_CHECK`,
 `PI_OFFLINE`. The three Pi packages are exact-pinned precisely so Pi's own
 "Package Updates Available — run pi update --extensions" panel never shows;
 `imp update` re-pins them.
+
+### 14.4 The checkup (`imp doctor`)
+
+`imp doctor` (`src/steps/doctor.js`) answers one question — *what is wrong
+here?* — and nothing else. **Detection only by contract:** it never installs,
+never opens a login, never rewrites a file. Every finding ends in the exact
+command that repairs it, and the repairs live in their own commands, each
+with its own consent flow (`imp fix`, `imp update`, `imp init`, `npx impactus
+--update-runtime`).
+
+Four sections:
+
+| Section | What it checks |
+|---|---|
+| **Engines (subscriptions)** | `claude` on PATH, the Codex login inside Pi (`~/.pi/agent/auth.json`), the Cursor CLI. **Informative, never an error** — which subscriptions to use is the professional's call. There is deliberately no `claude` login probe: no heuristic is reliable and `claude` walks the user through login on first run (same rationale as the preflight, §3.2). |
+| **Core CLIs** | node (the >= 22.12 floor), git and npm as required; gh and vercel as optional. |
+| **Pi & imp** | Pi installed + version, the three exact-pinned extension packages, and the same update probe the launcher prints after a session — timeboxed at 4 s, so offline or a slow registry just drops those rows instead of holding the report. |
+| **Project** (only when the folder looks like an IAI project) | FIA runtime present (`imp/scripts` + `imp/fia.config.yaml`); `.mcp.json` hygiene; the harness stamp state; a summarized `--verify` audit (capped at 8 rows — the full report stays in `npx impactus --verify`). |
+
+Two project checks are worth spelling out:
+
+- **`.mcp.json` hygiene.** Every npx-launched MCP server needs `-y`. With a
+  cold npx cache the "Ok to proceed?" prompt lands on the MCP stdio channel
+  and the server dies before the handshake — the classic "Connection closed"
+  on a first run (Windows especially). doctor warns per offending server;
+  `imp fix` adds the flag. A `.mcp.json` that no longer parses is an error:
+  no MCP server loads at all until it does.
+- **The harness stamp.** Compared against `imp/.harness-manifest.json` (§8),
+  each stamped path classifies as *pristine* / *modified* (your edits or a
+  template-owned variant — left alone) / *missing* (restorable). A project
+  from an older CLI has no manifest; doctor says so and the next harness
+  stamp records one.
+
+```bash
+imp doctor                       # human report, anywhere
+imp doctor --json | jq .ok       # machine output: { ok, sections }, no banner
+```
+
+Exit code: 0 when no **error**-level finding exists (warnings and info do not
+fail it), 1 otherwise.
+
+### 14.5 Restore-only repair (`imp fix`)
+
+`imp fix` (`src/steps/fix.js`) is doctor's remediating sibling. It follows
+the contract every professional CLI converged on (cargo fix, ng update, expo
+install, copier):
+
+- **Never writes blind.** A bare run computes the plan, prints it, and asks
+  ONE y/N. `--yes` skips the ask; with no TTY and no `--yes` it prints the
+  plan and exits 1 instead of hanging (CI-safe).
+- **`--dry-run` and `--json` stop after the plan, always** — machine-readable
+  output never mutates the project.
+- **Git is the undo.** Fixes that touch the project tree require a clean git
+  tree; `--allow-dirty` is the named escape hatch and `--commit` makes one
+  commit per applied fix. Machine-level fixes (the Pi packages) skip the gate.
+- **Restore-only tier.** Every fix recreates something missing or adds a
+  flag. It NEVER overwrites a file that exists with different content — those
+  become *notes* in the report. Updating outdated-but-present runtime files
+  stays with `npx impactus --update-runtime` (which has its own per-file
+  consent); adopting the harness version of a file you changed stays with
+  `--agent-files replace`.
+- **Idempotent, and it proves it.** After applying, fix re-plans: exit 0 only
+  when nothing is left.
+
+What it knows how to repair:
+
+| Fix | Tier | What it does |
+|---|---|---|
+| `pi-packages` | machine | Reinstalls missing Pi extension packages — the exact-pinned install `imp update` does. |
+| `mcp-npx-yes` | project | Adds `-y` to npx MCP servers in `.mcp.json`. |
+| `skills-missing` | project | Restores agent skills that `skills-lock.json` records but `.agents/skills/` lost. |
+| `pi-skill-dupes` | project | Deletes skill copies duplicated into `.pi/skills/` (the "Skill conflicts" panel at every Pi launch — §6.2). |
+| `runtime-missing` | project | Restores FIA runtime files the stamp manifest recorded and the disk no longer has. |
+| `harness-missing` | project | Re-downloads the harness from the community API and copies back ONLY the paths `imp/.harness-manifest.json` lists as missing. Dangling symlinks are re-pointed at the stamped target; a path the current harness no longer ships is reported, not invented. |
+| `agents-md-block` | project | Re-appends the harness block to `AGENTS.md` (or recreates the file) via the same idempotent marker merge the installer uses — your own content is kept. |
+
+```bash
+imp fix --dry-run                # the plan, nothing else
+imp fix                          # plan → y/N → apply
+imp fix --yes --commit           # unattended, one git commit per fix
+imp fix --json | jq .pending     # { ok, pending, notes } — never mutates
+```
+
+Exit code: 0 = nothing pending (and, in apply mode, nothing failed); 1 =
+fixes pending, a fix failed, or findings remain.
 
 ## 15. Recipes — worked examples
 
@@ -2235,7 +2358,8 @@ Structure: `bin/` (entrypoints: `create-iai.js` = `npx impactus`, `imp.js` =
 the launcher) · `src/main.js` (pipeline) · `src/config.js` (catalogs:
 community, template, harness, FIA, addons, tooling, services, shadcn, MCPs) ·
 `src/stack-catalog.js` (the stack layers) · `src/lib/` (args, addons/stripper,
-auth-client, stack, skills, keys, clerk, command, ui, proc, log, util…) ·
+auth-client, stack, skills, keys, clerk, command, ui, proc, log,
+harness-manifest, util…) ·
 `src/steps/` (one file per step) · `fia-templates/` + `pi-templates/` (the
 runtime stamped into projects) · `test/` (node:test). The local checkouts
 `live1/`, `live2/` and `harness/` are gitignored — each piece has its own

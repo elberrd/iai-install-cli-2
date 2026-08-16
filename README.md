@@ -18,7 +18,8 @@
 > **Alpha software.** IMPACTUS CLI `2.x` is in active development. Commands,
 > flags, templates and the stamped runtime change between releases without
 > deprecation cycles. Pin a version if you need stability, and expect to run
-> `npx impactus --update-runtime` in installed projects often.
+> `npx impactus --update-runtime` in installed projects often — `imp doctor`
+> tells you when an install has fallen behind.
 
 **IMPACTUS CLI** (npm package `impactus`) is the installer of the **IAI
 method**. It exists so students and followers of
@@ -167,6 +168,23 @@ npm run env:check     # which keys your declared stack still needs in .env.local
 npm run fda:status    # is an FDA running in this repo right now?
 npm run docs:commit   # commit ai-docs/ artifacts (docs only)
 ```
+
+### Something not working? — the maintenance ladder
+
+```bash
+imp doctor                             # 1. what is wrong? (read-only, never touches a file)
+imp fix                                # 2. put back what is MISSING (shows the plan, asks first)
+npx impactus --update-runtime --dir .  # 3. imp/ + .pi/ outdated? re-stamp from a newer CLI
+imp update                             # 4. update the CLI itself, Pi and the pinned extensions
+```
+
+`imp doctor` checks your subscriptions (Claude/Codex/Cursor), the core CLIs,
+Pi and — inside a project — the install itself, and every finding ends in the
+command that repairs it. `imp fix` only ever **restores what disappeared**
+(deleted harness/runtime/skill files, the `AGENTS.md` block) and never
+overwrites a file you changed: those are reported, not touched. Use
+`--dry-run` to see the plan, `--yes --commit` to run it unattended with one
+git commit per fix.
 
 ### Example 1 — from zero, WITHOUT the template (your own stack; works as guest)
 
