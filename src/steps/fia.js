@@ -172,6 +172,7 @@ export async function setupFia(ctx) {
       '  /example    put an external reference (repo, code, docs, screen) on the shelf: read, licensed, indexed',
       '',
       'Existing code',
+      '  /onboarding EXISTING project, first run → /absorb + /stack + /kit in one guided pass, then /idea or /feature',
       '  /absorb     EXISTING project → as-built PRD + map + stack manifest',
       '  /kit        EXISTING code → design-system audit: as-built registry, /ui-components, gaps vs the core kit, approved design-only tasks',
       '',

@@ -134,6 +134,7 @@ imp handoff                    # continue the newest Pi conversation in `claude`
 | `/bug "the symptom"` | Records the defect, proves a valid failing test first (RED), then fixes it. |
 | `/quick "small change"` | Triage: a genuinely small change ships in one sitting; anything bigger routes to `/feature` or `/bug`. |
 | `/spec [capability]` | Durable spec — requirements + BDD scenarios + traceability gates. |
+| `/onboarding [focus?]` | Existing project, first run: chains `/absorb` → `/stack` → `/kit` in one guided pass — ends ready for `/idea` or `/feature`. |
 | `/absorb [focus]` | Existing project → as-built PRD, map, conventions, stack manifest and component registry. |
 | `/kit` | Design-system audit of existing code: as-built registry, gap report, design-only tasks. |
 | `/component`, `/theme`, `/design`, `/example` | Design system: add a component, change colors/fonts, redesign from references, register an external reference. |
@@ -154,7 +155,7 @@ imp handoff                    # continue the newest Pi conversation in `claude`
 | `/test-ui [flow?]` | Tests the UI in a real browser, with automated sign-in and issue detection. |
 | `/team [task]` | Multi-agent orchestration: parallel specialist agents on one task. |
 | `/restore` | Rolls code + database back to a previous save (destructive — confirms first). |
-| `/grill`, `/stack`, `/absorb`, `/quick`, `/spec`, `/feature`, `/bug`, `/component`, `/theme`, `/design`, `/example`, `/kit`, `/launch`, `/note` | The same planning, spec and design-system commands also live here. |
+| `/grill`, `/stack`, `/absorb`, `/onboarding`, `/quick`, `/spec`, `/feature`, `/bug`, `/component`, `/theme`, `/design`, `/example`, `/kit`, `/launch`, `/note` | The same planning, spec and design-system commands also live here. |
 
 ### Dashboards & utilities (npm scripts stamped into the project)
 
@@ -224,7 +225,8 @@ cd my-app
 npx impactus --dir .      # detects the existing project → harness + FIA only,
                           # nothing in your code is overwritten
 imp
-/absorb                   # as-built PRD + map + conventions + stack manifest
+/onboarding               # guided pass: /absorb → /stack → /kit (as-built PRD,
+                          # map, stack docs, design-system audit)
 /feature "CSV export on the reports page"   # new feature → delta spec + tasks
 /bug "login loops after logout"             # defect → proven RED, then the fix
 /quick "rename the Save button"             # small change, no ceremony
