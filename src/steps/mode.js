@@ -122,9 +122,10 @@ export async function selectInstallMode(ctx) {
       [
         'I detected an EXISTING project in this folder (package.json/git).',
         'The recommended path is to install just the harness + FIA on top — none',
-        'of your files are overwritten — and then run /absorb in `pi` so the',
-        'system understands the project (generates the as-built PRD, map,',
-        'conventions and the stack manifest in ai-docs/stack.md).',
+        'of your files are overwritten — and then run /onboarding in `pi`: one',
+        'guided pass (/absorb → /stack → /kit) that maps the system (as-built',
+        'PRD, map, conventions, stack manifest, design-system audit) and leaves',
+        'it ready for /idea or /feature.',
       ].join('\n'),
       'Existing project',
     );

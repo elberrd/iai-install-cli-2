@@ -289,8 +289,8 @@ export async function finish(ctx) {
               'EXISTING project — the path is having the system understand your code before touching it:',
               '',
               ctx.fiaInstalled
-                ? `1. Run \`${agentCmd(ctx)}\`${fiaNeedsLogin ? ', run /login openai-codex (only that one — Anthropic stays on the `claude` CLI)' : ''} and type /absorb — it generates the as-built PRD, the map, the conventions and the stack manifest (ai-docs/stack.md) of your system.`
-                : '1. Open Claude Code in this folder and run /absorb — it generates the as-built PRD, the map, the conventions and the stack manifest (ai-docs/stack.md) of your system.',
+                ? `1. Run \`${agentCmd(ctx)}\`${fiaNeedsLogin ? ', run /login openai-codex (only that one — Anthropic stays on the `claude` CLI)' : ''} and type /onboarding — one guided pass through /absorb (as-built PRD, map, conventions, stack manifest), /stack (per-tech docs + tooling) and /kit (design-system audit).`
+                : '1. Open Claude Code in this folder and run /onboarding — one guided pass through /absorb (as-built PRD, map, conventions, stack manifest), /stack (per-tech docs + tooling) and /kit (design-system audit).',
               '2. New feature: /feature "what you want". Defect: /bug "the symptom".',
               // /task and /goal are Pi prompts (not Claude Code commands) —
               // say WHERE they run, or people type them in the wrong tool.

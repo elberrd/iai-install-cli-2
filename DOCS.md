@@ -912,6 +912,7 @@ Planning, specs and scope:
 | `/quick "small change"` | Triage: SIMPLE only when blast radius ≤ ~3 files, one obvious shape, and none of: schema/migrations, auth/permissions, payments, new dependency, new route/page, new UI component, destructive data op. SIMPLE ships in one sitting with the guardrails on + one `## Q-NNN` audit line in `ai-docs/todos/quick-log.md`; anything else routes to `/feature`/`/bug` with the reason. Never touches the roadmap. |
 | `/note "idea"` | Appends `- [ ] YYYY-MM-DD — <idea>` to `ai-docs/inbox.md` and stops — zero questions. Later `/feature`/`/quick`/`/spec` tick items with `→ spec NNNN` / `→ Q-NNN` / `→ task NN`. |
 | `/absorb [focus?]` | Onboards an EXISTING system: surveys the code, writes `map.yaml`, the as-built PRD (never overwriting a human PRD — `PRD-as-built.md` instead), `stack.md` from what was observed, `conventions.md`, the as-built component registry and a distilled project skill; short interview for what code can't reveal. Changes no code, creates no tasks; recommends `/kit` when the registry comes out empty/duplicated. |
+| `/onboarding [focus?]` | The first command on an EXISTING system: chains `/absorb` → `/stack` → `/kit` in one guided pass (each command's own file stays the law — interviews, decision logs and approvals included), then hands over explaining `/idea` (module-sized discovery, in Pi) vs `/feature` (one-sentence delta). |
 
 Design system and references:
 
@@ -1678,7 +1679,7 @@ not exist"). Deep procedures live in 15 cookbooks
 run_fda, create_fda, observability, decision-log, stack, specs, components,
 theme, design, examples, launch, update_roster.
 
-### 12.1 The 23 commands (`.pi/prompts/`)
+### 12.1 The 24 commands (`.pi/prompts/`)
 
 | Command | Arguments | What it does |
 |---|---|---|
@@ -1702,6 +1703,7 @@ theme, design, examples, launch, update_roster.
 | `/design` | `images + scope` | Layout redesign from references — structure from the image, identity from OUR system. |
 | `/example` | `URL [notes] \| list` | Register an external reference on the shelf (license researched, `What NOT to take` mandatory). |
 | `/agents` | — | Opens the viewer's Agents tab (`npm run agents -- --detach`) to edit engines/models/fallbacks; Pi is forbidden from editing `imp/fia.config.yaml` itself. |
+| `/onboarding` | `[focus?]` | First command on an EXISTING system: chains `/absorb` → `/stack` → `/kit` in one guided pass (each stage's own prompt is the law; stages whose artifacts already exist can be kept and skipped), then hands over explaining the split — `/idea` for a MODULE-sized addition vs `/feature` for a one-sentence delta. |
 | `/absorb` | `[focus?]` | Brownfield onboarding (as-built PRD/map/conventions/registry + project skill in `.pi/skills/project/` AND `.claude/skills/project/`); recommends `/kit` when the registry comes out empty/duplicated. |
 | `/kit` | `[focus?] [--report-only]` | Brownfield design-system audit → gap report → approved design-only tasks. |
 | `/status` | — | Read-only progress: tasks, milestones (status as declared), specs, inbox, latest runs and failed phases. |
@@ -2082,8 +2084,9 @@ CREATE_IAI_TOKEN=<token> npx impactus my-saas --yes --preset saas --payments asa
 cd my-app
 npx impactus --dir .         # detects the project → harness + FIA only; nothing overwritten
 imp
-/absorb                      # as-built PRD + map + conventions + stack manifest + registry
-/kit                         # (recommended when the registry came out empty) DS audit → tasks
+/onboarding                  # guided pass: /absorb (as-built PRD + map + conventions +
+                             #   stack manifest + registry) → /stack (docs + tooling)
+                             #   → /kit (design-system audit → approved tasks)
 /feature "CSV export on the reports page"   # delta spec + tasks, approved before running
 /bug "login loops after logout"             # proven RED, then the fix
 /quick "rename the Save button"             # small change, one audit line
