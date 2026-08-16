@@ -205,6 +205,7 @@ export async function finish(ctx) {
       ctx.fiaInstalled
         ? 'but Pi also accepts other providers/models — type /login inside Pi to see them.'
         : 'but you can also work through Cursor or add engines later at any time.',
+      'Re-check this roster (and the whole setup) anytime with `imp doctor`.',
     ]
       .filter(Boolean)
       .join('\n'),

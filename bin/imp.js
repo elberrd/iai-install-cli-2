@@ -61,6 +61,8 @@ Usage:
                          all impactus flags work — see \`imp init --help\`)
   imp update             Update impactus, Pi and the Pi extension packages
   imp tui                Terminal dashboard — tasks, specs and runs (same as npm run tui)
+  imp doctor             Read-only checkup: subscriptions (Claude/Codex/Cursor),
+                         CLIs, Pi and this project (--json for machine output)
   imp handoff            Continue the newest Pi conversation in the \`claude\` CLI
                          (works while Codex is down; --list picks a session)
   imp help               Show this help
@@ -137,6 +139,16 @@ if (cmd === 'update') {
   }
   console.log('Done.');
   process.exit(up.ok ? 0 : 1);
+}
+
+if (cmd === 'doctor') {
+  // Read-only by contract — see src/steps/doctor.js. `--json` keeps stdout
+  // machine-readable (no banner), same convention as `--version`.
+  const json = rest.includes('--json');
+  if (!json) banner();
+  const { runDoctor } = await import('../src/steps/doctor.js');
+  const healthy = await runDoctor({ json }, pkg.version);
+  process.exit(healthy ? 0 : 1);
 }
 
 if (cmd === 'tui') {

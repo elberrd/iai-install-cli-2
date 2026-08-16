@@ -1891,6 +1891,7 @@ impactus`) is a thin brand wrapper over the real `pi` binary — NOT a fork:
 | `imp init [flags]` | The full impactus installer in place — every flag works (`imp init --harness-only -y`, `imp init --verify`, …). |
 | `imp update` | `npm install -g impactus@latest` + `pi update` (or install) + re-pin of the three Pi extension packages. Exit code keyed to the impactus self-update; the extension refresh is best-effort. |
 | `imp tui [args]` | Runs the project-stamped `imp/scripts/fia-tui.mjs` (errors with a `imp init` hint when the runtime is absent); `imp tui --once` passes through. |
+| `imp doctor [--json]` | Read-only checkup — detection only, fixes nothing. Four sections: engines/subscriptions (Claude Code on PATH, the Codex login inside Pi, the Cursor CLI — all informative, never required), core CLIs (node floor, git, npm; gh/vercel as optional), Pi & imp (Pi version, the three pinned extension packages, the same update probe the launcher uses, timeboxed at 4 s), and — when run inside a project — the install: FIA runtime present, `.mcp.json` hygiene (an npx server without `-y` dies on a cold cache with "Connection closed") and a summarized `--verify` audit (full report stays in `npx impactus --verify`). Every finding ends in the exact command that fixes it. Exit 0 = no error-level finding; `--json` prints `{ ok, sections }` with no banner. |
 | `imp handoff [args]` | Runs the project-stamped `imp/scripts/handoff.mjs`: hands the newest interactive Pi conversation to the `claude` CLI with a continuation prompt pointing at the session transcript (same preamble the FDA relay uses). Works while Codex is down — that is the point. `--list` picks a session, `--session <id>` targets one, `--full` asks for a full transcript read, `--print` prints the prompt without launching. Also `npm run handoff`. |
 | `imp help` / `imp --version` | Help / bare version. |
 | anything else | Straight through to `pi` (e.g. `imp -p "prompt"`, `imp --continue`). |
@@ -2009,6 +2010,7 @@ prompts (§6.1) fetch keys for you.
 ### 15.7 Keep an installed project current
 
 ```bash
+imp doctor                        # read-only checkup: subscriptions, CLIs, Pi, project
 imp update                        # impactus + Pi + the pinned extension packages
 npx impactus --update-runtime --dir .   # new FDAs/gates/prompts into imp/ + .pi/
 npx impactus --verify --dir .           # audit that everything is still intact

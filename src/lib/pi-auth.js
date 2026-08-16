@@ -120,7 +120,7 @@ async function updatePiIfOutdated() {
   }
 }
 
-async function piVersion() {
+export async function piVersion() {
   const r = await run('pi', ['--version'], { timeout: 15_000 });
   return r.ok ? parseSemver(r.stdout || r.stderr) : null;
 }
@@ -316,6 +316,32 @@ function readPiSettings() {
   } catch {
     return null;
   }
+}
+
+/**
+ * State of each of OUR extension packages in Pi's user settings, for
+ * `imp doctor`: 'pinned <x.y.z>' (ours, exact-pinned), 'custom' (the student
+ * pointed it elsewhere — never touched) or 'missing' (not installed yet).
+ */
+export function piPackageStatus() {
+  const settings = readPiSettings();
+  const plan = piPackageRefreshPlan(settings);
+  const pins = readPiPackagePins();
+  const entries = Array.isArray(settings?.packages) ? settings.packages : [];
+  const installed = new Set(
+    entries
+      .map((entry) => sourcePackageIdentity(String((typeof entry === 'string' ? entry : entry?.source) ?? '')))
+      .filter((name) => PI_PACKAGES.includes(name)),
+  );
+  return Object.fromEntries(
+    PI_PACKAGES.map((name) => {
+      if (plan[name] === 'custom') return [name, 'custom'];
+      if (pins[name]) return [name, `pinned ${pins[name]}`];
+      // Present but unpinned: the offline fallback of installPiPackages —
+      // installed, just waiting for the next online `imp update` to pin it.
+      return [name, installed.has(name) ? 'unpinned' : 'missing'];
+    }),
+  );
 }
 
 /** The exact-version pins of our packages in Pi's user settings, name → pin. */
