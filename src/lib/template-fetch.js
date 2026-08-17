@@ -9,7 +9,38 @@ import { mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { has, run } from './proc.js';
+import { extractTarGz } from './tar-extract.js';
 import { downloadTemplate } from './auth-client.js';
+
+/**
+ * Unpack a downloaded tarball into `destDir`. The system `tar` goes first
+ * (fast, battle-tested, preserves symlinks where the OS allows them); when it
+ * is missing OR fails, the built-in extractor takes over — the one failure
+ * that matters in practice is Windows' bundled tar dying on the harness'
+ * symlink entries ("Invalid argument") because creating links needs a
+ * privilege students don't have, and the built-in extractor materializes
+ * those links as copies instead. `deps` is a test seam ({ run, has }).
+ * @returns {Promise<{ok: boolean, reason?: string}>}
+ */
+export async function extractDownloadedTarball(tgz, destDir, deps = {}) {
+  const exec = deps.run ?? run;
+  const hasCmd = deps.has ?? has;
+  await mkdir(destDir, { recursive: true });
+  if (await hasCmd('tar')) {
+    const r = await exec('tar', ['-xzf', tgz, '-C', destDir, '--strip-components=1']);
+    if (r.ok) return { ok: true };
+  }
+  try {
+    // Start clean: a failed system-tar run leaves a partial tree behind.
+    await rm(destDir, { recursive: true, force: true });
+    await mkdir(destDir, { recursive: true });
+    extractTarGz(tgz, destDir, { strip: 1 });
+    return { ok: true };
+  } catch {
+    // Both extractors refused the bytes — the download really is corrupted.
+    return { ok: false, reason: 'extract_failed' };
+  }
+}
 
 /**
  * Downloads the template `name` (live1 | live2 | harness) and extracts it into
@@ -23,16 +54,7 @@ export async function fetchTemplateToDir(apiBase, token, name, destDir, ref) {
   try {
     const dl = await downloadTemplate(apiBase, token, name, tgz, ref);
     if (!dl.ok) return { ok: false, reason: dl.reason };
-
-    await mkdir(destDir, { recursive: true });
-    const r = await run('tar', ['-xzf', tgz, '-C', destDir, '--strip-components=1']);
-    if (!r.ok) {
-      // A missing `tar` binary is NOT transient — distinguish it from a
-      // corrupted download so the message tells the right recovery step.
-      if (!(await has('tar'))) return { ok: false, reason: 'tar_missing' };
-      return { ok: false, reason: 'extract_failed' };
-    }
-    return { ok: true };
+    return await extractDownloadedTarball(tgz, destDir);
   } finally {
     await rm(tmpRoot, { recursive: true, force: true });
   }
@@ -50,9 +72,8 @@ export async function fetchTemplateToDir(apiBase, token, name, destDir, ref) {
  *     GitHub token that fetches the private repos). Saying "try again in a
  *     moment" here makes the student retry forever an error only the
  *     maintainer can fix;
- *   tar_missing → the `tar` program is absent on the machine — retrying
- *     won't help either; the fix is installing it;
- *   extract_failed → the download arrived corrupted — one re-download is
+ *   extract_failed → neither the system tar nor the built-in extractor could
+ *     unpack the bytes — the download arrived corrupted; one re-download is
  *     worth trying, then support;
  *   download_timeout → the connection dropped mid-download;
  *   network_error → the server could not be reached at all (DNS, refused,
@@ -78,15 +99,6 @@ export function downloadErrorMessage(what, reason) {
       `The community server couldn't deliver the ${what} (pending configuration on its side).`,
       "This is NOT a problem with your machine and repeating the command won't help —",
       'contact the community support and try again later.',
-    ].join('\n');
-  }
-  if (reason === 'tar_missing') {
-    return [
-      `The "tar" program was not found on this computer — it is needed to unpack the ${what}.`,
-      'macOS: run  xcode-select --install  to restore the command line tools.',
-      'Windows: tar ships with Windows 10 and newer — update Windows.',
-      'Linux: install it with your package manager (e.g.  sudo apt install tar ).',
-      'Then run the same command again.',
     ].join('\n');
   }
   if (reason === 'extract_failed') {

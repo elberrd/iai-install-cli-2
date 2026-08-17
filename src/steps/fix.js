@@ -25,7 +25,7 @@ import { createInterface } from 'node:readline/promises';
 import { existsSync, mkdtempSync } from 'node:fs';
 import { cp, mkdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import pc from 'picocolors';
 import { HARNESS } from '../config.js';
 import { run } from '../lib/proc.js';
@@ -227,7 +227,15 @@ export async function collectFixPlan({ cwd = process.cwd(), probes = {} } = {}) 
               // A dangling link at dest would have classified as missing —
               // remove the husk before recreating, then link to the stamped target.
               await rm(dest, { force: true });
-              await symlink(entry.slice(5), dest);
+              try {
+                await symlink(entry.slice(5), dest);
+              } catch {
+                // No symlink privilege (typical on Windows) — materialize the
+                // mirror instead, same degradation the installer's extractor
+                // applies: the fresh clone has real content at this path.
+                const source = existsSync(join(cloneDir, rel)) ? join(cloneDir, rel) : resolve(dirname(dest), entry.slice(5));
+                await cp(source, dest, { recursive: true, dereference: true });
+              }
               restored++;
             } else if (existsSync(join(cloneDir, rel))) {
               await rm(dest, { force: true });

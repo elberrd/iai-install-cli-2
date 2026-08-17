@@ -2,18 +2,19 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const { downloadErrorMessage, fetchTemplateToDir } = await import('../src/lib/template-fetch.js');
+const { downloadErrorMessage, extractDownloadedTarball, fetchTemplateToDir } = await import('../src/lib/template-fetch.js');
 
 // Builds a tarball in the GitHub format (root dir <owner>-<repo>-<sha>/…) and
 // serves its bytes — proves the extraction does strip-components=1 right.
 let server;
 let base;
 let tarballBytes;
+let fixtureHasSymlink = false;
 
 before(async () => {
   const work = mkdtempSync(join(tmpdir(), 'create-iai-tar-'));
@@ -21,6 +22,15 @@ before(async () => {
   mkdirSync(join(top, 'convex'), { recursive: true });
   writeFileSync(join(top, 'package.json'), '{"name":"live1"}\n');
   writeFileSync(join(top, 'convex', 'schema.ts'), 'export default {}\n');
+  try {
+    // Mirror link like the harness ships (.agents/* → .claude/*). Guarded:
+    // on a Windows box without the symlink privilege the fixture just goes
+    // without it (the dedicated tar-extract tests cover materialization).
+    symlinkSync('package.json', join(top, 'link.json'));
+    fixtureHasSymlink = true;
+  } catch {
+    fixtureHasSymlink = false;
+  }
   const tgz = join(work, 'repo.tar.gz');
   execFileSync('tar', ['-czf', tgz, '-C', work, 'elberrd-live1-abc123']);
   tarballBytes = readFileSync(tgz);
@@ -58,6 +68,47 @@ test('fetchTemplateToDir: downloads and extracts without the tarball root direct
   assert.ok(existsSync(join(dest, 'package.json')));
   assert.ok(existsSync(join(dest, 'convex', 'schema.ts')));
   assert.equal(JSON.parse(await readFile(join(dest, 'package.json'), 'utf8')).name, 'live1');
+  if (fixtureHasSymlink) {
+    // Whether the OS gave us a real link or the extractor materialized a
+    // copy, the mirrored path must resolve to the target's content.
+    assert.equal(JSON.parse(await readFile(join(dest, 'link.json'), 'utf8')).name, 'live1');
+  }
+});
+
+test('extractDownloadedTarball: no system tar → built-in extractor takes over', async () => {
+  const work = mkdtempSync(join(tmpdir(), 'create-iai-fallback-'));
+  const tgz = join(work, 'repo.tar.gz');
+  writeFileSync(tgz, tarballBytes);
+  const dest = join(work, 'out');
+  const res = await extractDownloadedTarball(tgz, dest, { has: async () => false });
+  assert.equal(res.ok, true);
+  assert.ok(existsSync(join(dest, 'convex', 'schema.ts')));
+});
+
+test('extractDownloadedTarball: system tar fails (Windows symlink privilege) → clean re-extract', async () => {
+  const work = mkdtempSync(join(tmpdir(), 'create-iai-fallback-'));
+  const tgz = join(work, 'repo.tar.gz');
+  writeFileSync(tgz, tarballBytes);
+  const dest = join(work, 'out');
+  // Simulate bsdtar's partial run: some files landed, then exit 1 on a link.
+  mkdirSync(dest, { recursive: true });
+  writeFileSync(join(dest, 'partial-leftover.txt'), 'from the failed tar run\n');
+  const res = await extractDownloadedTarball(tgz, dest, {
+    has: async () => true,
+    run: async () => ({ ok: false, exitCode: 1, stdout: '', stderr: 'Invalid argument' }),
+  });
+  assert.equal(res.ok, true);
+  assert.ok(existsSync(join(dest, 'package.json')));
+  assert.ok(!existsSync(join(dest, 'partial-leftover.txt')), 'partial tar output must be wiped');
+});
+
+test('extractDownloadedTarball: both extractors refuse the bytes → extract_failed', async () => {
+  const work = mkdtempSync(join(tmpdir(), 'create-iai-fallback-'));
+  const tgz = join(work, 'repo.tar.gz');
+  writeFileSync(tgz, 'this is not a tarball');
+  const res = await extractDownloadedTarball(tgz, join(work, 'out'), { has: async () => false });
+  assert.equal(res.ok, false);
+  assert.equal(res.reason, 'extract_failed');
 });
 
 test('fetchTemplateToDir: null token sends NO Authorization header (guest harness download)', async () => {
@@ -105,13 +156,7 @@ test('fetchTemplateToDir: corrupted tarball → extract_failed (tar is present)'
   assert.equal(res.reason, 'extract_failed');
 });
 
-test('downloadErrorMessage: tar missing vs corrupted download vs stalled connection', () => {
-  // Missing tar is not transient — the message says how to install it.
-  const missing = downloadErrorMessage('template', 'tar_missing');
-  assert.match(missing, /"tar" program was not found/);
-  assert.match(missing, /xcode-select --install/);
-  assert.doesNotMatch(missing, /Try again in a moment/);
-
+test('downloadErrorMessage: corrupted download vs stalled connection', () => {
   // Corrupted download → suggest ONE re-download, then support.
   const corrupt = downloadErrorMessage('template', 'extract_failed');
   assert.match(corrupt, /corrupted/);
