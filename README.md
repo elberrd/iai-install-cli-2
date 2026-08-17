@@ -134,7 +134,7 @@ imp handoff                    # continue the newest Pi conversation in `claude`
 | `/bug "the symptom"` | Records the defect, proves a valid failing test first (RED), then fixes it. |
 | `/quick "small change"` | Triage: a genuinely small change ships in one sitting; anything bigger routes to `/feature` or `/bug`. |
 | `/spec [capability]` | Durable spec — requirements + BDD scenarios + traceability gates. |
-| `/onboarding [focus?]` | Existing project, first run: chains `/absorb` → `/stack` → `/kit` in one guided pass — ends ready for `/idea` or `/feature`. |
+| `/onboarding [focus?] [--report-only]` | Existing project, first run: chains `/absorb` → `/stack` → `/kit` in one guided pass — ends ready for `/idea` or `/feature`. Interrupted tours resume where they stopped; `--report-only` defers the design-system decisions. |
 | `/absorb [focus]` | Existing project → as-built PRD, map, conventions, stack manifest and component registry. |
 | `/kit` | Design-system audit of existing code: as-built registry, gap report, design-only tasks. |
 | `/component`, `/theme`, `/design`, `/example` | Design system: add a component, change colors/fonts, redesign from references, register an external reference. |

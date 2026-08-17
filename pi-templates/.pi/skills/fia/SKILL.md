@@ -46,7 +46,7 @@ Short commands (prompt templates in `.pi/prompts/`) are the student entry points
 | `/design [images]` | layout redesign from references, inside the design system | design |
 | `/example [URL or slug]` | register an external reference (repo, code, docs, design) on the examples shelf | examples |
 | `/agents` | visual roster editor — engines, models, fallbacks (viewer "Agents" tab) | update_roster |
-| `/onboarding [focus?]` | first command on an existing system — chains /absorb → /stack → /kit in one guided pass, ends ready for /idea or /feature | — |
+| `/onboarding [focus?] [--report-only]` | first command on an existing system — chains /absorb → /stack → /kit in one guided pass (resumable via its decision-log rail; `--report-only` defers the kit decisions), ends ready for /idea or /feature | decision-log |
 | `/absorb [focus]` | existing project → as-built PRD + map + conventions + stack manifest + component registry | — |
 | `/kit` | existing code → design-system audit: as-built registry + `/ui-components`, gap report vs the core kit, approved design-only tasks (`Kind: kit`) | components |
 | `/status` | progress + latest runs | observability |

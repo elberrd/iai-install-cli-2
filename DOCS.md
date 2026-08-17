@@ -912,7 +912,7 @@ Planning, specs and scope:
 | `/quick "small change"` | Triage: SIMPLE only when blast radius ≤ ~3 files, one obvious shape, and none of: schema/migrations, auth/permissions, payments, new dependency, new route/page, new UI component, destructive data op. SIMPLE ships in one sitting with the guardrails on + one `## Q-NNN` audit line in `ai-docs/todos/quick-log.md`; anything else routes to `/feature`/`/bug` with the reason. Never touches the roadmap. |
 | `/note "idea"` | Appends `- [ ] YYYY-MM-DD — <idea>` to `ai-docs/inbox.md` and stops — zero questions. Later `/feature`/`/quick`/`/spec` tick items with `→ spec NNNN` / `→ Q-NNN` / `→ task NN`. |
 | `/absorb [focus?]` | Onboards an EXISTING system: surveys the code, writes `map.yaml`, the as-built PRD (never overwriting a human PRD — `PRD-as-built.md` instead), `stack.md` from what was observed, `conventions.md`, the as-built component registry and a distilled project skill; short interview for what code can't reveal. Changes no code, creates no tasks; recommends `/kit` when the registry comes out empty/duplicated. |
-| `/onboarding [focus?]` | The first command on an EXISTING system: chains `/absorb` → `/stack` → `/kit` in one guided pass (each command's own file stays the law — interviews, decision logs and approvals included), then hands over explaining `/idea` (module-sized discovery, in Pi) vs `/feature` (one-sentence delta). |
+| `/onboarding [focus?] [--report-only]` | The first command on an EXISTING system: chains `/absorb` → `/stack` → `/kit` in one guided pass (each command's own file stays the law — interviews, decision logs and approvals included), resumable via its `onboarding` decision-log rail, then hands over explaining `/idea` (module-sized discovery, in Pi) vs `/feature` (one-sentence delta). `--report-only` defers the `/kit` decisions to a later run. |
 
 Design system and references:
 
@@ -1483,6 +1483,12 @@ Shared conventions between the harness (Claude Code/Cursor) and Pi, all under
   history. Commands read the recent logs before interviewing and never re-ask
   a decided question. The log preserves the interview; the artifact
   (PRD/spec/manifest) stays the source of truth for WHAT was decided.
+  `/onboarding` uses the same script as a **resume rail** rather than an
+  interview log: `open onboarding` when the tour starts, one
+  `note <id> --text "stage <name>: …"` per completed stage, `close` at the
+  wrap-up — `latest onboarding --json` finding an `open` log is how an
+  interrupted tour resumes from its last stage note (never `open` again
+  mid-tour: that would supersede the trail).
 - **Stack research** — `ai-docs/research/<tech>.md`: before `/stack` documents
   or equips a technology, it must research FOUR dimensions — docs
   (+ `llms.txt`), agent skills (skills.sh registry), official CLI, official
@@ -1703,7 +1709,7 @@ theme, design, examples, launch, update_roster.
 | `/design` | `images + scope` | Layout redesign from references — structure from the image, identity from OUR system. |
 | `/example` | `URL [notes] \| list` | Register an external reference on the shelf (license researched, `What NOT to take` mandatory). |
 | `/agents` | — | Opens the viewer's Agents tab (`npm run agents -- --detach`) to edit engines/models/fallbacks; Pi is forbidden from editing `imp/fia.config.yaml` itself. |
-| `/onboarding` | `[focus?]` | First command on an EXISTING system: chains `/absorb` → `/stack` → `/kit` in one guided pass (each stage's own prompt is the law; stages whose artifacts already exist can be kept and skipped), then hands over explaining the split — `/idea` for a MODULE-sized addition vs `/feature` for a one-sentence delta. |
+| `/onboarding` | `[focus?] [--report-only]` | First command on an EXISTING system: chains `/absorb` → `/stack` → `/kit` in one guided pass (each stage's own prompt is the law; stages whose artifacts already exist can be kept and skipped), then hands over explaining the split — `/idea` for a MODULE-sized addition vs `/feature` for a one-sentence delta. The tour keeps a **resume rail** in the decision log (`open onboarding` → one stage note each → `close`): an interrupted session resumes from its last stage note instead of restarting. `--report-only` is the express path — the `/kit` stage presents its gap report and defers the design decisions to a later `/kit` run. |
 | `/absorb` | `[focus?]` | Brownfield onboarding (as-built PRD/map/conventions/registry + project skill in `.pi/skills/project/` AND `.claude/skills/project/`); recommends `/kit` when the registry comes out empty/duplicated. |
 | `/kit` | `[focus?] [--report-only]` | Brownfield design-system audit → gap report → approved design-only tasks. |
 | `/status` | — | Read-only progress: tasks, milestones (status as declared), specs, inbox, latest runs and failed phases. |

@@ -56,6 +56,13 @@ The log NEVER replaces the artifact — the PRD/spec/manifest remains the source
 of truth for WHAT was decided; the log preserves the interview itself (question,
 recommendation, answer) for audit and reuse.
 
+`/onboarding` uses the same script as a **resume rail** rather than an
+interview log: `open onboarding` when the tour starts, one `note <id> --text
+"stage <name>: done|skipped|report-only (…)"` after each stage, `close` at the
+wrap-up. `latest onboarding --json` is how an interrupted tour finds where it
+stopped — an `open` log means resume from its last stage note; never `open`
+again mid-tour (that would supersede the trail).
+
 ## Reading it back
 
 - `latest <command> [--json]` — most recent run of a command.
