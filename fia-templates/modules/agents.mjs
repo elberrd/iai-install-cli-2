@@ -288,13 +288,29 @@ function piSessionPathIfAny(agentDir) {
   return null;
 }
 
+function permissionRetryPreamble(retry) {
+  const paths = (retry.paths || []).map((p) => `- ${p}`).join('\n');
+  return [
+    '## Permission retry (automatic, once)',
+    '',
+    'Your previous attempt wrote path(s) outside your allowlist; those writes were rolled back and are gone:',
+    paths,
+    '',
+    'Re-do this phase. Do not touch those paths. Stay inside your allowed writes. Re-emit ONLY your Report JSON when done.',
+    '',
+    '',
+  ].join('\n');
+}
+
 /**
  * The user prompt for one relay leg: the rendered template, preceded by a
  * continuation preamble when a previous attempt of this run died mid-work.
  * Pi resuming its own session skips the preamble — the session file passed
  * via --session already carries the interrupted conversation.
+ * A permission-retry note is prepended when this is the automatic second
+ * attempt after a fully-rolled-back allowlist breach.
  */
-function composeUserText(run, phase, agent, agentDir, variables) {
+function composeUserText(run, phase, agent, agentDir, variables, extras = {}) {
   // A bounded continuation narrows EVERY agent phase of the run, not just the
   // one that died: the scope is what the reviewer found missing, and an agent
   // that cannot see it would happily re-open work that was already accepted.
@@ -303,40 +319,43 @@ function composeUserText(run, phase, agent, agentDir, variables) {
   const scope = continuation.buildScopeBlock(run.verdict);
   const userText = scope + prompts.render(agent.prompt_engineering.user, variables);
   const marker = continuation.readEngineError(agentDir);
+  let composed = userText;
   // Only the phase that actually died gets the handover: the marker outlives
   // the relay (so --resume keeps preferring the fallbacks), but a later,
   // never-attempted phase of the same agent must not be told it was
   // interrupted — its prompt stays clean.
-  if (!marker || marker.phase !== phase.params.name) return userText;
-  const piSession = piSessionPathIfAny(agentDir);
-  if (agent.coding_agent === 'pi' && marker.coding_agent === 'pi' && piSession) {
-    run.console.note(`${agent.name}: continuing the interrupted Pi session natively (--session)`);
-    return userText;
+  if (marker && marker.phase === phase.params.name) {
+    const piSession = piSessionPathIfAny(agentDir);
+    if (agent.coding_agent === 'pi' && marker.coding_agent === 'pi' && piSession) {
+      run.console.note(`${agent.name}: continuing the interrupted Pi session natively (--session)`);
+    } else {
+      const transcriptPath = join(agentDir, 'raw_output.jsonl');
+      try {
+        run.tracer.event({
+          fda_id: run.fdaId,
+          phase_id: phase.phase_id,
+          type: 'engine_continuation',
+          name: agent.name,
+          payload: {
+            kind: marker.kind,
+            from: { coding_agent: marker.coding_agent, model: marker.model },
+            transcript: transcriptPath,
+          },
+        });
+      } catch {
+        /* tracing must never block the attempt */
+      }
+      run.console.engineContinuation(agent.name, transcriptPath);
+      composed =
+        continuation.buildContinuationPreamble({
+          marker,
+          transcriptPath,
+          piSessionPath: marker.coding_agent === 'pi' ? piSession : null,
+        }) + userText;
+    }
   }
-  const transcriptPath = join(agentDir, 'raw_output.jsonl');
-  try {
-    run.tracer.event({
-      fda_id: run.fdaId,
-      phase_id: phase.phase_id,
-      type: 'engine_continuation',
-      name: agent.name,
-      payload: {
-        kind: marker.kind,
-        from: { coding_agent: marker.coding_agent, model: marker.model },
-        transcript: transcriptPath,
-      },
-    });
-  } catch {
-    /* tracing must never block the attempt */
-  }
-  run.console.engineContinuation(agent.name, transcriptPath);
-  return (
-    continuation.buildContinuationPreamble({
-      marker,
-      transcriptPath,
-      piSessionPath: marker.coding_agent === 'pi' ? piSession : null,
-    }) + userText
-  );
+  if (extras.permissionRetry) composed = permissionRetryPreamble(extras.permissionRetry) + composed;
+  return composed;
 }
 
 /** Persist the death (marker + engine_error event) — never masks the error. */
@@ -387,17 +406,46 @@ export async function execute(run, phase, call) {
   // fallbacks only on --resume; 'off' never auto-switches.
   const relayMode = continuation.relayModeOf(run.cfg);
   const tried = new Set([engineKey(agent)]);
+  // One automatic retry after a fully-rolled-back allowlist breach. The
+  // rollback IS the fix; the second attempt is told which paths to leave
+  // alone. A second breach (or an unrecoverable one) surfaces to the engineer.
+  let permissionRetry = null;
 
   for (;;) {
     // Composed and saved BEFORE the send so the audit copy under prompts/
     // shows what was actually sent — continuation preamble included.
-    const userText = composeUserText(run, phase, agent, agentDir, variables);
+    const userText = composeUserText(run, phase, agent, agentDir, variables, { permissionRetry });
     prompts.savePromptDir(join(agentDir, 'prompts'), 'user.md', userText);
     try {
       const envelope = await attemptPhase(run, phase, call, agent, agentDir, systemText, userText);
       continuation.clearEngineError(agentDir, agent);
       return envelope;
     } catch (error) {
+      if (error instanceof permissions.PermissionBreach && !permissionRetry && permissions.canAutoRetryBreach(error)) {
+        permissionRetry = { paths: error.violations };
+        run.console.retry(
+          agent.name,
+          1,
+          1,
+          `unauthorized writes rolled back (${error.restored.length}/${error.violations.length}) — retrying the phase once`,
+        );
+        try {
+          run.tracer.event({
+            fda_id: run.fdaId,
+            phase_id: phase.phase_id,
+            type: 'log',
+            name: 'permission_retry',
+            payload: {
+              agent: agent.name,
+              restored: error.restored.length,
+              violations: error.violations,
+            },
+          });
+        } catch {
+          /* tracing must never mask the retry */
+        }
+        continue;
+      }
       if (!(error instanceof EngineFailure)) throw error;
       const marker = recordEngineFailure(run, phase, agent, agentDir, error);
       if (relayMode !== 'auto') throw error;

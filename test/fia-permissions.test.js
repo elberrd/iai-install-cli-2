@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync, rmSync
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
-import { snapshot, changedPaths, enforce, PermissionBreach } from '../fia-templates/modules/permissions.mjs';
+import { snapshot, changedPaths, enforce, PermissionBreach, canAutoRetryBreach } from '../fia-templates/modules/permissions.mjs';
 
 function initGitRepo(root) {
   execFileSync('git', ['init'], { cwd: root, stdio: 'ignore' });
@@ -78,6 +78,47 @@ test('enforce: benign build artifacts are reverted without breach (Next.js AGENT
   // Reverted to the committed content, logged as external_change, no throw.
   assert.equal(readFileSync(join(root, 'AGENTS.md'), 'utf8'), '# original guide\n');
   assert.ok(events.some((e) => e.name === 'external_change'));
+});
+
+test('enforce: OS junk (.DS_Store) is benign — reverted, never a breach', () => {
+  const root = mkdtempSync(join(tmpdir(), 'fia-perm-'));
+  initGitRepo(root);
+  mkdirSync(join(root, 'src', 'app'), { recursive: true });
+  const events = [];
+  const run = {
+    repoRoot: root,
+    fdaId: 't-ds',
+    cfg: { defaults: { protected_files: [] } },
+    tracer: { event: (e) => events.push(e) },
+    console: { note: () => {} },
+  };
+  const before = snapshot(run);
+  writeFileSync(join(root, '.DS_Store'), 'finder junk at root\n');
+  writeFileSync(join(root, 'src', 'app', '.DS_Store'), 'finder junk nested\n');
+  const touched = enforce(run, { phase_id: 'p1' }, { name: 'reviewer', writes: [] }, before);
+  assert.ok(touched.some((p) => p.endsWith('.DS_Store')));
+  assert.equal(existsSync(join(root, '.DS_Store')), false);
+  assert.equal(existsSync(join(root, 'src', 'app', '.DS_Store')), false);
+  assert.ok(events.some((e) => e.name === 'external_change'));
+});
+
+test('canAutoRetryBreach: only a fully-rolled-back violation is retryable', () => {
+  assert.equal(canAutoRetryBreach(new Error('nope')), false);
+  assert.equal(canAutoRetryBreach(new PermissionBreach('bare message')), false);
+  assert.equal(
+    canAutoRetryBreach(new PermissionBreach('rolled back', { violations: ['a'], restored: ['a'] })),
+    true,
+  );
+  assert.equal(
+    canAutoRetryBreach(
+      new PermissionBreach('not restorable', {
+        violations: ['.env.local'],
+        restored: [],
+        unrecoverable: ['.env.local (modified)'],
+      }),
+    ),
+    false,
+  );
 });
 
 test('enforce: project benign_paths extend the built-in list', () => {

@@ -20,10 +20,21 @@ Loop, until no unblocked task remains:
    Stopped on the **env gate** — foundation task picked but
    `node imp/scripts/env-preflight.mjs` reports dev keys missing from
    `.env.local`? PAUSE and provision with me mid-goal per the cookbook:
-   CLI parts yourself, dashboard keys from me — then continue)
+   CLI parts yourself, dashboard keys from me — then continue.
+   Stopped on an **impossible/circular dependency** with a recommended
+   split (Task 06 needs Task 07's schema, 07 is blocked by 06)? Apply
+   the split once — do not ask — and re-delegate. If the second pass
+   still cannot write a brief, THEN ask.)
 2. `node imp/fda_sdlc.mjs ai-docs/actual-todo/<brief>.md` — ONE task per run, never batch them
 3. exit 0 → report to me in one line (task, phases, tokens, commit) and continue
-4. exit != 0 → STOP. Show the phase that failed, the gate violations and the trace. I decide: fix, skip or re-run.
+4. exit != 0 → ONE automatic recovery first (cookbook `harness_bridge`,
+   "On failure"): if the recommended action is re-run, or you would bring
+   me something to correct that an FDA can apply, do that once
+   (`--fda-id … --resume`, with a verdict `--missing` when you can name
+   the gap). If that also fails, or the outcome is `no_progress` /
+   `attempt_cap` / `budget_exhausted` / `engine_exhausted`: STOP. Show
+   the phase, the gate violations and the trace. I decide: fix, skip or
+   re-run. Never a third attempt on your own.
 
 Briefs with a `Spec: NNNN (…)` line arm the FDA's spec-coverage gate — on
 success, check the spec's Traceability table reflects the new tests and flag

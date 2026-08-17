@@ -967,7 +967,7 @@ without the FIA runtime.
 | Agent | Role |
 |---|---|
 | `task-master-generator` | Breaks the app into vertical-slice (tracer bullet) tasks: `todos/task-master.md` index + one issue file per task with explicit blocking deps; FULL mode also generates specs; DELTA mode (used by `/feature`, `/kit`) only adds new issues. |
-| `task-sequencer` | Prepares (never implements) the next task: picks/claims the frontier task and writes the just-in-time brief with "Seams & First Tests"; enforces the theme and env-preflight gates for foundation tasks. |
+| `task-sequencer` | Prepares (never implements) the next task: picks/claims the frontier task and writes the just-in-time brief with "Seams & First Tests"; enforces the theme and env-preflight gates for foundation tasks; a hidden cycle (picked issue needs a later blocked-by-this-task schema) is auto-split once before asking. |
 | `screen-routes-generator` | PRD → `ai-docs/screens-routes.md` (screens, routes, navigation flows). |
 | `start-mapper` | Reads the whole codebase → `ai-docs/map.yaml` (mapping only). |
 | `start-scaffolding` | Folder structure + empty placeholders only — explicitly no implementation code. |
@@ -1218,13 +1218,16 @@ always use `coding_agent: claude_code` to stay on the plan.
 
 **Permissions**: every agent phase snapshots the working tree (`git diff` +
 hashed untracked files); writes outside the agent's `writes` allowlist (or in
-`protected_files`) are rolled back and fail the phase as a `PermissionBreach`.
-Benign build side effects (`AGENTS.md`, `next-env.d.ts`, `**/*.tsbuildinfo`,
-`.next/`, `node_modules/`, `coverage/`, … + your `benign_paths`) are reverted
-and logged as `external_change` — never blamed on the agent. Read-only agents
-deposit their reports in the git-invisible session dir
-(`imp/data/sessions/<id>/context_handoff/`), handed to prompts as
-`{{context_handoff_dir}}`.
+`protected_files`) are rolled back. A fully-rolled-back breach retries the
+same phase once (the agent is told which paths to leave alone); a second
+breach, or an unrecoverable path (pre-existing untracked file with no copy
+in git), fails the phase as a `PermissionBreach`. Benign build side effects
+and OS junk (`AGENTS.md`, `next-env.d.ts`, `**/*.tsbuildinfo`, `.next/`,
+`node_modules/`, `coverage/`, `.DS_Store`, `Thumbs.db`, `desktop.ini`, … +
+your `benign_paths`) are reverted and logged as `external_change` — never
+blamed on the agent. Read-only agents deposit their reports in the
+git-invisible session dir (`imp/data/sessions/<id>/context_handoff/`),
+handed to prompts as `{{context_handoff_dir}}`.
 
 **Prompt material** lives in `imp/data/prompt_engineering/<agent>/{system,
 user}.md` — student-editable, never touched by `--update-runtime`. Templates
@@ -2190,8 +2193,8 @@ theme, design, examples, launch, update_roster.
 | `/grill` | `[doc\|topic?]` | Stress-test the PRD one question at a time; decisions recorded and written back. |
 | `/prd` | `[focus?]` | Quick reviewer opinion on the PRD — never edits it. |
 | `/map` | `[notes?]` | PRD → `map.yaml` + screens-routes + issues/task-master + specs + registry seed + `/ui-components` + milestones; ends by opening the Plan page (`npm run plan -- --detach`). Greenfield build order: `/task` (foundation) → `/theme` → `/goal`. |
-| `/task` | `[number\|description?]` | ONE task: the task-sequencer writes the brief (enforcing the theme and env gates), then `node imp/fda_plan_build_test.mjs <brief>` (bigger/riskier work → `fda_sdlc`). On failure: `npm run fda:phases -- <id>`, resume with `--fda-id <id> --resume`. |
-| `/goal` | `[limit?]` | All unblocked tasks to done, one FDA per task (never batched), gates inside the loop, human-only steps handled MID-goal; ends with the app RUNNING + "How to test", suggests `/qa <milestone>` when a milestone completes, then `/launch`. |
+| `/task` | `[number\|description?]` | ONE task: the task-sequencer writes the brief (enforcing the theme and env gates), then `node imp/fda_plan_build_test.mjs <brief>` (bigger/riskier work → `fda_sdlc`). On first failure: one automatic recovery (re-run / repair once); if that also fails: `npm run fda:phases -- <id>`, resume with `--fda-id <id> --resume`. |
+| `/goal` | `[limit?]` | All unblocked tasks to done, one FDA per task (never batched), gates inside the loop, human-only steps handled MID-goal; a first recoverable FDA failure gets one automatic recovery before the loop asks; ends with the app RUNNING + "How to test", suggests `/qa <milestone>` when a milestone completes, then `/launch`. |
 | `/feature` | `"request"` | Delta on an existing mapped system: size triage (module-sized routes UP to `/idea`), delta mini-grill, delta spec, DELTA tasks, approval before executing. Requires `map.yaml` (`/absorb` first otherwise). |
 | `/bug` | `"symptom"` | Issue + `node imp/fda_bug.mjs` with the RED-validity gate (assertion-failing reproduction before any fix). |
 | `/quick` | `"small change"` | Triage; SIMPLE runs `node imp/fda_quick.mjs` + the `Q-NNN` quick-log entry; COMPLEX routes to `/feature`/`/bug` naming the failed criterion. |

@@ -42,6 +42,27 @@ news, not a defect:
 the optional `stop:` block of `imp/fia.config.yaml`; the code defaults apply when
 it is absent, so never tell the engineer they must add it.
 
+## Automatic recovery (once)
+
+A first recoverable failure is retried in CODE, not by asking the engineer:
+
+- Finder/Explorer junk (`.DS_Store`, `Thumbs.db`, `desktop.ini`) is benign —
+  reverted as `external_change`, never a `PermissionBreach`.
+- A write outside the agent's `writes:` allowlist that rolled back completely
+  retries the same phase once, with a note listing the paths to leave alone.
+  A second breach, or an unrecoverable path (pre-existing untracked file with
+  no copy in git), fails the run and surfaces.
+- Envelope gates already have one correction round (`retries: 1` on agent
+  phases). The UI-conformance gate already has one `fix_ui` builder round.
+
+When YOU (the orchestrator) would bring the engineer something to correct
+that an FDA can apply — leftover UI violation, missing test, brief checkbox,
+or a recommended `--resume` after a revert — dispatch that ONE repair first
+(`--fda-id … --resume`, with a verdict `--missing` when you can name the
+gap). If that also fails, or the outcome is `no_progress` / `attempt_cap` /
+`budget_exhausted` / `engine_exhausted`: hand the decision back. Never a
+third attempt on your own. Never implement in place of an FDA.
+
 ## Re-running a failed FDA (resume)
 
 When an FDA fails mid-run and the engineer chooses "re-run", NEVER start from

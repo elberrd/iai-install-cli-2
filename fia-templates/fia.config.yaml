@@ -108,7 +108,8 @@ defaults:
     # 16 generates AGENTS.md at build time) are reverted and logged as
     # external_change — they never blame the agent. Included by default:
     # AGENTS.md, next-env.d.ts, **/*.tsbuildinfo, .next/, .turbo/,
-    # node_modules/, coverage/, .eslintcache. Add your project's globs:
+    # node_modules/, coverage/, .eslintcache, .DS_Store, Thumbs.db,
+    # desktop.ini. Add your project's globs:
     benign_paths: []
 
 observability:
