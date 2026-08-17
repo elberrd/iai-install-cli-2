@@ -36,6 +36,94 @@ const { useEffect, useMemo, useRef, useState } = React;
 
 const TABS = ['Home', 'Work', 'Runs', 'Plan', 'Agents', 'Pi'];
 
+function truncateCells(s, n) {
+  if (n <= 0) return '';
+  if (s.length <= n) return s;
+  return n === 1 ? '…' : `${s.slice(0, n - 1)}…`;
+}
+
+/**
+ * One function for what the header DRAWS and what the mouse HITS.
+ * Ink's wrap:truncate on the title+tabs Text used to clip Agents/Pi under
+ * the FDA badge while hit-testing still assumed the full untruncated row —
+ * clicks landed on the wrong tab (or on none). Tabs never yield; the
+ * project name and then the status shrink instead.
+ */
+export function computeHeaderLayout({ cols, projectName = '', status = 'idle', padX = 1 } = {}) {
+  const inner = Math.max(0, (Number(cols) || 0) - padX * 2);
+  const tabLabels = TABS.map((name, i) => ` ${i + 1} ${name} `);
+  const tabsW = tabLabels.reduce((n, l) => n + l.length, 0);
+
+  const pack = (brand, name, stat) => {
+    const namePart = brand && name ? ` — ${name}` : name || '';
+    const left = `${brand}${namePart}`;
+    const spacer = left ? '   ' : '';
+    const gap = stat ? 1 : 0;
+    return { brand, namePart, left, spacer, stat, width: left.length + spacer.length + tabsW + gap + stat.length };
+  };
+
+  let brand = 'impactus';
+  let name = String(projectName);
+  let stat = String(status || 'idle');
+  let p = pack(brand, name, stat);
+  while (p.width > inner && name.length) {
+    name = truncateCells(name, name.length - 1);
+    p = pack(brand, name, stat);
+  }
+  if (p.width > inner) {
+    brand = '';
+    p = pack(brand, name, stat);
+  }
+  while (p.width > inner && name.length) {
+    name = truncateCells(name, name.length - 1);
+    p = pack(brand, name, stat);
+  }
+  while (p.width > inner && stat.length) {
+    stat = truncateCells(stat, stat.length - 1);
+    p = pack(brand, name, stat);
+  }
+
+  const title = `${p.left}${p.spacer}`;
+  let x = padX + title.length;
+  const tabs = tabLabels.map((label, i) => {
+    const r = { i, name: TABS[i], label, x0: x, x1: x + label.length };
+    x += label.length;
+    return r;
+  });
+  return { brand: p.brand, namePart: p.namePart, spacer: p.spacer, title, tabs, status: p.stat, padX };
+}
+
+/** Tab index under a header click, or -1. y is 0-based screen row. */
+export function hitHeaderTab(layout, x, y) {
+  if (y !== 0 || !layout?.tabs) return -1;
+  return layout.tabs.findIndex((t) => x >= t.x0 && x < t.x1);
+}
+
+/**
+ * How `v` launches the web viewer: absolute --db/--ai-docs and the project
+ * cwd, so a leftover process on :4600 from a moved folder cannot steal the
+ * tab and show "No runs yet" while this TUI still has the live FDA.
+ */
+export function viewerLaunchSpec(opts, tab = 0) {
+  const script = join(dirname(fileURLToPath(import.meta.url)), 'fia-viewer.mjs');
+  const view =
+    tab === 3 ? ['--view', 'plan'] : tab === 4 ? ['--view', 'agents'] : tab === 5 ? ['--view', 'pi'] : [];
+  const root = resolve(opts.root || process.cwd());
+  const defaults = data.defaultPaths();
+  return {
+    args: [
+      script,
+      '--detach',
+      '--db',
+      resolve(root, opts.dbPath || defaults.dbPath),
+      '--ai-docs',
+      resolve(root, opts.aiDocsDir || defaults.aiDocsDir),
+      ...view,
+    ],
+    cwd: root,
+  };
+}
+
 // One glyph+color per status, shared by every tab — same palette family as
 // the web viewer (cyan = active, green = done, red = broken).
 const STATUS = {
@@ -1128,7 +1216,7 @@ function App({ opts }) {
     if ((b & 3) !== 0) return; // left button only
     const L = layoutRef.current;
     if (y === 0) {
-      const i = (L.tabs || []).findIndex((r) => x >= r.x0 && x < r.x1);
+      const i = hitHeaderTab(L.header, x, y);
       if (i >= 0) {
         setDoc(null);
         if (tests && !tests.running) setTests(null);
@@ -1243,10 +1331,8 @@ function App({ opts }) {
   }, [tab]);
 
   const openViewer = () => {
-    const script = join(dirname(fileURLToPath(import.meta.url)), 'fia-viewer.mjs');
-    const view =
-      tab === 3 ? ['--view', 'plan'] : tab === 4 ? ['--view', 'agents'] : tab === 5 ? ['--view', 'pi'] : [];
-    spawn(process.execPath, [script, '--detach', ...view], { stdio: 'ignore', detached: true }).unref();
+    const spec = viewerLaunchSpec(opts, tab);
+    spawn(process.execPath, spec.args, { stdio: 'ignore', detached: true, cwd: spec.cwd }).unref();
   };
 
   const interactive = Boolean(process.stdin.isTTY); // --once in CI has no raw mode
@@ -1313,15 +1399,17 @@ function App({ opts }) {
   const running =
     Boolean(lock) || sessions.some((s) => s.status === 'running' && !s.stale) || Boolean(telemetry?.live);
 
-  // Screen coordinates for mouse hit-testing — must mirror the layout below.
+  const runningLabel = running
+    ? telemetry?.live
+      ? `● /${telemetry.live.command} running · FDA ${lock?.fda_id ? `(${lock.fda_id})` : 'idle'}`
+      : `● FDA running${lock?.fda_id ? ` (${lock.fda_id})` : ''} — read-only`
+    : 'idle';
+  const header = computeHeaderLayout({ cols, projectName, status: runningLabel });
+
+  // Screen coordinates for mouse hit-testing — same numbers the header draws.
   {
-    let x = 1 + ('impactus' + ` — ${projectName}   `).length;
-    layoutRef.current.tabs = TABS.map((name, i) => {
-      const w = ` ${i + 1} ${name} `.length;
-      const r = { x0: x, x1: x + w };
-      x += w;
-      return r;
-    });
+    layoutRef.current.header = header;
+    layoutRef.current.tabs = header.tabs;
     const workSelC = clamp(workSel, 1, Math.max(1, workItems.length - 1));
     layoutRef.current.workList = {
       top: 2, // header row + list border
@@ -1382,29 +1470,15 @@ function App({ opts }) {
     { flexDirection: 'column', width: cols, height: size.rows },
     h(
       Box,
-      { justifyContent: 'space-between', paddingX: 1 },
-      h(
-        Text,
-        { wrap: 'truncate' },
-        h(Text, { color: 'cyan', bold: true }, 'impactus'),
-        h(Text, { color: 'gray' }, ` — ${projectName}   `),
-        ...TABS.map((name, i) =>
-          h(Text, { key: name, inverse: i === tab, color: i === tab ? 'cyan' : 'gray' }, ` ${i + 1} ${name} `),
-        ),
+      { width: cols, paddingX: 1 },
+      header.brand ? h(Text, { color: 'cyan', bold: true }, header.brand) : null,
+      header.namePart ? h(Text, { color: 'gray' }, header.namePart) : null,
+      header.spacer ? h(Text, {}, header.spacer) : null,
+      ...header.tabs.map((t) =>
+        h(Text, { key: t.name, inverse: t.i === tab, color: t.i === tab ? 'cyan' : 'gray' }, t.label),
       ),
-      h(
-        Text,
-        { wrap: 'truncate' },
-        running
-          ? h(
-              Text,
-              { color: 'red' },
-              telemetry?.live
-                ? `● /${telemetry.live.command} running · FDA ${lock?.fda_id ? `(${lock.fda_id})` : 'idle'}`
-                : `● FDA running${lock?.fda_id ? ` (${lock.fda_id})` : ''} — read-only`,
-            )
-          : h(Text, { color: 'gray' }, 'idle'),
-      ),
+      h(Box, { flexGrow: 1 }),
+      h(Text, { color: running ? 'red' : 'gray' }, header.status),
     ),
     h(Box, { flexGrow: 1, flexDirection: 'column' }, body),
     h(
@@ -1413,7 +1487,7 @@ function App({ opts }) {
       h(
         Line,
         { color: 'gray' },
-        '1-6 tabs · ↑↓/j/k move · Tab cycle (Pi: Live/History/Docs) · ⏎ open · Esc back · t tests · r refresh · v web viewer · q quit · mouse: click/scroll',
+        '1-6 tabs · ↑↓/j/k move · Tab cycle (Pi: Live/History/Docs) · ⏎ open · Esc back · t tests · r refresh · v web viewer · q quit · mouse: click tabs/rows',
       ),
     ),
   );
@@ -1438,7 +1512,8 @@ Keys:  1-6 tabs · Tab cycle · ↑↓/j/k move · Enter open (run timeline, or 
        task/spec rendered as markdown) · Esc back · t run the test suite in a
        pane · r refresh · v open the web viewer · q quit
        Pi tab: Tab cycles Live / History / Docs
-Mouse: click tabs and list rows (click a selected run to open it) · wheel scrolls`;
+Mouse: click a tab to switch (same as 1-6, no Enter) · click a list row ·
+       click a selected run to open it · wheel scrolls`;
 
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
 if (isMain) {

@@ -1,13 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, realpathSync } from 'node:fs';
 import { connect } from 'node:net';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { Tracer } from '../fia-templates/modules/tracer.mjs';
-import { startViewer } from '../fia-templates/scripts/fia-viewer.mjs';
+import {
+  startViewer,
+  resolveViewerPaths,
+  shouldReuseViewer,
+} from '../fia-templates/scripts/fia-viewer.mjs';
 
 function seedDb(root) {
   const dbPath = join(root, 'fia.db');
@@ -58,6 +62,8 @@ test('viewer: page + sessions + full session detail', async () => {
     const sessions = await (await fetch(base + '/api/sessions')).json();
     assert.equal(sessions.db, true);
     assert.equal(sessions.sessions[0].fda_id, 'demo1');
+    assert.equal(sessions.dbPath, realpathSync(dbPath));
+    assert.ok(sessions.projectRoot, 'sessions advertise the project root so a later launch can tell whose page this is');
 
     const detail = await (await fetch(base + '/api/session?fda_id=demo1')).json();
     assert.equal(detail.session.status, 'success');
@@ -279,4 +285,111 @@ test('viewer page: the named outcome is on the sidebar cards, and the reason is 
   assert.match(kpis[1], /class="why">'\+esc\(s\.outcome_reason\)/, 'the reason renders as text');
   assert.doesNotMatch(kpis[1], /title="'\+esc\(s\.outcome_reason\)/, 'not hidden in a title attribute');
   assert.match(PAGE, /\.kpi \.why \{/, 'the reason line is styled');
+});
+
+test('viewer: relative db paths pin to the project root, not later cwd', () => {
+  const root = mkdtempSync(join(tmpdir(), 'fia-viewer-root-'));
+  const paths = resolveViewerPaths({
+    projectRoot: root,
+    dbPath: 'imp/data/fia.db',
+    aiDocsDir: 'ai-docs',
+    configPath: 'imp/fia.config.yaml',
+  });
+  assert.equal(paths.projectRoot, realpathSync(root));
+  assert.equal(paths.dbPath, join(realpathSync(root), 'imp/data/fia.db'));
+  assert.equal(paths.aiDocsDir, join(realpathSync(root), 'ai-docs'));
+});
+
+test('viewer: reuse only the occupant that is this project', () => {
+  const ours = { projectRoot: '/proj/a', dbPath: '/proj/a/imp/data/fia.db' };
+  assert.equal(shouldReuseViewer({ projectRoot: '/proj/a', dbPath: ours.dbPath, db: true }, ours), true);
+  assert.equal(shouldReuseViewer({ projectRoot: '/proj/b', dbPath: '/proj/b/imp/data/fia.db', db: true }, ours), false);
+  // Leftover after a folder move: old servers advertised a relative path and
+  // often db:false. That is someone else's cwd — never a match.
+  assert.equal(shouldReuseViewer({ db: false, dbPath: 'imp/data/fia.db', sessions: [] }, ours), false);
+  assert.equal(shouldReuseViewer(null, ours), false);
+});
+
+test('viewer page: a missing db is a different empty state than "no runs yet"', async () => {
+  const { PAGE } = await import('../fia-templates/scripts/fia-viewer-page.mjs');
+  assert.match(PAGE, /Cannot see this project/, 'lost-db hero is distinct from the first-run empty state');
+  assert.match(PAGE, /press <code>v<\/code> in the TUI/, 'the recovery is the TUI key that opens a fresh viewer');
+  assert.match(PAGE, /renderEmptyMain\(data\.dbPath, data\.db\)/, 'the empty state sees whether the file opened');
+});
+
+function waitForViewerUrl(child, ms = 8000) {
+  return new Promise((resolveUrl, reject) => {
+    let out = '';
+    const timer = setTimeout(() => reject(new Error(`no viewer URL in time:\n${out}`)), ms);
+    const onData = (chunk) => {
+      out += chunk;
+      const m = out.match(/https?:\/\/127\.0\.0\.1:\d+\S*/);
+      if (m) {
+        clearTimeout(timer);
+        resolveUrl(m[0]);
+      }
+    };
+    child.stdout.on('data', onData);
+    child.stderr.on('data', onData);
+    child.once('exit', (code) => {
+      const m = out.match(/https?:\/\/127\.0\.0\.1:\d+\S*/);
+      if (m) {
+        clearTimeout(timer);
+        resolveUrl(m[0]);
+      } else {
+        clearTimeout(timer);
+        reject(new Error(`viewer exited ${code}:\n${out}`));
+      }
+    });
+  });
+}
+
+test('viewer CLI: a stale occupant (other folder / db:false) does not steal this project page', async () => {
+  const staleRoot = mkdtempSync(join(tmpdir(), 'fia-stale-'));
+  const stale = await startViewer({ dbPath: join(staleRoot, 'missing.db'), projectRoot: staleRoot, port: 0 });
+  const port = stale.address().port;
+  const root = mkdtempSync(join(tmpdir(), 'fia-live-'));
+  const dbPath = seedDb(root);
+  const script = fileURLToPath(new URL('../fia-templates/scripts/fia-viewer.mjs', import.meta.url));
+  const child = spawn(process.execPath, [script, '--port', String(port), '--db', dbPath, '--no-open'], {
+    cwd: root,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  try {
+    const url = await waitForViewerUrl(child);
+    const usedPort = Number(new URL(url).port);
+    assert.notEqual(usedPort, port, 'must not reuse the stale occupant');
+    const sessions = await (await fetch(`http://127.0.0.1:${usedPort}/api/sessions`)).json();
+    assert.equal(sessions.db, true);
+    assert.equal(sessions.sessions[0].fda_id, 'demo1');
+    assert.equal(sessions.projectRoot, realpathSync(root));
+  } finally {
+    child.kill('SIGKILL');
+    stale.close();
+  }
+});
+
+test('viewer CLI: the same project already on the port is reused, not stacked', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fia-reuse-'));
+  const dbPath = seedDb(root);
+  const first = await startViewer({ dbPath, projectRoot: root, port: 0 });
+  const port = first.address().port;
+  const script = fileURLToPath(new URL('../fia-templates/scripts/fia-viewer.mjs', import.meta.url));
+  const child = spawn(process.execPath, [script, '--port', String(port), '--db', dbPath, '--no-open'], {
+    cwd: root,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  try {
+    const url = await waitForViewerUrl(child);
+    assert.equal(Number(new URL(url).port), port);
+    const exitCode = await new Promise((resolveExit) => {
+      if (child.exitCode != null) return resolveExit(child.exitCode);
+      child.once('exit', (code) => resolveExit(code ?? 0));
+      setTimeout(() => resolveExit('still-running'), 2000).unref();
+    });
+    assert.notEqual(exitCode, 'still-running', 'the reuse path must exit instead of stacking a second server');
+  } finally {
+    child.kill('SIGKILL');
+    first.close();
+  }
 });

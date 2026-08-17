@@ -1384,7 +1384,13 @@ as disproportionate.
 [--port 4600] [--db imp/data/fia.db] [--no-open] [--view plan|agents|pi]
 [--ai-docs ai-docs] [--detach]`). A read-only local server on
 `http://127.0.0.1:4600` (localhost-only, DNS-rebinding guarded; the page is
-self-contained — no CDN). Four views, each a URL hash that survives reload:
+self-contained — no CDN). Paths are resolved against the project root, so
+the page keeps seeing `imp/data/fia.db` even if something else later changes
+`cwd`. If :4600 is already a viewer from **another folder** (typical after
+moving the project, or a leftover `--detach`), the next launch walks to
+4601+ and opens that URL — it will not reuse a page that cannot see this
+project's database. `v` in the TUI passes the absolute `--db` / `--ai-docs`
+for the same reason. Four views, each a URL hash that survives reload:
 
 - **FDAs** (default) — run list + drill-down: status/duration/tokens/cost
   KPIs (the Status KPI reads the run's named outcome when the trace carries
@@ -1432,7 +1438,11 @@ missing one). Keys: `1-6`/`Tab` tabs · on **Pi**, `Tab` cycles
 Live/History/Docs · `↑↓ j k` move · `Enter` open ·
 `Esc` back · `t` run the test suite in a pane (disabled while an FDA holds
 the lock) · `r` refresh · `v` open the web viewer (detached, matching tab) ·
-`q` quit. Mouse: clicks and wheel work (SGR reporting, restored on exit).
+`q` quit. Mouse: click a tab to switch (no Enter — same as `1-6`), click a
+list row to select, click a selected run to open it; wheel scrolls. The
+header never lets the FDA badge cover a tab: the project name and then the
+badge shrink so all six labels stay hittable. SGR reporting is restored on
+exit.
 `--once` renders one settled frame and exits (CI/smoke — it also skips the
 file watcher); non-TTY without `--once` exits 1 pointing at the query CLI.
 

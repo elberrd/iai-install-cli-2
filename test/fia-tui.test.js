@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { Tracer } from '../fia-templates/modules/tracer.mjs';
@@ -21,6 +21,7 @@ import {
 } from '../fia-templates/scripts/fia-tui-data.mjs';
 import { renderMarkdown } from '../fia-templates/scripts/fia-tui-md.mjs';
 import { FIA } from '../src/config.js';
+import { viewerLaunchSpec, computeHeaderLayout, hitHeaderTab } from '../fia-templates/scripts/fia-tui.mjs';
 
 const REPO = join(fileURLToPath(new URL('..', import.meta.url)));
 const TUI = join(REPO, 'fia-templates', 'scripts', 'fia-tui.mjs');
@@ -425,6 +426,39 @@ test('tui: the named outcome reaches both LIST surfaces, and its reason the deta
   assert.match(out, /blocked by a gate/); // two failed runs are told apart in the list
   assert.match(out, /success/); // a row with no outcome keeps the bare status
   assert.match(out, /suite failed after 3 fix attempt\(s\)/); // the reason, on screen
+});
+
+test('tui: header layout keeps all six tabs hittable when the FDA badge is long', () => {
+  const status = '● FDA running (e6e64a6e) — read-only';
+  const name = 'Gestor Pessoal de Projetos';
+  // The screenshot width: title + 6 tabs + badge overflowed and ate Agents/Pi.
+  const layout = computeHeaderLayout({ cols: 110, projectName: name, status });
+  assert.equal(layout.tabs.length, 6);
+  assert.ok(layout.tabs.every((t) => t.x1 <= 110), 'no tab is drawn past the right edge');
+  assert.ok(layout.tabs[4].x1 <= 110 - 1, 'Agents stays on-screen instead of under the badge');
+  assert.match(layout.tabs[4].label, /Agents/);
+  assert.match(layout.tabs[5].label, /Pi/);
+  // Click where the user SEES "2 Work" — not where an untruncated title would have put it.
+  const work = layout.tabs[1];
+  assert.equal(hitHeaderTab(layout, work.x0, 0), 1);
+  assert.equal(hitHeaderTab(layout, work.x1 - 1, 0), 1);
+  assert.equal(hitHeaderTab(layout, work.x0, 1), -1, 'body clicks are not tab clicks');
+  // Tight terminal: tabs still win over the project name and the badge.
+  const tight = computeHeaderLayout({ cols: 70, projectName: name, status });
+  assert.equal(tight.tabs.length, 6);
+  assert.ok(tight.tabs.every((t) => t.x1 <= 70));
+  assert.ok(tight.status.length < status.length, 'the badge shrinks before a tab disappears');
+});
+
+test('tui: v launches the viewer with this project absolute db path and cwd', () => {
+  const root = mkdtempSync(join(tmpdir(), 'fia-tui-viewer-'));
+  const spec = viewerLaunchSpec({ root, dbPath: 'imp/data/fia.db', aiDocsDir: 'ai-docs' }, 2);
+  assert.equal(spec.cwd, resolve(root));
+  const dbFlag = spec.args.indexOf('--db');
+  assert.ok(dbFlag >= 0, 'passes --db so the viewer does not inherit a leftover cwd');
+  assert.equal(spec.args[dbFlag + 1], join(root, 'imp/data/fia.db'));
+  assert.equal(spec.args[spec.args.indexOf('--ai-docs') + 1], join(root, 'ai-docs'));
+  assert.ok(spec.args.includes('--detach'));
 });
 
 test('tui: --help prints usage without a terminal', () => {

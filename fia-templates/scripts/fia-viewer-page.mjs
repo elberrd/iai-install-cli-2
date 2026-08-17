@@ -440,7 +440,7 @@ function loadSessions(){
     if(!S.selected && S.sessions.length) selectSession(S.sessions[0].fda_id);
     if(S.view !== 'fda') return;
     renderSidebar();
-    if(!S.sessions.length) renderEmptyMain(data.dbPath);
+    if(!S.sessions.length) renderEmptyMain(data.dbPath, data.db);
   });
 }
 function loadDetail(){
@@ -503,11 +503,15 @@ function renderSidebar(){
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
-function renderEmptyMain(dbPath){
+function renderEmptyMain(dbPath, dbOk){
   $('crumbs').innerHTML = 'sessions';
+  var lost = dbOk === false;
   $('main').innerHTML = '<div class="hero"><div class="glyph">◆</div>'+
-    '<div style="font-size:16px;font-weight:650;color:var(--text)">No runs yet</div>'+
-    '<div>Run an FDA and come back — the page refreshes on its own.<br/>db: '+esc(dbPath||'imp/data/fia.db')+'</div>'+
+    '<div style="font-size:16px;font-weight:650;color:var(--text)">'+(lost ? 'Cannot see this project' : 'No runs yet')+'</div>'+
+    '<div>'+(lost
+      ? 'This page is not reading the project database. If you moved the folder, press <code>v</code> in the TUI to open a fresh viewer.'
+      : 'Run an FDA and come back — the page refreshes on its own.')+
+    '<br/>db: '+esc(dbPath||'imp/data/fia.db')+'</div>'+
     '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">'+
     '<code>npm run fda:quality</code><code>npm run fda:demo</code><code>pi → /task</code></div></div>';
 }
