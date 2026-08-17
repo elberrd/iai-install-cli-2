@@ -20,7 +20,8 @@ there does not exist for you). Then orient me. My goal, if I already gave one: $
    mostly done or my goal is going live.
 5. The one thing the scripts cannot see (code cannot tell a starter from a
    product): a real hand-built application that `ai-docs/` never absorbed →
-   the route starts with `/absorb`, before anything else.
+   the route starts with `/onboarding` (the guided `/absorb` → `/stack` →
+   `/kit` pass), before anything else.
 
 **Step 1 — ONE question.** Tell me where I stand in two lines, citing the
 scripts' evidence — then ask my goal with your recommendation embedded ("My

@@ -12,10 +12,17 @@ here (the only exception is /kit's `/ui-components` page, per its own prompt).
 Focus/flags (optional; the focus goes to the /absorb stage): $@
 
 0. **Guard + resume rail + announce** — run
-   `node imp/scripts/project-mode.mjs --json` and trust it. Not `brownfield`
-   → stop: there is nothing to absorb; route in one line — no PRD yet →
-   /idea (discover the product), PRD exists but nothing built → /grill then
-   /map. Brownfield → the tour keeps a resume rail in the decision log
+   `node imp/scripts/project-mode.mjs --json` for the evidence, then decide
+   the entry question YOURSELF — by design the script leaves it to you (a
+   fresh install on a real app still reports `greenfield`: code cannot tell
+   a starter from a product). Does this folder hold a REAL application
+   (hand-built code, not the installer's starter)?
+   - No real app → stop: there is nothing to absorb; route in one line — no
+     real PRD → /idea (discover the product), real PRD but nothing built →
+     /grill then /map.
+   - Real app → proceed (`brownfield` — already absorbed — is fine too: the
+     stages detect existing artifacts and offer to skip).
+   The tour keeps a resume rail in the decision log
    (cookbook `.pi/skills/fia/cookbooks/decision-log.md`):
    - `node imp/scripts/decision-log.mjs latest onboarding --json` FIRST. An
      `open` log = an interrupted tour: read its stage notes, confirm the

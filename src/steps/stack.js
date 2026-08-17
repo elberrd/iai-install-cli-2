@@ -31,7 +31,7 @@ export async function collectStack(ctx) {
   }
   if (ctx.stackPath === 'brownfield') {
     ctx.stack = { ...applyStackRules({}), source: 'brownfield' };
-    ui.info('Existing project: /absorb will map the real stack and fill in ai-docs/stack.md.');
+    ui.info('Existing project: /onboarding (its /absorb stage) will map the real stack and fill in ai-docs/stack.md.');
     return;
   }
   if (ctx.stackPath === 'discover') {
