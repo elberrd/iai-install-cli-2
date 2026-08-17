@@ -73,13 +73,15 @@ function slugScope(scope) {
   return 'qa';
 }
 
+const slash = (p) => String(p).replaceAll('\\', '/');
+
 export function qaReportRelPath(scope, date = new Date()) {
   const day = date.toISOString().slice(0, 10);
-  return join('ai-docs', 'qa', `${day}-${slugScope(scope)}.md`);
+  return slash(join('ai-docs', 'qa', `${day}-${slugScope(scope)}.md`));
 }
 
 export function qaArtifactDir(runId) {
-  return join('imp', 'data', 'qa', runId);
+  return slash(join('imp', 'data', 'qa', runId));
 }
 
 /** List committed QA reports under ai-docs/qa/. */
@@ -99,7 +101,7 @@ export function listQaReports(repoRoot) {
       const passed = /^\s*Status:\s*passed\s*$/im.test(body);
       const skipped = /^\s*Status:\s*skipped\s*$/im.test(body);
       const scopeLine = (/^\s*Scope:\s*(.+)$/im.exec(body) || [])[1]?.trim() || file;
-      return { file: join('ai-docs', 'qa', file), passed, skipped, scopeLine, body };
+      return { file: slash(join('ai-docs', 'qa', file)), passed, skipped, scopeLine, body };
     });
 }
 

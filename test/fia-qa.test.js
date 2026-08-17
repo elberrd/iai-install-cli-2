@@ -166,7 +166,7 @@ test('qaReportRelPath and writeQaReport', () => {
   const root = mkdtempSync(join(tmpdir(), 'fia-qa-report-'));
   const scope = { kind: 'milestone', id: 'M1', label: 'M1 — MVP' };
   const rel = qaReportRelPath(scope, new Date('2026-08-17T12:00:00Z'));
-  assert.match(rel, /ai-docs\/qa\/2026-08-17-m1\.md/);
+  assert.equal(rel, 'ai-docs/qa/2026-08-17-m1.md');
   const body = formatQaReport({
     scope,
     e2ePassed: true,
