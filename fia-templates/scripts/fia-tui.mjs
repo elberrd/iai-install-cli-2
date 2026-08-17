@@ -34,21 +34,25 @@ import { renderMarkdown } from './fia-tui-md.mjs';
 const h = React.createElement;
 const { useEffect, useMemo, useRef, useState } = React;
 
-const TABS = ['Home', 'Work', 'Runs', 'Plan', 'Agents'];
+const TABS = ['Home', 'Work', 'Runs', 'Plan', 'Agents', 'Pi'];
 
 // One glyph+color per status, shared by every tab — same palette family as
 // the web viewer (cyan = active, green = done, red = broken).
 const STATUS = {
   done: { glyph: '✓', color: 'green' },
   success: { glyph: '✓', color: 'green' },
+  completed: { glyph: '✓', color: 'green' },
   'in-progress': { glyph: '●', color: 'cyan' },
+  in_progress: { glyph: '●', color: 'cyan' },
   running: { glyph: '●', color: 'cyan' },
   pending: { glyph: '○', color: 'gray' },
+  not_started: { glyph: '○', color: 'gray' },
   draft: { glyph: '○', color: 'gray' },
   defined: { glyph: '◆', color: 'yellow' },
   blocked: { glyph: '■', color: 'red' },
   deferred: { glyph: '·', color: 'gray' },
   fail: { glyph: '✗', color: 'red' },
+  failed: { glyph: '✗', color: 'red' },
   error: { glyph: '✗', color: 'red' },
   skipped: { glyph: '»', color: 'gray' },
 };
@@ -168,7 +172,49 @@ export function RunPanel({ run, now }) {
   );
 }
 
-function HomeTab({ plan, sessions, totals, currentRun, dbMissing, now, width, dbPath, aiDocs }) {
+// Exported for tests — live interactive Pi command strip (mirrors RunPanel).
+export function PiCommandPanel({ cmd, now, width }) {
+  if (!cmd) return null;
+  const live = cmd.status === 'running' || !cmd.ended_at;
+  const elapsed = fmtDur(durSec(cmd.started_at, cmd.ended_at, now));
+  const tokIn = cmd.tokens_in || 0;
+  const tokOut = cmd.tokens_out || 0;
+  const totalTok = tokIn + tokOut;
+  const phases = cmd.phases || [];
+  const donePhases = phases.filter((p) => p.ended_at);
+  const phaseBits = [];
+  for (const p of donePhases.slice(-6)) {
+    phaseBits.push(
+      h(Text, { key: p.id, color: 'green' }, `✓ ${trunc(p.label, 18)}`),
+      h(Text, { key: `${p.id}_d`, color: 'gray' }, ` ${fmtDur(durSec(p.started_at, p.ended_at, now))}  `),
+    );
+  }
+  return h(
+    Box,
+    { flexDirection: 'column', borderStyle: 'round', borderColor: live ? 'magenta' : 'gray', paddingX: 1 },
+    h(
+      Line,
+      null,
+      h(Text, { color: live ? 'magenta' : 'gray', bold: true }, live ? '● live command: ' : 'last command: '),
+      h(Text, { bold: true }, `/${cmd.command}`),
+      h(Text, { color: 'gray' }, ` · ${elapsed}`),
+      h(
+        Text,
+        { color: 'gray' },
+        ` · in ${fmtTokens(tokIn)} / out ${fmtTokens(tokOut)} (${fmtTokens(totalTok)} tok) · ${fmtCost(cmd.cost)}`,
+      ),
+    ),
+    cmd.current_activity && live
+      ? h(Line, { color: 'magenta' }, `activity: ${trunc(cmd.current_activity, Math.max(20, width - 14))}`)
+      : null,
+    phases.length ? h(Box, { flexWrap: 'wrap' }, ...phaseBits) : null,
+    cmd.docs_written?.length
+      ? h(Line, { color: 'gray' }, `docs: ${cmd.docs_written.slice(-3).join(', ')}${cmd.docs_written.length > 3 ? '…' : ''}`)
+      : null,
+  );
+}
+
+function HomeTab({ plan, sessions, totals, currentRun, liveCommand, dbMissing, now, width, dbPath, aiDocs }) {
   const o = plan.overview;
   const tc = o.counts?.tasks || {};
   const sc = o.specs?.counts || {};
@@ -255,6 +301,7 @@ function HomeTab({ plan, sessions, totals, currentRun, dbMissing, now, width, db
           `No ${aiDocs || 'ai-docs'}/ here yet — run /map (or /absorb) to create the plan.`,
         ),
     h(Box, { flexWrap: 'wrap' }, ...cards),
+    liveCommand ? h(PiCommandPanel, { cmd: liveCommand, now, width }) : null,
     currentRun
       ? h(RunPanel, { run: currentRun, now })
       : dbMissing
@@ -550,7 +597,7 @@ function PlanTab({ plan, width }) {
   const o = plan.overview;
   const miles = o.milestones?.milestones || [];
   const wfSteps = o.workflow?.steps || [];
-  const wfDone = wfSteps.filter((s) => s.status === 'done').length;
+  const wfDone = wfSteps.filter((s) => s.status === 'done' || s.status === 'completed').length;
   const scr = o.counts?.screens || {};
   const comp = o.counts?.components || {};
   return h(
@@ -698,6 +745,126 @@ function AgentsTab({ roster, usage, engines, width }) {
   );
 }
 
+// ── Pi (interactive commands + docs checklist) ───────────────────────────────
+
+function PiTab({ telemetry, docs, sel, section, now, width, height }) {
+  const live = telemetry?.live;
+  const history = telemetry?.history || [];
+  const totals = telemetry?.totals;
+  const sections = ['live', 'history', 'docs'];
+  const sec = sections[section] || 'live';
+
+  if (sec === 'live') {
+    return h(
+      Box,
+      { flexDirection: 'column', paddingX: 1, height },
+      h(Line, { color: 'magenta', bold: true }, 'Live interactive command'),
+      live
+        ? h(PiCommandPanel, { cmd: live, now, width: width - 4 })
+        : h(Line, { color: 'gray' }, 'No command running — start one in Pi (e.g. /map, /stack, /idea).'),
+      h(Box, { height: 1 }),
+      h(Line, { color: 'cyan', bold: true }, 'Session totals (finished commands)'),
+      totals
+        ? h(
+            Line,
+            { color: 'gray' },
+            `${totals.commands} commands · ${fmtDur(totals.seconds)} · in ${fmtTokens(totals.tokens_in)} / out ${fmtTokens(totals.tokens_out)} · ${fmtCost(totals.cost)}`,
+          )
+        : h(Line, { color: 'gray' }, 'No finished commands recorded yet — telemetry starts with the next /command.'),
+      h(Box, { height: 1 }),
+      h(Line, { color: 'gray' }, 'Tab → cycle Live / History / Docs · telemetry is written by the Pi extension while you work.'),
+    );
+  }
+
+  if (sec === 'history') {
+    const cols = { cmd: 10, when: 8, dur: 8, in: 7, out: 7, cost: 7 };
+    const listH = height - 5;
+    const { start, slice } = windowed(history, sel, listH);
+    return h(
+      Box,
+      { flexDirection: 'column', paddingX: 1, height },
+      h(Line, { color: 'cyan', bold: true }, 'Command history'),
+      history.length
+        ? null
+        : h(Line, { color: 'gray' }, 'Nothing recorded yet — run /map or /stack in Pi while this project has imp/data/.'),
+      h(
+        Line,
+        { color: 'gray', bold: true },
+        pad('CMD', cols.cmd) + pad('WHEN', cols.when) + pad('DUR', cols.dur) + pad('IN', cols.in) + pad('OUT', cols.out) + pad('COST', cols.cost) + 'DOCS',
+      ),
+      ...slice.map((r, i) => {
+        const idx = start + i;
+        const chosen = idx === sel;
+        return h(
+          Line,
+          { key: r.id, inverse: chosen },
+          pad(`/${r.command}`, cols.cmd) +
+            pad(fmtAge(r.started_at), cols.when) +
+            pad(fmtDur(durSec(r.started_at, r.ended_at, now)), cols.dur) +
+            pad(fmtTokens(r.tokens_in), cols.in) +
+            pad(fmtTokens(r.tokens_out), cols.out) +
+            pad(fmtCost(r.cost), cols.cost) +
+            trunc((r.docs_written || []).join(', ') || '—', Math.max(12, width - 52)),
+        );
+      }),
+      chosenDetail(history[clamp(sel, 0, Math.max(0, history.length - 1))], now, width),
+    );
+  }
+
+  const core = (docs || []).filter((d) => !d.optional);
+  const optional = (docs || []).filter((d) => d.optional);
+  const missingCore = core.filter((d) => !d.exists);
+  const listH = height - 6;
+  const allDocs = [...core, ...optional];
+  const { start, slice } = windowed(allDocs, sel, listH);
+  return h(
+    Box,
+    { flexDirection: 'column', paddingX: 1, height },
+    h(Line, { color: 'cyan', bold: true }, 'Project documentation'),
+    missingCore.length
+      ? h(Line, { color: 'yellow' }, `Missing core docs: ${missingCore.map((d) => d.command).join(', ')}`)
+      : h(Line, { color: 'green' }, 'All core planning docs present.'),
+    h(
+      Line,
+      { color: 'gray', bold: true },
+      pad('STATUS', 8) + pad('DOC', 28) + pad('COMMAND', 10) + 'PATH',
+    ),
+    ...slice.map((d, i) => {
+      const idx = start + i;
+      const chosen = idx === sel;
+      return h(
+        Line,
+        { key: d.id, inverse: chosen, color: d.exists ? undefined : d.optional ? 'gray' : 'yellow' },
+        pad(d.exists ? '✓' : '✗', 8) +
+          pad(trunc(d.label, 26), 28) +
+          pad(d.command, 10) +
+          trunc(d.path, Math.max(16, width - 50)),
+      );
+    }),
+    h(Line, { color: 'gray' }, allDocs[sel] ? `Run ${allDocs[sel].command} to create missing docs.` : '↑↓ select a row'),
+  );
+}
+
+function chosenDetail(row, now, width) {
+  if (!row) return null;
+  const phaseLines = (row.phases || [])
+    .slice(0, 6)
+    .map((p, i) =>
+      h(
+        Line,
+        { key: i, color: 'gray' },
+        `  ${p.ended_at ? '✓' : '●'} ${trunc(p.label, 40)} · ${fmtDur(durSec(p.started_at, p.ended_at, now))} · in ${fmtTokens(p.tokens_in)} out ${fmtTokens(p.tokens_out)}`,
+      ),
+    );
+  return h(
+    Box,
+    { flexDirection: 'column', marginTop: 1 },
+    h(Line, { color: 'gray' }, row.args ? `args: ${trunc(row.args, width - 8)}` : null),
+    phaseLines.length ? h(Line, { color: 'cyan', bold: true }, 'Phases') : null,
+    ...phaseLines,
+  );
+}
+
 // ── Markdown doc viewer (Enter on a task/spec) ───────────────────────────────
 // Exported (with TestsPane) so tests can mount them through React — overlay
 // components only appear on a keypress, which --once smoke frames never send.
@@ -772,6 +939,10 @@ function App({ opts }) {
   const [detail, setDetail] = useState(null);
   const [doc, setDoc] = useState(null); // markdown viewer: {title, path, lines, scroll}
   const [tests, setTests] = useState(null); // tests pane: {running, lines, code}
+  const [telemetry, setTelemetry] = useState(() => data.readCommandTelemetry(opts.root, opts.telemetryDir));
+  const [docsChecklist, setDocsChecklist] = useState(() => data.loadDocsStatus(opts.root));
+  const [piSel, setPiSel] = useState(0);
+  const [piSection, setPiSection] = useState(0); // 0 live, 1 history, 2 docs
 
   const dbRef = useRef(null);
   const dvRef = useRef(null);
@@ -805,7 +976,12 @@ function App({ opts }) {
     if (i > 0 && i !== workSel) setWorkSel(i);
   }, [workItems, workSel]);
 
-  const refreshPlan = () => setPlan(data.loadPlan(opts.aiDocsDir, opts.root));
+  const refreshPlan = () => {
+    setPlan(data.loadPlan(opts.aiDocsDir, opts.root));
+    setDocsChecklist(data.loadDocsStatus(opts.root));
+  };
+
+  const refreshTelemetry = () => setTelemetry(data.readCommandTelemetry(opts.root, opts.telemetryDir));
 
   const refreshDetail = (db, id, fresh = false) => {
     const d = data.sessionDetail(db, id);
@@ -849,6 +1025,7 @@ function App({ opts }) {
     setLock(data.activeFdaLock(opts.root));
     refreshPlan();
     setRoster(data.loadRoster(opts.configPath));
+    refreshTelemetry();
     refreshDb(true);
   };
 
@@ -932,6 +1109,15 @@ function App({ opts }) {
       if (i > 0 && i < workItems.length && !workItems[i].hdr) setWorkSel(i);
     } else if (tab === 2 && sessions.length && !detail) {
       setRunSel((s) => clamp(s + dir, 0, sessions.length - 1));
+    } else if (tab === 5) {
+      const sec = piSection;
+      if (sec === 1) {
+        const n = (telemetry?.history || []).length;
+        if (n) setPiSel((s) => clamp(s + dir, 0, n - 1));
+      } else if (sec === 2) {
+        const n = (docsChecklist || []).length;
+        if (n) setPiSel((s) => clamp(s + dir, 0, n - 1));
+      }
     }
   };
 
@@ -967,7 +1153,7 @@ function App({ opts }) {
       }
     }
   };
-  api.current = { refreshDb, refreshPlan, refreshAll, onMouse, killTests };
+  api.current = { refreshDb, refreshPlan, refreshTelemetry, refreshAll, onMouse, killTests };
 
   // Refresh loop: 1s ticks, backing off to ~5s after 60s without a keypress.
   useEffect(() => {
@@ -979,6 +1165,7 @@ function App({ opts }) {
       setNow(Date.now());
       setLock(data.activeFdaLock(opts.root));
       api.current.refreshDb();
+      api.current.refreshTelemetry?.();
       // Tests pane tails live: flush the stream buffer once per tick.
       if (testsProcRef.current) setTests((t) => t && { ...t, lines: [...testsBufRef.current] });
     }, 1000);
@@ -994,10 +1181,22 @@ function App({ opts }) {
         deb = setTimeout(() => api.current.refreshPlan(), 250);
       });
     }
+    let telWatcher = null;
+    let telDeb = null;
+    const telDir = join(opts.root, opts.telemetryDir);
+    if (!opts.once && existsSync(telDir)) {
+      telWatcher = chokidar.watch(telDir, { ignoreInitial: true });
+      telWatcher.on('all', () => {
+        clearTimeout(telDeb);
+        telDeb = setTimeout(() => api.current.refreshTelemetry?.(), 150);
+      });
+    }
     return () => {
       clearInterval(timer);
       clearTimeout(deb);
+      clearTimeout(telDeb);
       watcher?.close();
+      telWatcher?.close();
       dbRef.current?.close();
       api.current.killTests?.(); // a quit must not leave npm test running
     };
@@ -1045,7 +1244,8 @@ function App({ opts }) {
 
   const openViewer = () => {
     const script = join(dirname(fileURLToPath(import.meta.url)), 'fia-viewer.mjs');
-    const view = tab === 3 ? ['--view', 'plan'] : tab === 4 ? ['--view', 'agents'] : [];
+    const view =
+      tab === 3 ? ['--view', 'plan'] : tab === 4 ? ['--view', 'agents'] : tab === 5 ? ['--view', 'pi'] : [];
     spawn(process.execPath, [script, '--detach', ...view], { stdio: 'ignore', detached: true }).unref();
   };
 
@@ -1080,7 +1280,8 @@ function App({ opts }) {
         return;
       }
 
-      if (/^[1-5]$/.test(input)) return setTab(Number(input) - 1);
+      if (/^[1-6]$/.test(input)) return setTab(Number(input) - 1);
+      if (key.tab && tab === 5) return setPiSection((s) => (s + (key.shift ? 2 : 1)) % 3);
       if (key.tab) return setTab((t) => (t + (key.shift ? TABS.length - 1 : 1)) % TABS.length);
       if (input === 'r') return api.current.refreshAll();
       if (input === 'v') return openViewer();
@@ -1109,7 +1310,8 @@ function App({ opts }) {
   const cols = size.cols;
   const bodyH = Math.max(8, size.rows - 3);
   const projectName = plan.overview?.project?.name || basename(opts.root);
-  const running = Boolean(lock) || sessions.some((s) => s.status === 'running' && !s.stale);
+  const running =
+    Boolean(lock) || sessions.some((s) => s.status === 'running' && !s.stale) || Boolean(telemetry?.live);
 
   // Screen coordinates for mouse hit-testing — must mirror the layout below.
   {
@@ -1137,7 +1339,18 @@ function App({ opts }) {
     : tests
       ? h(TestsPane, { tests, height: bodyH, width: cols })
       : tab === 0
-        ? h(HomeTab, { plan, sessions, totals, currentRun, dbMissing, now, width: cols, dbPath: opts.dbPath, aiDocs: opts.aiDocsDir })
+        ? h(HomeTab, {
+            plan,
+            sessions,
+            totals,
+            currentRun,
+            liveCommand: telemetry?.live,
+            dbMissing,
+            now,
+            width: cols,
+            dbPath: opts.dbPath,
+            aiDocs: opts.aiDocsDir,
+          })
         : tab === 1
           ? h(WorkTab, {
               items: workItems,
@@ -1152,7 +1365,17 @@ function App({ opts }) {
               : h(RunsList, { sessions, sel: runSel, height: bodyH, width: cols, dbMissing, dbPath: opts.dbPath })
             : tab === 3
               ? h(PlanTab, { plan, width: cols })
-              : h(AgentsTab, { roster, usage, engines, width: cols });
+              : tab === 4
+                ? h(AgentsTab, { roster, usage, engines, width: cols })
+                : h(PiTab, {
+                    telemetry,
+                    docs: docsChecklist,
+                    sel: piSel,
+                    section: piSection,
+                    now,
+                    width: cols,
+                    height: bodyH,
+                  });
 
   return h(
     Box,
@@ -1173,7 +1396,13 @@ function App({ opts }) {
         Text,
         { wrap: 'truncate' },
         running
-          ? h(Text, { color: 'red' }, `● FDA running${lock?.fda_id ? ` (${lock.fda_id})` : ''} — read-only`)
+          ? h(
+              Text,
+              { color: 'red' },
+              telemetry?.live
+                ? `● /${telemetry.live.command} running · FDA ${lock?.fda_id ? `(${lock.fda_id})` : 'idle'}`
+                : `● FDA running${lock?.fda_id ? ` (${lock.fda_id})` : ''} — read-only`,
+            )
           : h(Text, { color: 'gray' }, 'idle'),
       ),
     ),
@@ -1184,7 +1413,7 @@ function App({ opts }) {
       h(
         Line,
         { color: 'gray' },
-        '1-5 tabs · ↑↓/j/k move · ⏎ open · Esc back · t tests · r refresh · v web viewer · q quit · mouse: click/scroll',
+        '1-6 tabs · ↑↓/j/k move · Tab cycle (Pi: Live/History/Docs) · ⏎ open · Esc back · t tests · r refresh · v web viewer · q quit · mouse: click/scroll',
       ),
     ),
   );
@@ -1200,14 +1429,15 @@ Options:
   --db <path>       trace db          (default imp/data/fia.db, env FIA_DB)
   --ai-docs <dir>   plan documents    (default ai-docs, env FIA_AI_DOCS)
   --config <path>   agent roster      (default imp/fia.config.yaml, env FIA_CONFIG)
-  --tab <1-5>       start on this tab (Home, Work, Runs, Plan, Agents)
+  --tab <1-6>       start on this tab (Home, Work, Runs, Plan, Agents, Pi)
   --once            render one frame and exit (CI/smoke)
   --no-alt          do not switch to the alternate screen
   --help            this text
 
-Keys:  1-5 tabs · Tab cycle · ↑↓/j/k move · Enter open (run timeline, or the
+Keys:  1-6 tabs · Tab cycle · ↑↓/j/k move · Enter open (run timeline, or the
        task/spec rendered as markdown) · Esc back · t run the test suite in a
        pane · r refresh · v open the web viewer · q quit
+       Pi tab: Tab cycles Live / History / Docs
 Mouse: click tabs and list rows (click a selected run to open it) · wheel scrolls`;
 
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
@@ -1227,6 +1457,7 @@ if (isMain) {
     dbPath: flag('--db') || defaults.dbPath,
     aiDocsDir: flag('--ai-docs') || defaults.aiDocsDir,
     configPath: flag('--config') || defaults.configPath,
+    telemetryDir: defaults.telemetryDir,
     once: args.includes('--once'),
     tab: clamp((Number(flag('--tab')) || 1) - 1, 0, TABS.length - 1),
   };

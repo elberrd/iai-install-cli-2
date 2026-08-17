@@ -1415,21 +1415,34 @@ self-contained — no CDN). Four views, each a URL hash that survives reload:
 
 The FDA-side of the same data is `--view pi`-free in the terminal:
 
-**TUI** — `npm run tui` / `imp tui` (`node imp/scripts/fia-tui.mjs [--tab 1-5]
+**TUI** — `npm run tui` / `imp tui` (`node imp/scripts/fia-tui.mjs [--tab 1-6]
 [--once] [--no-alt] [--db] [--ai-docs] [--config]`). Read-only Ink 7
-dashboard, five tabs: **1 Home** (tasks/specs/milestone/inbox/all-runs cards +
-the current run with per-phase chips and a context gauge), **2 Work**
+dashboard, six tabs: **1 Home** (tasks/specs/milestone/inbox/all-runs cards +
+the current FDA run with per-phase chips and a context gauge, plus a live
+strip when an interactive Pi command is running), **2 Work**
 (tasks + specs with the traceability table — uncovered requirements in red),
 **3 Runs** (table + drill-down with phases, retries, live event tail — the
 detail header prints the run's named outcome next to its status when one was
 recorded),
 **4 Plan**, **5 Agents** (roster + the per-LLM usage ledger, attributed at
-spend time). Keys: `1-5`/`Tab` tabs · `↑↓ j k` move · `Enter` open ·
+spend time), **6 Pi** (live interactive command with tokens in/out, cost and
+per-tool phases; full command history since install; a documentation checklist
+showing which `ai-docs/` artifacts exist and which `/command` creates each
+missing one). Keys: `1-6`/`Tab` tabs · on **Pi**, `Tab` cycles
+Live/History/Docs · `↑↓ j k` move · `Enter` open ·
 `Esc` back · `t` run the test suite in a pane (disabled while an FDA holds
 the lock) · `r` refresh · `v` open the web viewer (detached, matching tab) ·
 `q` quit. Mouse: clicks and wheel work (SGR reporting, restored on exit).
 `--once` renders one settled frame and exits (CI/smoke — it also skips the
 file watcher); non-TTY without `--once` exits 1 pointing at the query CLI.
+
+Interactive Pi command telemetry is recorded deterministically by the
+`.pi/extensions/fia-telemetry.ts` extension (stamped with every project):
+each `/idea`, `/stack`, `/map`, `/grill`… run appends to
+`imp/data/telemetry/commands.ndjson` and updates `live.json` while it is
+active (tokens in/out, cost, tool phases, docs written under `ai-docs/`).
+The TUI reads those files read-only — no retroactive history for commands
+run before the extension was installed.
 
 **Query CLI** — `node imp/scripts/fia-query.mjs`:
 
@@ -2814,6 +2827,7 @@ Recognized by the FIA runtime inside a project:
 | `FIA_DB` | Trace database path (default `imp/data/fia.db`) — fia-query, viewer, TUI, `imp rewind`. |
 | `FIA_CONFIG` | Agent roster path (default `imp/fia.config.yaml`) — viewer, TUI, and the project side of `imp notify`. |
 | `FIA_AI_DOCS` | `ai-docs/` dir override — viewer/TUI Plan views, launch-check, env-preflight, quick-log, wiki-check, the spec-diagram check. |
+| `FIA_TELEMETRY_DIR` | Interactive Pi command telemetry dir (default `imp/data/telemetry`) — TUI Pi tab. |
 | `FIA_BACKUPS_DIR` | Backup folder the loop-health report looks for instead of the one under the home directory (`imp health`; machine-friendly and testable). |
 | `FIA_PROJECT_ROOT` | Project root override for the viewer. |
 | `FIA_DEBUG` | Same as `--debug` on any FDA (full stack traces). |

@@ -123,6 +123,7 @@ export const FIA = {
   gitignoreEntries: [
     'imp/node_modules/',
     'imp/data/sessions/',
+    'imp/data/telemetry/',
     'imp/data/fia.db',
     'imp/data/fia.db-wal',
     'imp/data/fia.db-shm',

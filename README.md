@@ -164,7 +164,7 @@ imp settings                   # where every machine setting comes from (read-on
 ### Dashboards & utilities (npm scripts stamped into the project)
 
 ```bash
-npm run tui           # terminal dashboard: tasks, specs, milestones, runs
+npm run tui           # terminal dashboard: tasks, specs, milestones, runs, Pi commands
 npm run plan          # web viewer, "Plan" tab — everything /map created
 npm run agents        # web viewer, "Agents" tab — engine/model per FDA
 npm run fda:viewer    # the full web viewer (observability of every run)

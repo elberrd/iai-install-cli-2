@@ -448,4 +448,70 @@ test('tui: --once renders one dashboard frame over a seeded project', () => {
   assert.match(r.stdout, /impactus/);
   assert.match(r.stdout, /Tasks/);
   assert.match(r.stdout, /1\/2/); // task counts from the seeded plan
+  assert.match(r.stdout, /Pi/);
+});
+
+test('tui: PiCommandPanel shows live tokens and activity', async () => {
+  const { PiCommandPanel } = await import('../fia-templates/scripts/fia-tui.mjs');
+  const React = (await import('react')).default;
+  const { render } = await import('ink');
+  const { Writable } = await import('node:stream');
+  const chunks = [];
+  const fakeStdout = () => {
+    const s = new Writable({
+      write(c, _enc, cb) {
+        chunks.push(String(c));
+        cb();
+      },
+    });
+    s.columns = 120;
+    s.rows = 30;
+    return s;
+  };
+  const started = new Date(Date.now() - 120_000).toISOString();
+  const inst = render(
+    React.createElement(PiCommandPanel, {
+      cmd: {
+        command: 'map',
+        started_at: started,
+        tokens_in: 38000,
+        tokens_out: 7200,
+        cost: 0.42,
+        current_activity: 'subagent: task-master-generator',
+        phases: [{ id: 'p1', label: 'start-mapper', started_at: started, ended_at: new Date().toISOString(), tokens_in: 1000, tokens_out: 200, cost: 0.1 }],
+        docs_written: ['ai-docs/map.yaml'],
+        status: 'running',
+      },
+      now: Date.now(),
+      width: 100,
+    }),
+    { stdout: fakeStdout(), patchConsole: false },
+  );
+  inst.unmount();
+  const out = chunks.join('');
+  assert.match(out, /live command/);
+  assert.match(out, /\/map/);
+  assert.match(out, /in 38\.0k/);
+  assert.match(out, /subagent: task-master-generator/);
+});
+
+test('tui: --tab 6 renders Pi telemetry sections', () => {
+  const root = mkdtempSync(join(tmpdir(), 'fia-tui-pi-'));
+  seedDb(root);
+  const aiDocs = seedAiDocs(root);
+  const tel = join(root, 'imp/data/telemetry');
+  mkdirSync(tel, { recursive: true });
+  writeFileSync(
+    join(tel, 'live.json'),
+    `${JSON.stringify({ id: 'x', command: 'stack', started_at: new Date().toISOString(), tokens_in: 100, tokens_out: 20, cost: 0, docs_written: [], phases: [], status: 'running' })}\n`,
+  );
+  const r = spawnSync(process.execPath, [TUI, '--once', '--tab', '6'], {
+    cwd: root,
+    encoding: 'utf8',
+    timeout: 30_000,
+    env: { ...process.env, FIA_DB: join(root, 'fia.db'), FIA_AI_DOCS: aiDocs, CI: '1' },
+  });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Live interactive command/);
+  assert.match(r.stdout, /\/stack/);
 });

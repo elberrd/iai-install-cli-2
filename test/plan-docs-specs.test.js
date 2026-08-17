@@ -13,6 +13,7 @@ import {
   readPlanInbox,
   readPlanOverview,
   listPlanDocs,
+  readPlanWorkflow,
 } from '../fia-templates/scripts/plan-docs.mjs';
 
 /**
@@ -270,4 +271,34 @@ test('readPlanOverview: carries milestones/specs/inbox and indexes the new docs'
   assert.ok(paths.includes('milestones.md'));
   assert.ok(paths.includes('inbox.md'));
   assert.ok(paths.includes('specs/0001-task-crud.md'));
+});
+
+test('readPlanWorkflow: promotes not_started when the artifact is on disk', () => {
+  const root = mkdtempSync(join(tmpdir(), 'plan-wf-'));
+  const dir = join(root, 'ai-docs');
+  mkdirSync(join(dir, 'todos'), { recursive: true });
+  writeFileSync(join(dir, 'PRD.md'), '# PRD\n');
+  writeFileSync(join(dir, 'screens-routes.md'), '# Screens\n');
+  writeFileSync(join(dir, 'todos/task-master.md'), '# Tasks\n');
+  writeFileSync(join(dir, 'map.yaml'), 'project: { name: Demo }\n');
+  const map = {
+    workflow_progress: {
+      workflow_status: 'completed',
+      steps: {
+        step_1_verify_prd: { name: 'Verify PRD exists', status: 'not_started' },
+        step_2_screens_routes: { name: 'Generate screens-routes.md', status: 'not_started' },
+        step_3_task_master: { name: 'Generate task breakdown', status: 'not_started' },
+        step_4_start_mapper: { name: 'Run start-mapper', status: 'in_progress' },
+        step_5_component_architect: { name: 'Run component-architect', status: 'not_started' },
+        step_6_ui_component_page: { name: 'Run ui-component-page', status: 'skipped' },
+      },
+    },
+  };
+  const wf = readPlanWorkflow(map, dir, { uiPageExists: false });
+  assert.equal(wf.steps[0].status, 'completed');
+  assert.equal(wf.steps[1].status, 'completed');
+  assert.equal(wf.steps[2].status, 'completed');
+  assert.equal(wf.steps[3].status, 'in_progress'); // declared in_progress is kept
+  assert.equal(wf.steps[4].status, 'not_started'); // no registry yet
+  assert.equal(wf.steps[5].status, 'skipped');
 });
