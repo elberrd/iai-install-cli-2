@@ -859,6 +859,23 @@ runs `git init` before the best-effort commit. The `--no-harness`/
 `--skip-harness` flags only apply in `full` mode (template WITHOUT the
 harness); in `harness` mode they are ignored with a warning.
 
+**Extraction and the Windows symlink fallback.** Every gated download
+(harness AND templates, `src/lib/template-fetch.js`) unpacks with the system
+`tar` first; when it is missing or fails, a built-in pure-JS extractor
+(`src/lib/tar-extract.js`) re-extracts from scratch. The case that motivates
+it: the harness ships 50+ mirror symlinks (`.agents/*` and `.cursor/agents/*`
+pointing into `.claude/` and `.cursor/`), and Windows' bundled tar cannot
+CREATE symlinks without a privilege students don't have (admin shell or
+Developer Mode) — every link died with "Invalid argument" and the install
+aborted as a false "corrupted download". The built-in extractor tries a real
+link first and, on the first failure, MATERIALIZES every link as a copy of
+its resolved target instead — each engine still finds real content at its
+mirrored path, and the machines that do allow symlinks keep them. Only when
+both extractors refuse the bytes does the run fail (`extract_failed` — a
+genuinely corrupted download). The same degradation exists in `imp fix`
+(§14.5): restoring a `link:` manifest entry falls back to copying the
+target when `symlink()` is denied.
+
 The harness also ships `.claude/settings.json` with
 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` (required by `/team`) and the two
 fda-lock hooks (SessionStart warn + PreToolUse gate — the read-only guard
@@ -877,7 +894,10 @@ doctor` warns about any npx MCP server missing the flag and `imp fix` adds it
 marker merge, template-owned paths discarded), so its keys are exactly the
 project-relative paths the harness shipped; each value is the sha1 of the
 harness content, or `link:<target>` for a symlink (the merge copies links
-verbatim, so the recorded target is what a healthy disk must show).
+verbatim, so the recorded target is what a healthy disk must show). On a
+Windows machine where the extractor materialized the links as copies, the
+clone has real files at those paths — the manifest then records content
+sha1s, which matches that disk just the same.
 
 That baseline is what makes a missing/pristine/modified classification
 possible for harness files: `imp doctor` reports it and `imp fix` restores
@@ -950,9 +970,11 @@ without the FIA runtime.
 | `ui-component-researcher` | Researches/documents a single UI component into `ai-docs/components/<lib>/<name>.md`. |
 | `api-docs-researcher` | Researches an external API/technology and writes the project-tailored doc into `ai-docs/apis/` (also logs the four research dimensions). |
 
-`.cursor/agents/` are symlinks to `.claude/agents/` (canonical). Cursor
-additionally ships router skills (`project-workflow` + `workflow-*` wrappers
-for the original 8 pipelines) because Cursor routes by skill.
+`.cursor/agents/` are symlinks to `.claude/agents/` (canonical) — real
+copies on a Windows machine without the symlink privilege (§8, extraction
+fallback). Cursor additionally ships router skills (`project-workflow` +
+`workflow-*` wrappers for the original 8 pipelines) because Cursor routes by
+skill.
 
 ### 8.3 Skills shipped
 
@@ -2024,7 +2046,7 @@ What it knows how to repair:
 | `skills-missing` | project | Restores agent skills that `skills-lock.json` records but `.agents/skills/` lost. |
 | `pi-skill-dupes` | project | Deletes skill copies duplicated into `.pi/skills/` (the "Skill conflicts" panel at every Pi launch — §6.2). |
 | `runtime-missing` | project | Restores FIA runtime files the stamp manifest recorded and the disk no longer has. |
-| `harness-missing` | project | Re-downloads the harness from the community API and copies back ONLY the paths `imp/.harness-manifest.json` lists as missing. Dangling symlinks are re-pointed at the stamped target; a path the current harness no longer ships is reported, not invented. |
+| `harness-missing` | project | Re-downloads the harness from the community API and copies back ONLY the paths `imp/.harness-manifest.json` lists as missing. Dangling symlinks are re-pointed at the stamped target (or materialized as a copy where the OS denies links — §8); a path the current harness no longer ships is reported, not invented. |
 | `agents-md-block` | project | Re-appends the harness block to `AGENTS.md` (or recreates the file) via the same idempotent marker merge the installer uses — your own content is kept. |
 
 ```bash

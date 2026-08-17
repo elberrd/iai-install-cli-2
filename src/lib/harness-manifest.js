@@ -30,6 +30,11 @@ export function sha1(content) {
  * target's content.
  * @returns {Promise<Record<string, string>>} rel path → sha1 | `link:<target>`
  */
+// readlink on Windows reports the stored target with backslashes — normalize
+// to forward slashes so manifests are portable across OSes and a link stamped
+// on one machine still classifies as pristine on another.
+const linkTarget = (target) => String(target).replaceAll('\\', '/');
+
 export async function collectHarnessManifest(cloneDir) {
   const files = {};
   async function walk(rel) {
@@ -38,7 +43,7 @@ export async function collectHarnessManifest(cloneDir) {
       const entryRel = rel ? `${rel}/${entry.name}` : entry.name;
       const full = join(cloneDir, entryRel);
       if (entry.isSymbolicLink()) {
-        files[entryRel] = `link:${await readlink(full)}`;
+        files[entryRel] = `link:${linkTarget(await readlink(full))}`;
       } else if (entry.isDirectory()) {
         await walk(entryRel);
       } else {
@@ -87,7 +92,7 @@ export async function classifyHarnessState(manifest, dir) {
     }
     if (String(expected).startsWith('link:')) {
       const target = st.isSymbolicLink() ? await readlink(dest).catch(() => null) : null;
-      if (target === String(expected).slice(5)) pristine++;
+      if (target != null && linkTarget(target) === String(expected).slice(5)) pristine++;
       else modified.push(rel);
       continue;
     }
