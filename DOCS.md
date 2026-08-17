@@ -99,9 +99,9 @@ Signing in is **optional** and is the first question of the installer
 
 The decision tree on every run:
 
-1. `CREATE_IAI_TOKEN` set (CI/automation) → verified; an invalid token **fails
+1. `IMPACTUS_TOKEN` set (CI/automation) → verified; an invalid token **fails
    loudly** (automation never silently degrades to a harness-only install).
-2. A saved token exists (`~/.create-iai/auth.json`) → verified. Valid →
+2. A saved token exists (`~/.impactus-cli/auth.json`) → verified. Valid →
    "Welcome back" and no questions. Expired/revoked (401) → cleared, the offer
    below includes a fresh login. Community unreachable (5xx/network) → the run
    exits WITHOUT deleting the credential ("your login is still saved").
@@ -116,7 +116,7 @@ The decision tree on every run:
 calls `POST /api/cli/device/start` on the community API, opens the browser at
 the community's `/cli` page with a user code, and polls
 `POST /api/cli/device/poll` until approved (10-minute deadline, `slow_down`
-honored). The token is saved to `~/.create-iai/auth.json` (mode **600**) with
+honored). The token is saved to `~/.impactus-cli/auth.json` (mode **600**) with
 the API base and a device label (`<hostname> (<platform>)`) shown in the
 student's token list. During an install, a DENIED authorization falls back to
 guest mode (the run continues); `--login` standalone still exits 1.
@@ -135,7 +135,9 @@ npx impactus --whoami   # "Authenticated as <name> — subscription active ✓" 
 npx impactus --logout   # revokes server-side (best-effort) + deletes auth.json
 ```
 
-State on disk — `~/.create-iai/` (dir mode 700):
+State on disk — `~/.impactus-cli/` (dir mode 700; a pre-rebrand
+`~/.create-iai/` found on the machine is RENAMED to this on first touch, so
+the login, keys and logs survive — `src/lib/state-dir.js`):
 
 | Path | What |
 | --- | --- |
@@ -143,7 +145,7 @@ State on disk — `~/.create-iai/` (dir mode 700):
 | `keys/<slug>.env` | Service keys pasted in the web UI (`--keys` reads them; mode 600, machine-local only). |
 | `logs/run-<timestamp>.log` | Full log of each installer run (secrets redacted) — what students attach to bug reports. |
 
-Dev/testing: `--api <url>` or `CREATE_IAI_API` point the CLI at another
+Dev/testing: `--api <url>` or `IMPACTUS_API` point the CLI at another
 community deployment; a custom base prints a one-time warning (the saved token
 is sent to that host).
 
@@ -229,7 +231,7 @@ template declares them in `requires` — see §4.4 and `src/lib/pipeline.js`).
 | 10 | Impeccable — design skill | `steps/impeccable.js` | Optional, default on |
 | 11 | Final summary | `steps/finish.js` | Harness next steps (no `npm run dev`) |
 
-Logs of each run: `~/.create-iai/logs/run-<timestamp>.log`.
+Logs of each run: `~/.impactus-cli/logs/run-<timestamp>.log`.
 
 ### 3.3 The stack catalog and the layer-by-layer wizard
 
@@ -395,7 +397,7 @@ Step behaviors worth knowing:
   is backed up/restored (the registry version fails the template's eslint and
   would block every commit). A warn-only `npx tsc --noEmit` closes the step.
 - **Convex** — two phases. `setupConvex` logs in
-  (`npx convex login --device-name "create-iai installer"`) and provisions
+  (`npx convex login --device-name "impactus installer"`) and provisions
   with `npx convex dev --once --configure=new --project <slug>
   --dev-deployment cloud --tail-logs disable`; success is judged by the env
   vars, NOT the exit code — the very first push fails ON PURPOSE
@@ -422,7 +424,7 @@ Step behaviors worth knowing:
   (`https://<name>.convex.site/clerk-users-webhook`, events `user.created`,
   `user.updated`, `user.deleted`), captures the `whsec_` secret (written to
   `.env.local` FIRST, then `npx convex env set CLERK_WEBHOOK_SECRET`).
-- **GitHub** — commit `feat: project configured by create-iai (Convex +
+- **GitHub** — commit `feat: project configured by impactus (Convex +
   Clerk + shadcn/ui)`; a lefthook/eslint rejection shows the lint output and
   the documented escape hatch `LEFTHOOK=0 git commit -m "initial setup"`
   (never misblamed on git identity). Push runs `gh repo create <name>
@@ -509,14 +511,14 @@ The generated project gets `imp/iai.config.json` (older versions kept it at
 the root):
 
 ```json
-{ "createdWith": "create-iai", "addons": ["analyzer", "commitlint", "csp", "knip", "rate-limit", "sentry"] }
+{ "createdWith": "impactus", "addons": ["analyzer", "commitlint", "csp", "knip", "rate-limit", "sentry"] }
 ```
 
 and the manifest is removed. `npm install` runs only after the pruning (never
 downloads what was cut) and `convex dev --once` (the Convex step) regenerates
 `convex/_generated` for the reduced set. After the install the CLI runs
 `npx prettier --write .` and amends the initial commit
-(`chore: initial template (create-iai)`, with `LEFTHOOK=0` so the project's
+(`chore: initial template (impactus)`, with `LEFTHOOK=0` so the project's
 fresh git hooks don't fire on the internal amend) — stripping blocks can leave
 formatting Prettier would rewrite, and the amend keeps `format:check` green in
 the generated project's CI. `.env.local` is seeded from the already-pruned
@@ -555,9 +557,11 @@ allowlist (`cli-paid-gate.md`, private `impactus-internal-docs` repo) +
 
 ### 4.5 Crash recovery: the state marker, resume and rollback
 
-- `installTemplate` writes `.create-iai-state.json` into the target FIRST
+- `installTemplate` writes `.impactus-cli-state.json` into the target FIRST
   (`{ version, startedAt, mode }`); the finish step removes it. A leftover
-  marker therefore means a full install died midway.
+  marker therefore means a full install died midway. Installs started by a
+  pre-rebrand CLI wrote `.create-iai-state.json` — readers accept both names
+  (`hasStateMarker`) and the finish step removes both.
 - A folder with the marker is a **resume**, never an "existing project":
   re-running the installer there warns, recommends continuing the full
   install (the pipeline is idempotent — it reuses the folder, `.env.local`
@@ -688,7 +692,7 @@ regex) and the AI prompt steps. Three consumers:
    e.g. Claude in Chrome — the agent finds/creates the keys in the dashboard
    and returns `KEY=value` lines), a paste box that fills the fields by
    itself, and regex-validated fields. Pasted keys are saved to
-   `~/.create-iai/keys/<slug>.env` (permission **600**, machine-local only)
+   `~/.impactus-cli/keys/<slug>.env` (permission **600**, machine-local only)
    and the generated command references the path via `--keys` — no secret ever
    appears in the command/history.
 2. **Terminal (`steps/service-keys.js`)** — same flow without the UI: per
@@ -1775,8 +1779,7 @@ happen in the browser: at the end the page highlights the ready
 `npx impactus …` command; the student copies it and runs it in the terminal
 (an "Open the terminal for me" button opens the OS terminal app). The
 terminal wizard remains the default entry point — `--ui` is opt-in;
-`--terminal`/`--no-ui` are accepted for compatibility. The page still ships
-with the historical `create-iai` branding (title/header).
+`--terminal`/`--no-ui` are accepted for compatibility.
 
 What the page offers, top to bottom:
 
@@ -1800,11 +1803,11 @@ What the page offers, top to bottom:
    paste it into a browser-automation agent, e.g. Claude in Chrome), a paste
    box that parses the returned `KEY=value` block and fills the regex-validated
    fields, and a collapsed manual path with the dashboard link. Keys autosave
-   to `~/.create-iai/keys/<slug>.env` (mode 600, machine-local; a project
+   to `~/.impactus-cli/keys/<slug>.env` (mode 600, machine-local; a project
    rename deletes the old slug's file; the command references the path via
    `--keys` — no secret ever appears in the command or leaves the machine).
    Fully-automatic services (Clerk, Convex) are listed as "nothing to do".
-6. **Sign-in** — the access bar checks `~/.create-iai/auth.json` against the
+6. **Sign-in** — the access bar checks `~/.impactus-cli/auth.json` against the
    community API and, when needed, runs the whole device flow **server-side**
    (the browser only sees the code/link; the token never travels to the page).
    An inactive subscription is reported as such — a fresh sign-in won't fix
@@ -1831,7 +1834,7 @@ npx impactus --dir /Users/ana/my-app --stack depois
 npx impactus --dir /Users/ana/my-app --stack frontend=nextjs,backend=convex,auth=clerk,blob=r2,automations=none,deploy=vercel
 
 # With pasted keys:
-npx impactus --dir /Users/ana/my-app --mode full --template-id live1 … --keys /Users/ana/.create-iai/keys/my-app.env
+npx impactus --dir /Users/ana/my-app --mode full --template-id live1 … --keys /Users/ana/.impactus-cli/keys/my-app.env
 ```
 
 Endpoints, for the curious: `GET /` (the page), `GET /api/catalog`,
@@ -2103,7 +2106,7 @@ imp
 Non-interactive full install (CI or a second machine):
 
 ```bash
-CREATE_IAI_TOKEN=<token> npx impactus my-saas --yes --preset saas --payments asaas --storage r2 --keys ~/.create-iai/keys/my-saas.env
+IMPACTUS_TOKEN=<token> npx impactus my-saas --yes --preset saas --payments asaas --storage r2 --keys ~/.impactus-cli/keys/my-saas.env
 ```
 
 ### 15.3 An EXISTING web app (brownfield)
@@ -2220,7 +2223,7 @@ Customization
 
 Services
   --keys <file>            .env file with service keys (generated by the --ui
-                           web UI in ~/.create-iai/keys/; machine-local, mode 600)
+                           web UI in ~/.impactus-cli/keys/; machine-local, mode 600)
   --tenancy <value>        single (Live 1, default) | multi (Live 2: your app's
                            own organizations in Convex — per-organization
                            data/billing, roles/permissions, /admin with org
@@ -2251,7 +2254,7 @@ without it the installer delivers the harness + agent only — see §2)
   --login                  Authenticates this computer (browser) and exits
   --logout                 Removes/revokes the CLI token and exits
   --whoami                 Shows subscription status and exits
-  --api <url>              Community API base (dev/testing; or CREATE_IAI_API)
+  --api <url>              Community API base (dev/testing; or IMPACTUS_API)
 
 General
   --ui, --web              Opens the local web UI to build the install command
@@ -2274,7 +2277,7 @@ General
 configures R2 non-interactively), **harness installed**, local commit without
 a remote repo, no integration-CLI logins, FIA + Impeccable on. For harness
 only without prompts: `--harness-only` (or `--mode harness`). Without a valid
-login (or `CREATE_IAI_TOKEN`), `--yes` continues as **guest** — harness +
+login (or `IMPACTUS_TOKEN`), `--yes` continues as **guest** — harness +
 agent only — and `--mode full`/`--stack recomendada` error out instead of
 silently downgrading.
 
@@ -2284,8 +2287,8 @@ Recognized by the installer:
 
 | Variable | Effect |
 | --- | --- |
-| `CREATE_IAI_TOKEN` | CI/automation access token — the non-interactive way to run a full install. An invalid token fails loudly (never a silent guest downgrade). |
-| `CREATE_IAI_API` | Community API base override (same as `--api`; a custom base warns once — the token is sent to that host). |
+| `IMPACTUS_TOKEN` | CI/automation access token — the non-interactive way to run a full install. An invalid token fails loudly (never a silent guest downgrade). Legacy `CREATE_IAI_TOKEN` is still accepted. |
+| `IMPACTUS_API` | Community API base override (same as `--api`; a custom base warns once — the token is sent to that host). Legacy `CREATE_IAI_API` is still accepted. |
 | `GH_TOKEN` / `GITHUB_TOKEN` | Accepted by the gh preflight as authentication (no `gh auth login` needed). |
 | `VERCEL_TOKEN` | Accepted by the vercel preflight as authentication. |
 | `LEFTHOOK=0` | The documented one-time escape hatch when the template's pre-commit lint blocks the initial commit. |
@@ -2313,7 +2316,7 @@ Recognized by the `imp` launcher:
 | `PI_SKIP_VERSION_CHECK=1` | Set by imp on every passthrough — suppresses Pi's own pi-branded update notice (imp prints its own after the session). |
 | `IMP_SKIP_VERSION_CHECK` / `PI_OFFLINE` | Skip imp's post-session update probe entirely. |
 
-State on disk, outside projects: `~/.create-iai/` (auth token, web-UI keys
+State on disk, outside projects: `~/.impactus-cli/` (auth token, web-UI keys
 files, run logs — §2) and `~/.pi/agent/` (Pi's own credential store,
 settings and session logs; never imported from `~/.claude`/`~/.codex` —
 rotating refresh tokens invalidate each other).

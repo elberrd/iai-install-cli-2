@@ -141,7 +141,7 @@ export async function setupDeploy(ctx) {
  * Returns null when neither works — the caller then just tries to add.
  */
 async function fetchVercelProdEnv(dir) {
-  const tmpFile = join(tmpdir(), `create-iai-vercel-env-${Date.now()}-${Math.random().toString(36).slice(2)}.env`);
+  const tmpFile = join(tmpdir(), `impactus-vercel-env-${Date.now()}-${Math.random().toString(36).slice(2)}.env`);
   try {
     const pull = await run(
       'vercel',

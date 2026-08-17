@@ -77,18 +77,19 @@ export async function ensureAuthenticated(ctx) {
   // CI / automation: token via env (non-interactive). An explicit token that
   // does not work fails LOUDLY — automation must never silently degrade to a
   // harness-only install.
-  const envToken = process.env.CREATE_IAI_TOKEN;
+  const envToken = process.env.IMPACTUS_TOKEN || process.env.CREATE_IAI_TOKEN;
+  const envTokenVar = process.env.IMPACTUS_TOKEN ? 'IMPACTUS_TOKEN' : 'CREATE_IAI_TOKEN';
   if (envToken) {
     redactSecret(envToken);
     const v = await verifyToken(apiBase, envToken);
     const verdict = classifyVerify(v);
     if (verdict === 'ok') {
       accept(ctx, envToken, v.data);
-      ui.info(`Access confirmed via CREATE_IAI_TOKEN (${who(v.data)}).`);
+      ui.info(`Access confirmed via ${envTokenVar} (${who(v.data)}).`);
       return;
     }
     if (verdict === 'unavailable') unavailableAndExit(v);
-    denyAndExit(v, 'CREATE_IAI_TOKEN is invalid or the subscription is not active.');
+    denyAndExit(v, `${envTokenVar} is invalid or the subscription is not active.`);
   }
 
   // Token saved from a previous login: valid → straight through, no questions.
@@ -121,11 +122,11 @@ export async function ensureAuthenticated(ctx) {
   if (flags.login) return deviceLogin(ctx, apiBase);
 
   // --yes has no prompts: continue as guest. Full installs in automation use
-  // CREATE_IAI_TOKEN; flags that force the template error out in steps/mode.js.
+  // IMPACTUS_TOKEN; flags that force the template error out in steps/mode.js.
   if (flags.yes) {
     ui.warn(
       'No active login and --yes is non-interactive — continuing WITHOUT sign-in (harness + agent only). ' +
-        'For the full install set CREATE_IAI_TOKEN, or run once without --yes to sign in.',
+        'For the full install set IMPACTUS_TOKEN, or run once without --yes to sign in.',
     );
     return enterGuestMode(ctx);
   }

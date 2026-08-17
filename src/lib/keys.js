@@ -1,5 +1,5 @@
 // Local keys file (`--keys <file>`): the web UI saves the keys the user
-// pasted into ~/.create-iai/keys/<project>.env (permission 600) and the
+// pasted into ~/.impactus-cli/keys/<project>.env (permission 600) and the
 // generated command only REFERENCES the path — the keys never appear in the
 // command, in the shell history, nor leave the machine. The CLI loads the file
 // and each step consumes what it needs (Clerk/Convex stay automatic).
@@ -7,9 +7,9 @@
 import { existsSync } from 'node:fs';
 import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { KNOWN_SERVICE_KEYS, STATE_DIR } from '../config.js';
+import { KNOWN_SERVICE_KEYS } from '../config.js';
+import { stateDirPath } from './state-dir.js';
 
 /** Default path of a project's keys file. */
 export function defaultKeysPath(slug) {
@@ -19,7 +19,7 @@ export function defaultKeysPath(slug) {
       .replace(/-+/g, '-')
       .replace(/^-|-$/g, '')
       .toLowerCase() || 'project';
-  return join(homedir(), STATE_DIR, 'keys', `${safe}.env`);
+  return join(stateDirPath(), 'keys', `${safe}.env`);
 }
 
 /**
@@ -57,7 +57,7 @@ export async function saveKeysFile(path, keys = {}) {
   }
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const body = [
-    '# Keys pasted in the create-iai UI — on this machine ONLY.',
+    '# Keys pasted in the IMPACTUS CLI web UI — on this machine ONLY.',
     '# Consumed by: npx impactus --keys <this file>. You may delete it after the install.',
     ...entries.map(([k, v]) => `${k}=${String(v).trim()}`),
     '',

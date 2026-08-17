@@ -15,7 +15,7 @@ const LAUNCHPAD_API = 'https://neon.new/api/v1/database';
  * @param {string} ref - integrator identifier (visible to Neon).
  * @returns {Promise<{databaseUrl: string, directUrl: string|null, claimUrl: string|null, expiresAt: string|null}>}
  */
-export async function createClaimableNeonDb(ref = 'create-iai') {
+export async function createClaimableNeonDb(ref = 'impactus') {
   const res = await fetch(LAUNCHPAD_API, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

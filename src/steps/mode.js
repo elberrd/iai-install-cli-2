@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import * as ui from '../lib/ui.js';
 import { presentAgentFiles } from '../lib/agent-backup.js';
 import { parseStackFlag } from '../lib/stack.js';
-import { STATE_MARKER } from './project.js';
+import { hasStateMarker } from './project.js';
 
 /**
  * First real choice of the installer (right after name/folder): how to start.
@@ -37,7 +37,7 @@ export async function selectInstallMode(ctx) {
   // midway — that is a resume, never an "existing project": steering it into
   // brownfield/harness-only would leave the half-copied template as-is, and a
   // later fresh full run would duplicate the cloud resources (Convex/Clerk).
-  ctx.resumingInstall = Boolean(ctx.dir) && existsSync(join(ctx.dir, STATE_MARKER));
+  ctx.resumingInstall = Boolean(ctx.dir) && hasStateMarker(ctx.dir);
 
   // Existing project: a folder the CLI didn't create that already has
   // package.json or git. Changes the default (harness only) and the final
@@ -55,7 +55,7 @@ export async function selectInstallMode(ctx) {
   const needsSignIn = (what) =>
     new Error(
       `${what} needs the community sign-in — run the installer again and choose "Sign in" ` +
-        '(or authenticate first with `npx impactus --login`; automation uses CREATE_IAI_TOKEN).',
+        '(or authenticate first with `npx impactus --login`; automation uses IMPACTUS_TOKEN).',
     );
   if (guest && ctx.resumingInstall) {
     // The leftover marker means a half-finished FULL install: only the gated

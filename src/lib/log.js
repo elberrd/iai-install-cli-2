@@ -3,13 +3,12 @@
 // user's home directory. On fatal errors main.js prints the path so users can
 // attach it to bug reports.
 import { appendFileSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { STATE_DIR } from '../config.js';
+import { stateDirPath } from './state-dir.js';
 
 let logPath = null;
 
-// How many run logs to keep in ~/.create-iai/logs — without a cap they
+// How many run logs to keep in ~/.impactus-cli/logs — without a cap they
 // accumulate forever (one file per run).
 const KEEP_LOGS = 20;
 
@@ -30,11 +29,11 @@ function pruneOldLogs(dirPath) {
 /** Create the per-run log file (best-effort; logging never breaks the CLI). */
 export function initLog() {
   try {
-    const dirPath = join(homedir(), STATE_DIR, 'logs');
+    const dirPath = join(stateDirPath(), 'logs');
     mkdirSync(dirPath, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     logPath = join(dirPath, `run-${stamp}.log`);
-    appendFileSync(logPath, `# create-iai — ${new Date().toISOString()}\n# node ${process.version} ${process.platform}/${process.arch}\n\n`);
+    appendFileSync(logPath, `# impactus — ${new Date().toISOString()}\n# node ${process.version} ${process.platform}/${process.arch}\n\n`);
     pruneOldLogs(dirPath);
   } catch {
     logPath = null;

@@ -12,7 +12,7 @@ import { spawn } from 'node:child_process';
 import { homedir } from 'node:os';
 import process from 'node:process';
 
-const PROMPT = 'create-iai — choose the project folder';
+const PROMPT = 'IMPACTUS CLI — choose the project folder';
 
 /**
  * Candidate commands to open the native folder dialog, in try-order.

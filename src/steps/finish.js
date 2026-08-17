@@ -7,7 +7,7 @@ import { piCodexReady } from '../lib/pi-auth.js';
 import { osKind } from '../lib/platform.js';
 import { CLAUDE_INSTALL_HINT } from './preflight.js';
 import { STACK_CATEGORIES, STACK_LATER } from '../stack-catalog.js';
-import { relToCwd, STATE_MARKER } from './project.js';
+import { relToCwd, LEGACY_STATE_MARKER, STATE_MARKER } from './project.js';
 import * as ui from '../lib/ui.js';
 
 /**
@@ -124,6 +124,7 @@ export async function finish(ctx) {
   // the start of installTemplate) BEFORE the final commit, so a future run
   // doesn't mistake this folder for a half-finished installation.
   await rm(join(ctx.dir, STATE_MARKER), { force: true }).catch(() => {});
+  await rm(join(ctx.dir, LEGACY_STATE_MARKER), { force: true }).catch(() => {});
 
   // Preflight skips go into ai-docs/inbox.md BEFORE the final commit below —
   // writing them later would leave the tree dirty right after the install.
@@ -138,7 +139,7 @@ export async function finish(ctx) {
       await run('git', ['add', '-A'], { cwd: ctx.dir });
       const commit = await run(
         'git',
-        ['commit', '-q', '-m', 'chore: stack, FIA and tooling (create-iai)'],
+        ['commit', '-q', '-m', 'chore: stack, FIA and tooling (impactus)'],
         { cwd: ctx.dir },
       );
       if (commit.ok) {

@@ -301,7 +301,7 @@ export async function runVerify(flags = {}) {
     return report.ok;
   }
 
-  ui.intro('create-iai --verify');
+  ui.intro('impactus --verify');
   ui.message(`Auditing the project at ${dir}…`);
 
   const findings = await collectFindings(dir);

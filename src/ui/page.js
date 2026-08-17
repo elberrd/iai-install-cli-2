@@ -9,7 +9,7 @@ export function renderPage() {
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>create-iai — assemble your install</title>
+<title>IMPACTUS CLI — assemble your install</title>
 <style>
   :root {
     --bg: #0b0f14; --panel: #121821; --panel-2: #0e141c; --border: #1e2a38;
@@ -218,7 +218,7 @@ export function renderPage() {
 <body>
 <div class="wrap">
   <header>
-    <h1>create-iai</h1>
+    <h1>IMPACTUS CLI</h1>
     <p>Assemble the install by clicking — at the end, copy the command and run it in your terminal.</p>
   </header>
 
@@ -308,7 +308,7 @@ export function renderPage() {
       </p>
       <div class="secnote">🔒
         <span>Your keys stay <b>on this machine only</b>: they are saved to
-        <code>~/.create-iai/keys/&lt;project&gt;.env</code> (permissions restricted to your
+        <code>~/.impactus-cli/keys/&lt;project&gt;.env</code> (permissions restricted to your
         user) and read by the local installer. They never appear in the command
         and never leave your computer.</span>
       </div>
@@ -532,7 +532,7 @@ function wireStatic() {
   bind('dir', 'dir');
   bind('push', 'push'); bind('privateRepo', 'privateRepo'); bind('deploy', 'deploy'); bind('yes', 'yes');
   // The folder defines the project name — and with it the keys file
-  // (~/.create-iai/keys/<slug>.env) and the "folder not empty" warning.
+  // (~/.impactus-cli/keys/<slug>.env) and the "folder not empty" warning.
   document.getElementById('dir').addEventListener('input', () => { scheduleSaveKeys(); scheduleDirMeta(); });
   document.getElementById('copyBtn').onclick = copy;
   wirePicker();
@@ -580,7 +580,7 @@ async function updateDirMeta() {
 // ── Integrations & keys ──────────────────────────────────────────────────────
 // One card per service: copyable AI prompt + fields to paste the keys.
 // Typed keys go (debounced) to POST /api/keys, which writes a LOCAL file
-// (~/.create-iai/keys/<slug>.env, permission 600); the generated command
+// (~/.impactus-cli/keys/<slug>.env, permission 600); the generated command
 // only references the path via --keys.
 
 function chosenAddonIds() {

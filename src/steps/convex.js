@@ -50,7 +50,7 @@ export async function setupConvex(ctx) {
     );
   }
   ui.step('Logging in to Convex…');
-  await runInherit('npx', ['convex', 'login', '--device-name', 'create-iai installer'], { cwd: dir });
+  await runInherit('npx', ['convex', 'login', '--device-name', 'impactus installer'], { cwd: dir });
 
   // 2. Provision — or REUSE. A crashed previous run may already have created
   //    the cloud project and written the env vars: running --configure=new

@@ -1,5 +1,5 @@
 // Pure translation layer: a plain "choices" object (as posted by the web UI)
-// → the argv/flags of the `create-iai` CLI. No I/O, fully unit-testable.
+// → the argv/flags of the `impactus` CLI. No I/O, fully unit-testable.
 //
 // The web UI (src/steps/ui-server.js) only *builds a command* — the install
 // itself runs in the student's own terminal. So this module's whole job is:
@@ -34,7 +34,7 @@ const GROUP_BY_FLAG = new Map(ADDON_GROUPS.map((g) => [g.flag, g]));
  *   validates the token against the SAME backend the page used
  *   (only shows up in dev/test; in production the flag does not exist).
  * @returns {{ argv: string[], command: string }}
- *   `argv` = tokens after `create-iai`; `command` = the copy-pasteable line.
+ *   `argv` = tokens after `impactus`; `command` = the copy-pasteable line.
  */
 export function buildCommand(choices = {}, opts = {}) {
   const argv = [];

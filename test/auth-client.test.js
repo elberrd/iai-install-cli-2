@@ -2,12 +2,12 @@ import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { mkdtempSync, statSync, existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-// Isolate HOME so we never touch the real ~/.create-iai.
-const fakeHome = mkdtempSync(join(tmpdir(), 'create-iai-home-'));
+// Isolate HOME so we never touch the real ~/.impactus-cli.
+const fakeHome = mkdtempSync(join(tmpdir(), 'impactus-home-'));
 process.env.HOME = fakeHome;
 process.env.USERPROFILE = fakeHome;
 
@@ -159,7 +159,8 @@ test('downloadTemplate: a frozen connection aborts with download_timeout', async
 
 // ── No legacy migration ──────────────────────────────────────────────────────
 // v2 has no ties to the old CLI: ~/.create-live1 is ignored and only
-// ~/.create-iai/auth.json counts as a credential.
+// ~/.impactus-cli/auth.json (or the pre-rebrand ~/.create-iai it gets renamed
+// from — see state-dir.test.js) counts as a credential.
 
 test('loadAuth: ignores ~/.create-live1 (no legacy migration)', async () => {
   await clearAuth();
@@ -172,5 +173,25 @@ test('loadAuth: ignores ~/.create-live1 (no legacy migration)', async () => {
   );
 
   assert.equal(await loadAuth(), null, 'legacy token must NOT be adopted');
-  assert.equal(existsSync(join(fakeHome, '.create-iai', 'auth.json')), false);
+  assert.equal(existsSync(join(fakeHome, '.impactus-cli', 'auth.json')), false);
+});
+
+test('loadAuth: a pre-rebrand ~/.create-iai/auth.json is adopted via the folder rename', async () => {
+  await clearAuth();
+  // The rename only fires while ~/.impactus-cli does not exist yet — mirror a
+  // machine that never ran the rebranded CLI.
+  await rm(join(fakeHome, '.impactus-cli'), { recursive: true, force: true });
+  const preRebrand = join(fakeHome, '.create-iai');
+  await mkdir(preRebrand, { recursive: true });
+  await writeFile(
+    join(preRebrand, 'auth.json'),
+    JSON.stringify({ token: 'rebrand-tok', user: { name: 'Keeps Login' } }),
+    'utf8',
+  );
+
+  const auth = await loadAuth();
+  assert.equal(auth?.token, 'rebrand-tok', 'the saved login must survive the rebrand');
+  assert.equal(existsSync(join(fakeHome, '.impactus-cli', 'auth.json')), true, 'folder renamed to the new name');
+  assert.equal(existsSync(preRebrand), false, 'old folder is gone (renamed, not copied)');
+  await clearAuth();
 });

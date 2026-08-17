@@ -12,19 +12,24 @@
 //
 // `apiBase` must point to the community's PRODUCTION deployment — the same one
 // the www.impactus.academy site uses (verified against the production bundle).
-// Override in dev/test: env CREATE_IAI_API=https://<deployment>.convex.site
-// or the --api <url> flag. `checkoutUrl` is shown when access is inactive.
+// Override in dev/test: env IMPACTUS_API=https://<deployment>.convex.site
+// (legacy CREATE_IAI_API still accepted) or the --api <url> flag.
+// `checkoutUrl` is shown when access is inactive.
 export const COMMUNITY = {
   name: 'IAI Cursos',
   apiBase: 'https://tidy-dodo-19.convex.site',
   checkoutUrl: 'https://www.impactus.academy',
 };
 
-// CLI token stored locally (~/.create-iai/auth.json, permission 600).
+// CLI token stored locally (~/.impactus-cli/auth.json, permission 600).
 export const AUTH_FILE = 'auth.json';
 
-// State folder in the home directory: token, keys pasted in the UI, and run logs.
-export const STATE_DIR = '.create-iai';
+// State folder in the home directory: token, keys pasted in the UI, and run
+// logs. Installs made before the rebrand used `.create-iai` —
+// src/lib/state-dir.js RENAMES that folder on first touch, so tokens, keys
+// and logs survive without a re-login.
+export const STATE_DIR = '.impactus-cli';
+export const LEGACY_STATE_DIR = '.create-iai';
 
 // ── Template catalog ─────────────────────────────────────────────────────────
 // Single source of the installable templates. Downloads are ALWAYS gated: the
@@ -642,7 +647,7 @@ export const SERVICES = [
     prompt: {
       url: 'https://resend.com/api-keys',
       steps: [
-        'Click "Create API Key". Name: "{{PROJECT}} (create-iai)". Permission: "Sending access". Domain: All domains.',
+        'Click "Create API Key". Name: "{{PROJECT}} (impactus)". Permission: "Sending access". Domain: All domains.',
         'Copy the created key (starts with re_ — it is shown only ONCE).',
       ],
       rules: ['Do not delete or change existing keys.'],
@@ -766,7 +771,7 @@ export const SERVICES = [
         'Note the "Account ID" shown in the R2 overview (right sidebar).',
         'Create a bucket: "Create bucket", name "{{PROJECT}}-files" (adjust if the name is invalid/taken; only lowercase letters, numbers, and hyphens), automatic location.',
         'In the created bucket: Settings → CORS Policy → Edit and paste EXACTLY: {"rules":[{"allowed":{"origins":["http://localhost:3000"],"methods":["GET","PUT"],"headers":["Content-Type"]},"maxAgeSeconds":3600}]} — save.',
-        'Back in R2 → "Manage R2 API Tokens" (or API → Manage API Tokens) → "Create API Token". Name: "{{PROJECT}} (create-iai)". Permission: "Object Read & Write" restricted to the created bucket. TTL: Forever.',
+        'Back in R2 → "Manage R2 API Tokens" (or API → Manage API Tokens) → "Create API Token". Name: "{{PROJECT}} (impactus)". Permission: "Object Read & Write" restricted to the created bucket. TTL: Forever.',
         'Create the token and copy the "Access Key ID" and the "Secret Access Key" (the Secret is shown only ONCE).',
       ],
       rules: ['Do not create tokens with Admin permission — only "Object Read & Write".'],

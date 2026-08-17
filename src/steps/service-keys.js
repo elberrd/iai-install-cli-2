@@ -290,7 +290,7 @@ async function ensureStripeWebhook(ctx, values) {
   if (values.STRIPE_WEBHOOK_SECRET) return 'webhook already provided';
 
   const url = `${site}${PAYMENT_WEBHOOKS.stripe.route}`;
-  const body = new URLSearchParams({ url, description: 'create-iai (dev)' });
+  const body = new URLSearchParams({ url, description: 'impactus (dev)' });
   for (const ev of PAYMENT_WEBHOOKS.stripe.events) body.append('enabled_events[]', ev);
   const apiVersion = await projectStripeApiVersion(ctx.dir);
   if (apiVersion) body.append('api_version', apiVersion);
@@ -370,7 +370,7 @@ async function ensureAsaasWebhook(ctx, values) {
       method: 'POST',
       headers: { access_token: apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name: 'create-iai',
+        name: 'impactus',
         url,
         email,
         enabled: true,
