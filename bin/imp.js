@@ -69,6 +69,21 @@ Usage:
                          (one git commit per fix), --allow-dirty
   imp handoff            Continue the newest Pi conversation in the \`claude\` CLI
                          (works while Codex is down; --list picks a session)
+  imp health             Loop-health report: scores the five dimensions of this
+                         project's agent work loop from real evidence and names
+                         the command that repairs each finding.
+                         Flags: --json, --html [path], --strict
+  imp rewind             Undo an FDA run. Lists checkpoints (--list), previews the
+                         exact file impact, and restores only with --yes.
+                         Restore-only: never resets, never rewrites history.
+                         Flags: --list, --run <id>, --to <sha>, --dry-run, --yes,
+                         --allow-dirty, --json
+  imp notify             Show (or --test) the run notifications: webhook, Slack,
+                         Discord or Telegram when a run ends. Off by default.
+                         Flags: --test, --event <name>, --json
+  imp settings           Show where every setting comes from — machine config,
+                         project roster, env — read-only, secrets redacted.
+                         Flags: --json, --path
   imp help               Show this help
   imp --version          Print the impactus version
 
@@ -171,32 +186,69 @@ if (cmd === 'fix') {
   process.exit(healthy ? 0 : 1);
 }
 
-if (cmd === 'tui') {
-  // The dashboard is stamped per project (imp/scripts/), not bundled here —
-  // it must version-match the readers it depends on (decision record:
-  // tui-plan.md in the private impactus-internal-docs repo).
-  const { existsSync } = await import('node:fs');
-  if (!existsSync('imp/scripts/fia-tui.mjs')) {
-    console.error('No FIA runtime in this folder (imp/scripts/fia-tui.mjs not found).');
-    console.error('Run `imp init` in your project folder first — then `imp tui` opens the dashboard.');
-    process.exit(1);
-  }
-  const { runInherit } = await import('../src/lib/proc.js');
-  const r = await runInherit(process.execPath, ['imp/scripts/fia-tui.mjs', ...rest]);
-  process.exit(r.exitCode);
+if (cmd === 'settings') {
+  // Read-only by contract — see src/steps/settings.js. The verb is `settings`,
+  // never `config`: unknown verbs fall through to Pi and `pi config` is a real
+  // Pi command that must keep working.
+  const json = rest.includes('--json');
+  const pathOnly = rest.includes('--path');
+  if (!json && !pathOnly) banner();
+  const { runSettings } = await import('../src/steps/settings.js');
+  const healthy = await runSettings({ json, path: pathOnly });
+  process.exit(healthy ? 0 : 1);
 }
 
-if (cmd === 'handoff') {
-  // Same contract as `imp tui`: the script is stamped per project so it
-  // version-matches the runtime modules it imports (continuation preamble).
+// Every project-stamped verb. The script lives in imp/scripts/ so it
+// version-matches the runtime readers it imports, and every argument is passed
+// through untouched. `tui` and `handoff` are in here rather than in blocks of
+// their own precisely so they get the same incomplete-runtime diagnosis below —
+// they used to die on a raw ERR_MODULE_NOT_FOUND like everything else.
+const STAMPED = {
+  tui: {
+    script: 'imp/scripts/fia-tui.mjs',
+    missing: 'Run `imp init` in your project folder first — then `imp tui` opens the dashboard.',
+  },
+  handoff: {
+    script: 'imp/scripts/handoff.mjs',
+    missing: 'Run `imp init` in your project folder first — or `npx impactus --update-runtime` on an older install.',
+  },
+  health: {
+    script: 'imp/scripts/loop-health.mjs',
+    missing: 'Run `imp init` in your project folder first — or `npx impactus --update-runtime` on an older install.',
+  },
+  notify: {
+    script: 'imp/scripts/notify.mjs',
+    missing: 'Run `imp init` in your project folder first — or `npx impactus --update-runtime` on an older install.',
+  },
+  rewind: {
+    script: 'imp/scripts/rewind.mjs',
+    missing: 'Run `imp init` in your project folder first — or `npx impactus --update-runtime` on an older install.',
+  },
+};
+if (Object.hasOwn(STAMPED, cmd)) {
+  const { script, missing } = STAMPED[cmd];
   const { existsSync } = await import('node:fs');
-  if (!existsSync('imp/scripts/handoff.mjs')) {
-    console.error('No FIA runtime in this folder (imp/scripts/handoff.mjs not found).');
-    console.error('Run `imp init` in your project folder first — or `npx impactus --update-runtime` on an older install.');
+  if (!existsSync(script)) {
+    console.error(`No FIA runtime in this folder (${script} not found).`);
+    console.error(missing);
     process.exit(1);
   }
   const { runInherit } = await import('../src/lib/proc.js');
-  const r = await runInherit(process.execPath, ['imp/scripts/handoff.mjs', ...rest]);
+  const r = await runInherit(process.execPath, [script, ...rest]);
+  // The script exists, but the runtime imports itself: with a sibling missing
+  // (a `No` answer during --update-runtime, a deleted file) the child dies on
+  // module resolution and the student gets a raw ERR_MODULE_NOT_FOUND stack.
+  // Diagnose it only AFTER a failure, and only when files really are missing —
+  // a legitimate `--strict` exit 1 on a complete runtime must stay silent.
+  if (r.exitCode !== 0) {
+    try {
+      const { missingRuntimeCode, runtimeHint } = await import('../src/lib/runtime-health.js');
+      const missing = await missingRuntimeCode(process.cwd());
+      if (missing.length) console.error(`\n${runtimeHint(missing)}`);
+    } catch {
+      /* the hint is a courtesy — never let it change the child's exit code */
+    }
+  }
   process.exit(r.exitCode);
 }
 

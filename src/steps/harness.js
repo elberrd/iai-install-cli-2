@@ -141,10 +141,24 @@ export async function setupHarness(ctx) {
     reportKeptFiles(keptFiles, { harnessOnly });
 
     if (harnessAgents) {
-      const result = await mergeAgentsMd(join(dir, 'AGENTS.md'), harnessAgents);
+      // A drifted block is only REPLACED when the student already chose to
+      // replace their agent files — everywhere else the merge stays additive
+      // and just says the block is behind, with the command that adopts it.
+      const refresh = ctx.agentFilesPolicy === 'replace';
+      const result = await mergeAgentsMd(join(dir, 'AGENTS.md'), harnessAgents, { refresh });
       if (result === 'appended') ui.success('AGENTS.md: harness instructions appended.');
       else if (result === 'created') ui.success('AGENTS.md created with the harness instructions.');
-      else ui.info('AGENTS.md already contained the harness block — kept.');
+      else if (result === 'updated') ui.success('AGENTS.md: harness block updated to this harness version (your own text kept).');
+      else if (result === 'current') ui.info('AGENTS.md already carried this harness block — kept.');
+      else if (result === 'malformed')
+        ui.warn(
+          `AGENTS.md has ${HARNESS.markerStart} with no ${HARNESS.markerEnd} — the block boundary is unknown, so it was left untouched. Close the marker (or delete the block) and run the installer again.`,
+        );
+      else
+        ui.info(
+          'AGENTS.md carries an OLDER harness block — kept, because everything between the markers may be yours by now.\n' +
+            'To adopt this harness version of the house rules: npx impactus --dir . --harness-only --agent-files replace',
+        );
     }
 
     // Stamp manifest — sha per file the (adapted) clone shipped, the baseline
@@ -281,22 +295,46 @@ function reportKeptFiles(keptFiles, { harnessOnly = true } = {}) {
 }
 
 /**
- * Append the harness agent instructions to the project's AGENTS.md between
- * markers. Idempotent: if the start marker is already there, do nothing.
- * Exported for `imp fix` (restoring a deleted harness block reuses the exact
- * same merge).
- * @returns {Promise<'appended'|'created'|'skipped'>}
+ * Merge the harness agent instructions into the project's AGENTS.md, between
+ * markers. Everything OUTSIDE the markers is the student's and is never read
+ * for content, only preserved.
+ *
+ * The old version answered `'skipped'` for every project that already had the
+ * block, which made the harness's house rules FROZEN at whatever version first
+ * landed: `--agent-files replace` deliberately never moves AGENTS.md (it is
+ * append-merged, see AGENT_FILE_TARGETS), so no path in the CLI refreshed it and
+ * a new rule reached new installs only. So the "already there" answer is now
+ * split by CONTENT — `'current'` (byte-identical to what this harness ships) vs
+ * `'stale'` (it drifted) — and `refresh` is what makes a caller adopt it.
+ *
+ * Non-destructive by default: with `refresh` false nothing is written for an
+ * existing block, so `imp fix` keeps its restore-only contract and reports the
+ * drift instead. A block whose end marker is missing is never rewritten at all
+ * ('malformed'): the boundary is unknown, and guessing it would eat the
+ * student's own text.
+ *
+ * @param {{refresh?: boolean}} [opts] refresh: replace a drifted block in place.
+ * @returns {Promise<'appended'|'created'|'current'|'stale'|'updated'|'malformed'>}
  */
-export async function mergeAgentsMd(projectFile, harnessContent) {
+export async function mergeAgentsMd(projectFile, harnessContent, opts = {}) {
   const block = [HARNESS.markerStart, '', harnessContent.trim(), '', HARNESS.markerEnd].join('\n');
   if (!existsSync(projectFile)) {
     await writeFile(projectFile, block + '\n', 'utf8');
     return 'created';
   }
   const current = await readFile(projectFile, 'utf8');
-  if (current.includes(HARNESS.markerStart)) return 'skipped';
-  await writeFile(projectFile, current.trimEnd() + '\n\n' + block + '\n', 'utf8');
-  return 'appended';
+  const start = current.indexOf(HARNESS.markerStart);
+  if (start === -1) {
+    await writeFile(projectFile, current.trimEnd() + '\n\n' + block + '\n', 'utf8');
+    return 'appended';
+  }
+  const endAt = current.indexOf(HARNESS.markerEnd, start);
+  if (endAt === -1) return 'malformed';
+  const end = endAt + HARNESS.markerEnd.length;
+  if (current.slice(start, end) === block) return 'current';
+  if (!opts.refresh) return 'stale';
+  await writeFile(projectFile, current.slice(0, start) + block + current.slice(end), 'utf8');
+  return 'updated';
 }
 
 function howToLater() {

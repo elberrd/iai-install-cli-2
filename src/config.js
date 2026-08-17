@@ -128,6 +128,7 @@ export const FIA = {
     'imp/data/fia.db-shm',
     'imp/data/backups/',
     'imp/data/handoff/',
+    'imp/reports/',
     'imp/.runtime-backup-*/',
   ],
   // Runtime update contract (`--update-runtime`). The stamp records a manifest
@@ -165,6 +166,22 @@ export const FIA = {
     'launch:check': 'node imp/scripts/fia-launch-check.mjs',
     // Dev-env preflight (read-only): the keys the declared stack needs in .env.local.
     'env:check': 'node imp/scripts/env-preflight.mjs',
+    // Repo-wiki freshness (read-only, zero tokens): which ai-docs/wiki/ pages
+    // describe sources that have changed since the page was stamped.
+    'wiki:check': 'node imp/scripts/wiki-check.mjs',
+    // L1 security scan (read-only, zero tokens): deterministic pattern rules.
+    // --sarif for code scanning, --fail-on high to gate CI.
+    'security:scan': 'node imp/scripts/security-scan.mjs',
+    // Loop health (read-only): five-dimension score of this project's agent work
+    // loop; --html writes imp/reports/loop-health.html.
+    'loop:health': 'node imp/scripts/loop-health.mjs',
+    // Undo an FDA run (restore-only): --list the checkpoints, preview the file
+    // impact, apply with --yes. Never resets and never rewrites history.
+    'fda:rewind': 'node imp/scripts/rewind.mjs',
+    // Run notifications (opt-in, off by default): show or --test the targets.
+    notify: 'node imp/scripts/notify.mjs',
+    // Record what a closed run still owes, so the next --resume is bounded to it.
+    'fda:verdict': 'node imp/scripts/verdict.mjs',
     // Single-run lock probe (read-only): is an FDA active in this repo right now?
     'fda:status': 'node imp/scripts/fda-lock.mjs status',
     // Pathspec-limited commit of ai-docs/ artifacts (docs only, refuses mid-FDA).

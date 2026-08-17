@@ -5,20 +5,20 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const BIN = fileURLToPath(new URL('../bin/imp.js', import.meta.url));
 
-function runImp(args, { env = process.env, timeout = 30000 } = {}) {
+function runImp(args, { env = process.env, timeout = 30000, cwd } = {}) {
   return new Promise((resolve) => {
     execFile(
       process.execPath,
       [BIN, ...args],
-      { timeout, env, killSignal: 'SIGKILL', maxBuffer: 4 * 1024 * 1024 },
+      { timeout, env, cwd, killSignal: 'SIGKILL', maxBuffer: 4 * 1024 * 1024 },
       (error, stdout, stderr) => {
         resolve({ code: error ? (error.code ?? 1) : 0, stdout, stderr });
       },
@@ -35,7 +35,64 @@ test('imp: help exits 0 and prints the brand + usage', async () => {
   assert.match(res.stdout, /imp update/);
   assert.match(res.stdout, /imp doctor/);
   assert.match(res.stdout, /imp fix/);
+  assert.match(res.stdout, /imp health/);
+  assert.match(res.stdout, /imp rewind/);
+  assert.match(res.stdout, /imp notify/);
+  assert.match(res.stdout, /imp settings/);
   assert.match(res.stdout, /login openai-codex/);
+});
+
+// The four verbs added on top of the original five must be intercepted BEFORE
+// the pass-everything-to-Pi fallthrough. `settings` in particular is deliberately
+// not called `config`: `pi config` is a real Pi command and must keep working.
+test('imp: the project-stamped reporters refuse outside a project instead of reaching Pi', async () => {
+  const empty = mkdtempSync(join(tmpdir(), 'imp-no-runtime-'));
+  for (const [verb, script] of [
+    ['health', 'loop-health.mjs'],
+    ['rewind', 'rewind.mjs'],
+    ['notify', 'notify.mjs'],
+  ]) {
+    const res = await runImp([verb], { env: { ...process.env, PI_OFFLINE: '1' }, cwd: empty });
+    assert.equal(res.code, 1, `${verb} should exit 1 without a runtime`);
+    assert.match(res.stderr, new RegExp(`imp/scripts/${script.replace('.', '\\.')}`), `${verb} names the missing script`);
+    assert.match(res.stderr, /imp init|--update-runtime/, `${verb} names the fix`);
+  }
+});
+
+test('imp: a stamped reporter that dies on an INCOMPLETE runtime gets a diagnosis, not just a stack', async () => {
+  // The runtime imports itself, so one missing sibling kills the child at module
+  // resolution. The existsSync guard cannot see that — the hint has to come
+  // after the failure, and only when files really are missing.
+  const { listTemplateFiles, isRuntimeCode } = await import('../src/lib/runtime-health.js');
+  const files = (await listTemplateFiles()).filter(isRuntimeCode);
+  const root = mkdtempSync(join(tmpdir(), 'imp-partial-'));
+  const PKG = fileURLToPath(new URL('..', import.meta.url));
+  for (const rel of files) {
+    if (rel.endsWith('/wiki-check.mjs')) continue; // the sibling fia-launch-check imports
+    mkdirSync(dirname(join(root, rel)), { recursive: true });
+    // The REAL bytes, not a stub: a stub would exit 0 and prove nothing.
+    copyFileSync(join(PKG, rel.replace(/^imp\//, 'fia-templates/')), join(root, rel));
+  }
+  const res = await runImp(['health'], { env: { ...process.env, PI_OFFLINE: '1' }, cwd: root });
+  assert.equal(res.code, 1, "the child's exit code is preserved");
+  assert.match(res.stderr, /runtime file\(s\) are missing/, 'the student is told what is wrong');
+  assert.match(res.stderr, /imp fix/, 'and which command repairs it');
+  assert.match(res.stderr, /--update-runtime/);
+});
+
+test('imp: settings is read-only, machine-scoped and never shadows `pi config`', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'imp-settings-home-'));
+  const env = { ...process.env, HOME: home, USERPROFILE: home, PI_OFFLINE: '1' };
+  const res = await runImp(['settings', '--path'], { env });
+  assert.equal(res.code, 0);
+  // --path is the scriptable form: ONLY the path, no banner.
+  assert.equal(res.stdout.trim(), join(home, '.impactus-cli', 'config.json'));
+
+  const asJson = await runImp(['settings', '--json'], { env });
+  assert.equal(asJson.code, 0);
+  const report = JSON.parse(asJson.stdout);
+  assert.equal(report.exists, false, 'no config file on a fresh home');
+  assert.ok(Array.isArray(report.values) && report.values.length > 0);
 });
 
 test('imp: --help and -h are the same help path', async () => {

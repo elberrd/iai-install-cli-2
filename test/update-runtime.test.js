@@ -13,9 +13,11 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from '../src/lib/args.js';
 import { FIA } from '../src/config.js';
 import {
+  GITIGNORE_HEADER,
   applyRuntimePlan,
   backupDirName,
   decideAction,
+  ensureFiaGitignore,
   makeModifiedConsent,
   stampManifestFiles,
   isRuntimeUpdatable,
@@ -166,14 +168,16 @@ test('applyRuntimePlan: add + update overwrite with backup; modified is skipped 
     // Old stamped version (manifest matches) → safe overwrite.
     'imp/modules/gates.mjs': 'export const gate = 1;\n',
     // Locally edited after the stamp (manifest has another sha) → needs consent.
-    'imp/scripts/fia-query.mjs': '// my local tweak\n',
+    // PROSE on purpose: runtime code (imp/modules, imp/scripts, imp/fda_*) is
+    // never kept at the old version — see the forced-runtime test below.
+    '.pi/prompts/task.md': 'my local tweak\n',
     // Never touched by the update, even though the template differs.
     'imp/fia.config.yaml': 'agents: [mine]\n',
   });
   const manifest = {
     files: {
       'imp/modules/gates.mjs': sha1('export const gate = 1;\n'),
-      'imp/scripts/fia-query.mjs': sha1('// query v1\n'),
+      '.pi/prompts/task.md': sha1('task v1\n'),
     },
   };
 
@@ -181,10 +185,9 @@ test('applyRuntimePlan: add + update overwrite with backup; modified is skipped 
   const result = await applyRuntimePlan({ dir, plan, now: new Date(2026, 7, 12, 9, 5, 3) });
 
   assert.deepEqual(result.updated, ['imp/modules/gates.mjs']);
-  assert.deepEqual(result.skippedModified, ['imp/scripts/fia-query.mjs']);
+  assert.deepEqual(result.skippedModified, ['.pi/prompts/task.md']);
   assert.deepEqual(result.unchanged, ['imp/package.json']);
   assert.ok(result.added.includes('imp/fda_bug.mjs'));
-  assert.ok(result.added.includes('.pi/prompts/task.md'));
 
   // Overwritten with the new bytes; the old bytes live in the backup.
   assert.equal(await readFile(join(dir, 'imp/modules/gates.mjs'), 'utf8'), 'export const gate = 2;\n');
@@ -193,16 +196,16 @@ test('applyRuntimePlan: add + update overwrite with backup; modified is skipped 
     await readFile(join(dir, result.backupDir, 'imp/modules/gates.mjs'), 'utf8'),
     'export const gate = 1;\n',
   );
-  // The skipped file and the roster kept the student's bytes.
-  assert.equal(await readFile(join(dir, 'imp/scripts/fia-query.mjs'), 'utf8'), '// my local tweak\n');
+  // The skipped prose file and the roster kept the student's bytes.
+  assert.equal(await readFile(join(dir, '.pi/prompts/task.md'), 'utf8'), 'my local tweak\n');
   assert.equal(await readFile(join(dir, 'imp/fia.config.yaml'), 'utf8'), 'agents: [mine]\n');
   // Preserved template files are never created out of thin air either.
   assert.equal(existsSync(join(dir, '.pi/agents/planner.md')), false);
 });
 
-test('applyRuntimePlan: consent hook overwrites a modified file (with backup)', async () => {
+test('applyRuntimePlan: consent hook overwrites a modified PROSE file (with backup)', async () => {
   const { trees } = await fixtureTrees();
-  const dir = await fixture({ 'imp/scripts/fia-query.mjs': '// my local tweak\n' });
+  const dir = await fixture({ '.pi/prompts/task.md': 'my local tweak\n' });
   const plan = await planRuntimeUpdate({ dir, trees, manifest: null });
   const asked = [];
   const result = await applyRuntimePlan({
@@ -214,24 +217,56 @@ test('applyRuntimePlan: consent hook overwrites a modified file (with backup)', 
     },
   });
 
-  assert.deepEqual(asked, ['imp/scripts/fia-query.mjs']);
+  assert.deepEqual(asked, ['.pi/prompts/task.md']);
+  assert.ok(result.updated.includes('.pi/prompts/task.md'));
+  assert.equal(await readFile(join(dir, '.pi/prompts/task.md'), 'utf8'), '# task v2\n');
+  assert.equal(await readFile(join(dir, result.backupDir, '.pi/prompts/task.md'), 'utf8'), 'my local tweak\n');
+});
+
+test('applyRuntimePlan: edited runtime CODE is updated anyway — a mixed-version imp/ cannot load', async () => {
+  // Keeping one edited module behind while its siblings move forward does not
+  // preserve the student's edit: it produces `SyntaxError: does not provide an
+  // export named …` on every FDA, under a "Runtime updated ✅" banner. The
+  // student's bytes are still recoverable from the backup folder.
+  const { trees } = await fixtureTrees();
+  const dir = await fixture({ 'imp/scripts/fia-query.mjs': '// my local tweak\n' });
+  const plan = await planRuntimeUpdate({ dir, trees, manifest: null });
+  const asked = [];
+  const result = await applyRuntimePlan({
+    dir,
+    plan,
+    overwriteModified: async (entry) => {
+      asked.push(entry.rel);
+      return false; // the student says NO — and it must not matter for code
+    },
+  });
+
+  assert.deepEqual(asked, [], 'runtime code is never even offered as a choice');
   assert.ok(result.updated.includes('imp/scripts/fia-query.mjs'));
+  assert.deepEqual(result.skippedModified, []);
+  assert.deepEqual(result.forcedRuntime, ['imp/scripts/fia-query.mjs'], 'and the student is told which');
   assert.equal(await readFile(join(dir, 'imp/scripts/fia-query.mjs'), 'utf8'), '// query v2\n');
-  assert.equal(await readFile(join(dir, result.backupDir, 'imp/scripts/fia-query.mjs'), 'utf8'), '// my local tweak\n');
+  assert.equal(
+    await readFile(join(dir, result.backupDir, 'imp/scripts/fia-query.mjs'), 'utf8'),
+    '// my local tweak\n',
+    'their version is in the backup, not lost',
+  );
 });
 
 test('manifestFilesAfter: new baselines for written files, stamp sha kept for skipped ones', async () => {
   const { trees } = await fixtureTrees();
-  const stampSha = sha1('// query v1\n');
+  // PROSE for the skipped case: runtime code is never kept behind (see the
+  // forced-runtime test), so only prose can still be "skipped-modified".
+  const stampSha = sha1('task v1\n');
   const dir = await fixture({
     'imp/modules/gates.mjs': 'export const gate = 1;\n',
-    'imp/scripts/fia-query.mjs': '// my local tweak\n',
+    '.pi/prompts/task.md': 'my local tweak\n',
     'imp/fia.config.yaml': 'agents: [mine]\n',
   });
   const manifest = {
     files: {
       'imp/modules/gates.mjs': sha1('export const gate = 1;\n'),
-      'imp/scripts/fia-query.mjs': stampSha,
+      '.pi/prompts/task.md': stampSha,
       'imp/fia.config.yaml': sha1('agents: []\n'),
     },
   };
@@ -241,7 +276,7 @@ test('manifestFilesAfter: new baselines for written files, stamp sha kept for sk
 
   assert.equal(files['imp/modules/gates.mjs'], sha1('export const gate = 2;\n'), 'overwritten → template sha');
   assert.equal(files['imp/fda_bug.mjs'], sha1('// new FDA\n'), 'added → template sha');
-  assert.equal(files['imp/scripts/fia-query.mjs'], stampSha, 'skipped-modified → stamp sha survives');
+  assert.equal(files['.pi/prompts/task.md'], stampSha, 'skipped-modified → stamp sha survives');
   assert.equal(files['imp/fia.config.yaml'], sha1('agents: []\n'), 'preserved → recorded baseline survives');
 });
 
@@ -388,4 +423,48 @@ test('makeModifiedConsent: "No to all" sticks — no further prompts, everything
   assert.equal(await consent(ENTRIES[0]), false);
   assert.equal(await consent(ENTRIES[1]), false);
   assert.equal(io.calls.selects, 1);
+});
+
+// ── .gitignore merge ─────────────────────────────────────────────────────────
+
+const readIgnore = (dir) => readFile(join(dir, '.gitignore'), 'utf8');
+const headerCount = (text) => text.split('\n').filter((l) => l.trim() === GITIGNORE_HEADER).length;
+
+test('ensureFiaGitignore: writes one block when the project has no .gitignore yet', async () => {
+  const dir = await fixture({ 'keep.txt': 'x\n' });
+  await ensureFiaGitignore(dir);
+  const text = await readIgnore(dir);
+  assert.equal(headerCount(text), 1);
+  for (const entry of FIA.gitignoreEntries) assert.ok(text.includes(`${entry}\n`), `${entry} is ignored`);
+});
+
+test('ensureFiaGitignore: a new runtime entry joins the existing block — never a second header', async () => {
+  // Exactly the upgrade path: a project stamped by the previous release, whose
+  // block predates the newest entry.
+  const older = FIA.gitignoreEntries.slice(0, -1);
+  const dir = await fixture({ '.gitignore': `${GITIGNORE_HEADER}\n${older.join('\n')}\n` });
+  await ensureFiaGitignore(dir);
+
+  const text = await readIgnore(dir);
+  assert.equal(headerCount(text), 1, 'the header is emitted once, ever');
+  const lines = text.split('\n').filter(Boolean);
+  assert.deepEqual(lines, [GITIGNORE_HEADER, ...older, FIA.gitignoreEntries.at(-1)]);
+  assert.ok(text.endsWith('\n'), 'the file still ends with a newline');
+});
+
+test('ensureFiaGitignore: keeps the student sections around ours and is idempotent', async () => {
+  const older = FIA.gitignoreEntries.slice(0, -1);
+  const dir = await fixture({
+    '.gitignore': `node_modules/\n.env\n\n${GITIGNORE_HEADER}\n${older.join('\n')}\n\n# my stuff\nscratch/\n`,
+  });
+  await ensureFiaGitignore(dir);
+  const text = await readIgnore(dir);
+  assert.equal(headerCount(text), 1);
+  assert.match(text, /node_modules\/\n\.env\n/, 'the student block above ours is untouched');
+  assert.match(text, /# my stuff\nscratch\/\n/, 'the student block below ours is untouched');
+  // The new entry landed inside our block, before the blank line that ends it.
+  assert.match(text, new RegExp(`${FIA.gitignoreEntries.at(-1).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n\\n# my stuff`));
+
+  await ensureFiaGitignore(dir);
+  assert.equal(await readIgnore(dir), text, 'a second run changes nothing');
 });
