@@ -1,17 +1,19 @@
 // Device flow client (RFC 8628) against the community + token storage.
 //
-// The CLI token lives in ~/.create-iai/auth.json (permission 600) and is never
-// exposed in the command/history. All calls are best-effort with a timeout;
-// none of them throw — they return result objects for the auth step to decide.
+// The CLI token lives in ~/.impactus-cli/auth.json (permission 600) and is
+// never exposed in the command/history. All calls are best-effort with a
+// timeout; none of them throw — they return result objects for the auth step
+// to decide.
 
 import { existsSync } from 'node:fs';
 import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { homedir, hostname, platform } from 'node:os';
+import { hostname, platform } from 'node:os';
 import { dirname, join } from 'node:path';
-import { COMMUNITY, AUTH_FILE, STATE_DIR } from '../config.js';
+import { COMMUNITY, AUTH_FILE } from '../config.js';
+import { stateDirPath } from './state-dir.js';
 
 function authPath() {
-  return join(homedir(), STATE_DIR, AUTH_FILE);
+  return join(stateDirPath(), AUTH_FILE);
 }
 
 let warnedCustomApiBase = false;
@@ -22,13 +24,13 @@ let warnedCustomApiBase = false;
  * the student should know they left the official API.
  */
 export function resolveApiBase(flags = {}) {
-  const raw = flags.api || process.env.CREATE_IAI_API || COMMUNITY.apiBase;
+  const raw = flags.api || process.env.IMPACTUS_API || process.env.CREATE_IAI_API || COMMUNITY.apiBase;
   const base = String(raw).replace(/\/+$/, '');
   if (base !== COMMUNITY.apiBase && !warnedCustomApiBase) {
     warnedCustomApiBase = true;
     console.error(
       `! Using a custom community API (${base}) — your CLI token will be sent to this host.\n` +
-        '  If you did not mean to, remove the --api flag (or unset CREATE_IAI_API) and run again.',
+        '  If you did not mean to, remove the --api flag (or unset IMPACTUS_API / CREATE_IAI_API) and run again.',
     );
   }
   return base;

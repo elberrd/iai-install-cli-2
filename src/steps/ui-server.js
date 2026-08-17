@@ -40,7 +40,7 @@ const MAX_PORT_TRIES = 20; // 4599..4618 before giving up
  *   GET  /api/browse?path=… → subfolders (disk picker, fallback)
  *   GET  /api/dir-info?path=… → { exists, empty, name } (full-folder warning)
  *   POST /api/pick-folder   → opens the system's NATIVE folder dialog
- *   POST /api/keys          → writes the keys to ~/.create-iai/keys/<slug>.env (600)
+ *   POST /api/keys          → writes the keys to ~/.impactus-cli/keys/<slug>.env (600)
  *   POST /api/command       → { …choices } → { command, argv } (to copy)
  *   GET  /api/auth          → student access status
  *   POST /api/login         → device flow (NDJSON: pending → ok/error)
@@ -59,7 +59,7 @@ export async function runUiServer(flags = {}) {
   const port = await listenWithFallback(server, requestedPort);
   const url = `http://localhost:${port}`;
 
-  ui.intro('create-iai');
+  ui.intro('IMPACTUS CLI');
   ui.success(`Open in your browser: ${url}`);
   ui.info('Assemble the install by clicking; at the end, copy the command and run it in your terminal.');
   ui.info('Tip: `npx impactus` (without --ui) asks everything right here in the terminal.');
@@ -211,7 +211,7 @@ function handle(req, res, catalog, runState) {
       .catch((err) => sendJson(res, 400, { error: String(err?.message || err) }));
   }
   if (method === 'POST' && url === '/api/keys') {
-    // Keys pasted on the page → LOCAL file in ~/.create-iai/keys/ with
+    // Keys pasted on the page → LOCAL file in ~/.impactus-cli/keys/ with
     // permission 600. NONE of this leaves the machine: the generated command
     // references the path and the installer reads from it. An empty/cleared body deletes the file.
     return readBody(req)
@@ -319,7 +319,7 @@ async function authStatus(flags) {
 
 /**
  * The whole device flow server-side, streaming the code and link to the page.
- * The token is saved to ~/.create-iai/auth.json — the child installer reads it
+ * The token is saved to ~/.impactus-cli/auth.json — the child installer reads it
  * from there, so the secret never travels to the browser.
  */
 async function loginFlow(flags, emit) {

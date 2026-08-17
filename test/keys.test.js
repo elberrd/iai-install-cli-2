@@ -1,10 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { statSync, existsSync } from 'node:fs';
+import { statSync, existsSync, mkdtempSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { defaultKeysPath, generateToken, loadKeysFile, saveKeysFile } from '../src/lib/keys.js';
+
+// Isolate HOME: defaultKeysPath goes through stateDirPath(), which migrates a
+// real ~/.create-iai when it finds one — tests must never touch the real home.
+const fakeHome = mkdtempSync(join(tmpdir(), 'impactus-keys-home-'));
+process.env.HOME = fakeHome;
+process.env.USERPROFILE = fakeHome;
+
+const { defaultKeysPath, generateToken, loadKeysFile, saveKeysFile } = await import('../src/lib/keys.js');
 
 test('saveKeysFile/loadKeysFile: round trip with permission 600', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'create-iai-keys-'));
@@ -73,11 +80,11 @@ test('loadKeysFile: accepts the documentation extras (EMAIL_FROM, RESEND_TEST_MO
   }
 });
 
-test('defaultKeysPath: sanitized slug inside ~/.create-iai/keys', () => {
-  assert.ok(defaultKeysPath('My App!').endsWith(join('.create-iai', 'keys', 'my-app.env')));
+test('defaultKeysPath: sanitized slug inside ~/.impactus-cli/keys', () => {
+  assert.ok(defaultKeysPath('My App!').endsWith(join('.impactus-cli', 'keys', 'my-app.env')));
   // A name with no usable characters degrades to the safe fallback.
-  assert.ok(defaultKeysPath('--éÀ  ').endsWith(join('.create-iai', 'keys', 'project.env')));
-  assert.ok(defaultKeysPath('__ Store 2 __').endsWith(join('.create-iai', 'keys', 'store-2.env')));
+  assert.ok(defaultKeysPath('--éÀ  ').endsWith(join('.impactus-cli', 'keys', 'project.env')));
+  assert.ok(defaultKeysPath('__ Store 2 __').endsWith(join('.impactus-cli', 'keys', 'store-2.env')));
 });
 
 test('generateToken: urlsafe and reasonably long', () => {

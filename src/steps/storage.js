@@ -363,7 +363,7 @@ async function applyCors(accountId, bucket, ctx) {
     ],
   };
 
-  const dirTmp = await mkdtemp(join(tmpdir(), 'create-iai-r2-'));
+  const dirTmp = await mkdtemp(join(tmpdir(), 'impactus-r2-'));
   const corsFile = join(dirTmp, 'cors.json');
   await writeFile(corsFile, JSON.stringify(policy, null, 2), 'utf8');
 

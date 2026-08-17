@@ -168,7 +168,7 @@ async function maybeProvisionNeon(ctx, info) {
   try {
     const db = await ui.spin(
       'Creating the database on Neon Launchpad (no account)…',
-      () => createClaimableNeonDb('create-iai'),
+      () => createClaimableNeonDb('impactus'),
       'Development Postgres database created.',
     );
     redactSecret(db.databaseUrl); // the connection string carries a password — never in the log

@@ -35,7 +35,7 @@ export async function setupGithub(ctx) {
   await run('git', ['add', '-A'], { cwd: dir });
   const commit = await run(
     'git',
-    ['commit', '-q', '-m', 'feat: project configured by create-iai (Convex + Clerk + shadcn/ui)'],
+    ['commit', '-q', '-m', 'feat: project configured by impactus (Convex + Clerk + shadcn/ui)'],
     { cwd: dir },
   );
   const commitOut = commit.stdout + commit.stderr;

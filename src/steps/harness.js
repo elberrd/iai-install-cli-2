@@ -69,7 +69,7 @@ export async function setupHarness(ctx) {
   // out anonymously: harness + FIA are the free tier. The TEMPLATES remain
   // token-gated (steps/project.js) and steps/mode.js never lets a guest reach
   // them. There is no direct-clone fallback in either case.
-  const tmpRoot = mkdtempSync(join(tmpdir(), 'create-iai-harness-'));
+  const tmpRoot = mkdtempSync(join(tmpdir(), 'impactus-harness-'));
   const tmpClone = join(tmpRoot, 'repo');
   try {
     await ui.spin(
@@ -169,7 +169,7 @@ export async function setupHarness(ctx) {
     await run('git', ['init', '-q'], { cwd: dir });
   }
   await run('git', ['add', '-A'], { cwd: dir });
-  const commit = await run('git', ['commit', '-q', '-m', 'feat: agent workflow harness (create-iai)'], {
+  const commit = await run('git', ['commit', '-q', '-m', 'feat: agent workflow harness (impactus)'], {
     cwd: dir,
   });
   if (commit.ok) {

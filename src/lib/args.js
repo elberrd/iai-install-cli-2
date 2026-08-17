@@ -1,6 +1,6 @@
-// Tiny dependency-free CLI flag parser for create-iai.
+// Tiny dependency-free CLI flag parser for the impactus CLI.
 //
-// Supported grammar: `create-iai [name] [options]`. Boolean flags may be
+// Supported grammar: `impactus [name] [options]`. Boolean flags may be
 // negated with `--no-<flag>`. Value flags accept `--flag value` and
 // `--flag=value`. Unknown flags abort with a helpful message instead of being
 // silently ignored.
@@ -273,7 +273,7 @@ Options:
                            per-member roles and permissions, /admin with org management)
 
   --keys <file>            .env file with service keys (Stripe, Asaas,
-                           Resend…) — the web UI (--ui) generates one in ~/.create-iai/keys/.
+                           Resend…) — the web UI (--ui) generates one in ~/.impactus-cli/keys/.
                            The keys stay on your machine only; the installer
                            applies them to Convex/.env.local and creates the webhooks via API.
 
@@ -313,7 +313,7 @@ Options:
   --login                  Authenticates this computer (opens the browser) and exits
   --logout                 Removes/revokes this computer's CLI token and exits
   --whoami                 Shows your subscription status and exits
-  --api <url>              Community API base (dev/testing; or CREATE_IAI_API)
+  --api <url>              Community API base (dev/testing; or IMPACTUS_API)
 
   --verify                 Audits an ALREADY-installed project (--dir points to the folder):
                            orphan markers, missing envs, leftover manifest…

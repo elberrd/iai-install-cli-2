@@ -107,7 +107,7 @@ export async function applyAddons(ctx) {
   await mkdir(dirname(join(dir, ADDONS_CONFIG_FILE)), { recursive: true });
   await writeFile(
     join(dir, ADDONS_CONFIG_FILE),
-    JSON.stringify({ createdWith: 'create-iai', addons: [...chosen].sort() }, null, 2) + '\n',
+    JSON.stringify({ createdWith: 'impactus', addons: [...chosen].sort() }, null, 2) + '\n',
     'utf8',
   );
   await rm(manifestPath, { force: true });

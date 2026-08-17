@@ -62,7 +62,7 @@ test('buildCommand: stack path in harness mode becomes --stack', () => {
 });
 
 test('buildCommand: keysPath becomes --keys <path> (full mode only)', () => {
-  const path = '/Users/x/.create-iai/keys/meu-app.env';
+  const path = '/Users/x/.impactus-cli/keys/meu-app.env';
   const full = buildCommand({ mode: 'full', name: 'app', keysPath: path });
   assert.equal(full.argv[full.argv.indexOf('--keys') + 1], path);
   assert.ok(full.command.includes(`--keys ${path}`));

@@ -49,7 +49,7 @@ export async function extractDownloadedTarball(tgz, destDir, deps = {}) {
  * @returns {Promise<{ok: boolean, reason?: string}>}
  */
 export async function fetchTemplateToDir(apiBase, token, name, destDir, ref) {
-  const tmpRoot = mkdtempSync(join(tmpdir(), 'create-iai-tgz-'));
+  const tmpRoot = mkdtempSync(join(tmpdir(), 'impactus-tgz-'));
   const tgz = join(tmpRoot, `${name}.tar.gz`);
   try {
     const dl = await downloadTemplate(apiBase, token, name, tgz, ref);
