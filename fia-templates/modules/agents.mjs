@@ -295,7 +295,13 @@ function piSessionPathIfAny(agentDir) {
  * via --session already carries the interrupted conversation.
  */
 function composeUserText(run, phase, agent, agentDir, variables) {
-  const userText = prompts.render(agent.prompt_engineering.user, variables);
+  // A bounded continuation narrows EVERY agent phase of the run, not just the
+  // one that died: the scope is what the reviewer found missing, and an agent
+  // that cannot see it would happily re-open work that was already accepted.
+  // Prepended to the USER prompt only — the system prefix must stay byte-stable
+  // for prompt caching (same rule as the engine-continuation preamble).
+  const scope = continuation.buildScopeBlock(run.verdict);
+  const userText = scope + prompts.render(agent.prompt_engineering.user, variables);
   const marker = continuation.readEngineError(agentDir);
   // Only the phase that actually died gets the handover: the marker outlives
   // the relay (so --resume keeps preferring the fallbacks), but a later,
