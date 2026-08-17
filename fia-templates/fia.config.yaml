@@ -131,6 +131,11 @@ observability:
 #                             turning it on costs one tree fingerprint per phase,
 #                             and a `Kind: foundation` run legitimately touches many.
 
+# qa — browser QA runs (/qa). Unit tests stay in the per-task FDA; this block
+# only controls Playwright artifact retention.
+# qa:
+#   video: retain-on-failure   # off | on | retain-on-failure (default)
+
 # notify — tell you when a run ends, so you can walk away from a long /goal.
 # OPT-IN: off unless `enabled: true` AND at least one valid target. Only https://
 # targets are accepted (http:// only for localhost). A target URL is treated as a

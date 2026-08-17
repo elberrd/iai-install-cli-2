@@ -50,7 +50,7 @@ Sections, in order ("Not applicable — <why>" is a valid section body):
    column is filled with file paths as tests land — update it at task completion.
 8. `## Gate log` — append-only lines:
    - `Definition Gate: passed — YYYY-MM-DD` (requirements + scenarios present, a `## Flow` diagram present, no open P1 questions)
-   - `Delivery Gate: passed — YYYY-MM-DD — <evidence: suite green, coverage check ok>`
+   - `Delivery Gate: passed — YYYY-MM-DD — <evidence: suite green, coverage check ok, or /qa NNNN green with report path>`
 9. `## Decisions` — dated one-liners with rationale.
 
 Lifecycle: `draft` → `defined` (Definition Gate passed; tasks may be generated)

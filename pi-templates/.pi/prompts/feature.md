@@ -42,3 +42,5 @@ Request: $@
    granularity and dependencies are mine to decide.
 5. Approved → suggest /task (one) or /goal (all the new ones). Step 4 of the
    cookbook applies: when done, deliver it RUNNING + a "How to test" section.
+   When the new spec's tasks are all done, suggest `/qa NNNN` once (cookbook
+   `qa.md`) — do not auto-run it and never suggest QA after `/quick`.

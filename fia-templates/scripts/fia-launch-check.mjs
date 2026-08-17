@@ -26,6 +26,7 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { readPlanTasks, readPlanSpecs } from './plan-docs.mjs';
+import { qaEvidenceGaps } from '../modules/qa-gate.mjs';
 import { hasSourcesGone, runWikiCheck } from './wiki-check.mjs';
 import { runSecurityScan } from './security-scan.mjs';
 
@@ -273,6 +274,23 @@ export function runLaunchChecks(root = process.cwd(), opts = {}) {
   } else {
     const open = plan.counts.pending + plan.counts.inProgress + plan.counts.blocked;
     add('Work', 'tasks_done', 'warn', open === 0 ? 'pass' : 'fail', 'Plan tasks completed', open === 0 ? `${plan.counts.done}/${plan.counts.total} done` : `${open} open of ${plan.counts.total}`, open === 0 ? null : 'finish with /goal (or launch anyway, knowingly)');
+  }
+  // Milestones marked done should carry browser QA evidence (ai-docs/qa/).
+  {
+    if (!existsSync(join(aiDocsDir, 'milestones.md'))) {
+      add('Work', 'qa_evidence', 'info', 'skip', 'QA reports for done milestones', 'no ai-docs/milestones.md', null);
+    } else {
+      const gaps = qaEvidenceGaps(root);
+      add(
+        'Work',
+        'qa_evidence',
+        'warn',
+        gaps.length === 0 ? 'pass' : 'fail',
+        'QA reports for done milestones',
+        gaps.length ? `missing for: ${gaps.join(', ')}` : 'every done milestone with UI has a passing report',
+        gaps.length ? `run /qa ${gaps[0]} — browser evidence before treating the milestone as truly done` : null,
+      );
+    }
   }
   // Stack manifest: a "decide later" layer = launching without knowing what you
   // are launching — /launch treats it as a blocker and sends you to /stack.

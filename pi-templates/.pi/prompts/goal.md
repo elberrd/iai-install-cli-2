@@ -39,5 +39,8 @@ continue — no homework at the end. Final summary: tasks, commits, tokens — a
 closing with the **How to test** section (minimal command, URL, short checklist of
 what was delivered) + an offer to start the dev server yourself right now.
 
+When a milestone's tasks are all done, suggest `/qa <milestone>` once (cookbook
+`qa.md`) before `/launch` — do not auto-run it.
+
 Running locally and tested? The next rung is `/launch` — suggest it at the end
 (it puts the app on a public URL and then into real production, guided).

@@ -129,6 +129,7 @@ export const FIA = {
     'imp/data/fia.db-shm',
     'imp/data/backups/',
     'imp/data/handoff/',
+    'imp/data/qa/',
     'imp/reports/',
     'imp/.runtime-backup-*/',
   ],
@@ -155,6 +156,7 @@ export const FIA = {
   npmScripts: {
     'fda:demo': 'node imp/fda_prompt.mjs "Summarize this repo in one sentence" --agent scout',
     'fda:quality': 'node imp/fda_quality.mjs "quality gate"',
+    'fda:qa': 'node imp/fda_qa.mjs',
     'fda:sessions': 'node imp/scripts/fia-query.mjs sessions',
     'fda:phases': 'node imp/scripts/fia-query.mjs phases',
     'fda:tail': 'node imp/scripts/fia-query.mjs tail',

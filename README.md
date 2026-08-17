@@ -143,6 +143,7 @@ imp settings                   # where every machine setting comes from (read-on
 | `/kit` | Design-system audit of existing code: as-built registry, gap report, design-only tasks. |
 | `/component`, `/theme`, `/design`, `/example` | Design system: add a component, change colors/fonts, redesign from references, register an external reference. |
 | `/launch` | Go live — public beta and production, with readiness gates. |
+| `/qa [scope?]` | Browser QA at milestone/spec/task — Playwright e2e, responsive check, design audit, durable report. |
 | `/agents` | Visual roster editor: engine, model and fallbacks per FDA agent — with automatic mid-run relay when an engine dies. |
 | `/status` | Progress + latest runs. |
 | `/guide [goal?]` | Lost? Reads the project state, confirms your goal in one question and charts the shortest route. |
@@ -159,7 +160,7 @@ imp settings                   # where every machine setting comes from (read-on
 | `/test-ui [flow?]` | Tests the UI in a real browser, with automated sign-in and issue detection. |
 | `/team [task]` | Multi-agent orchestration: parallel specialist agents on one task. |
 | `/restore` | Rolls code + database back to a previous save (destructive — confirms first). |
-| `/grill`, `/stack`, `/absorb`, `/onboarding`, `/quick`, `/spec`, `/feature`, `/bug`, `/component`, `/theme`, `/design`, `/example`, `/kit`, `/launch`, `/note` | The same planning, spec and design-system commands also live here. |
+| `/grill`, `/stack`, `/absorb`, `/onboarding`, `/quick`, `/spec`, `/feature`, `/bug`, `/component`, `/theme`, `/design`, `/example`, `/kit`, `/launch`, `/qa`, `/note` | The same planning, spec and design-system commands also live here. |
 
 ### Dashboards & utilities (npm scripts stamped into the project)
 

@@ -15,6 +15,8 @@ repository, deploy, DNS, live key), say what will happen and wait for my "yes".
 
 1. `node imp/scripts/fia-launch-check.mjs --json` → show me the current rung
    (local / beta / production) and a short summary: blockers ✗, warnings !, ok ✓.
+   If `qa_evidence` warns, suggest `/qa <milestone>` before treating milestones
+   as truly done.
 2. Blockers first (Step 0–1 of the cookbook): quality via
    `node imp/fda_quality.mjs`, git/push/CI green. Code fixes = FDA,
    never you.

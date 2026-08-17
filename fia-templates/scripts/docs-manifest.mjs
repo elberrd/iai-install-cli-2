@@ -36,6 +36,7 @@ export const DOC_MANIFEST = [
   { id: 'decisions', label: 'Decision logs', path: 'ai-docs/decisions', kind: 'dir', command: '/idea', optional: true },
   { id: 'inbox', label: 'Inbox', path: 'ai-docs/inbox.md', kind: 'file', command: '/note', optional: true },
   { id: 'launch', label: 'Launch checklist', path: 'ai-docs/launch.md', kind: 'file', command: '/launch', optional: true },
+  { id: 'qa-reports', label: 'Browser QA reports', path: 'ai-docs/qa', kind: 'dir', command: '/qa', optional: true },
   { id: 'conventions', label: 'Conventions (brownfield)', path: 'ai-docs/conventions.md', kind: 'file', command: '/absorb', optional: true },
   { id: 'prd-as-built', label: 'PRD as-built (brownfield)', path: 'ai-docs/PRD-as-built.md', kind: 'file', command: '/absorb', optional: true },
   { id: 'wiki', label: 'Project wiki', path: 'ai-docs/wiki', kind: 'dir', command: '/absorb', optional: true },

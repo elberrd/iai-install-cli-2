@@ -177,6 +177,7 @@ export async function setupFia(ctx) {
       '  /kit        EXISTING code → design-system audit: as-built registry, /ui-components, gaps vs the core kit, approved design-only tasks',
       '',
       'Ship and follow along',
+      '  /qa         browser QA at milestone/spec/task — Playwright e2e + design audit (report in ai-docs/qa/)',
       '  /launch     go live — public beta and real production (guided)',
       '  /agents     view/change each FDA agent\'s engine and model (visual editor)',
       '  /status     progress and latest runs',

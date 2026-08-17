@@ -155,6 +155,11 @@ Rules for the loop:
   task, whatever the announcement says.
 - On failure, stop and hand the engineer the evidence (`fda:phases`, gate violations, envelope). The engineer decides: fix, skip, or re-run.
 - Suggest keeping `npm run fda:viewer` open — it live-updates every 2s.
+- When the **last task of a milestone** completes inside the loop (all tasks
+  listed under that milestone are now `done`), **suggest** `/qa M1` (or the
+  matching milestone id) — browser evidence before the engineer flips
+  `Status: done` in `ai-docs/milestones.md`. Do not run `/qa` automatically and
+  do not block the loop on it.
 
 ## Step 4 — Deliver it RUNNING (definition of done)
 

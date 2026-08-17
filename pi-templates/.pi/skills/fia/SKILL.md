@@ -41,6 +41,7 @@ Short commands (prompt templates in `.pi/prompts/`) are the student entry points
 | `/note "idea"` | one line into `ai-docs/inbox.md` — zero questions | — |
 | `/spec [capability or NNNN]` | durable spec — requirements + BDD scenarios + gates | specs |
 | `/launch` | go live — public beta and production | launch |
+| `/qa [scope?]` | browser QA at milestone/spec/task — Playwright e2e + design audit | qa |
 | `/component [name + URL/command]` | add a component to the design system (register + install + page) | components |
 | `/theme [hint]` | change colors/fonts/shape — interview → approved preview → apply | theme |
 | `/design [images]` | layout redesign from references, inside the design system | design |
@@ -76,3 +77,4 @@ For anything else, route by request:
 | Keep the repo wiki true / a page went stale | [cookbooks/observability.md](cookbooks/observability.md) |
 | Bridge with ai-docs issues | [cookbooks/harness_bridge.md](cookbooks/harness_bridge.md) |
 | Go live / deploy / production | [cookbooks/launch.md](cookbooks/launch.md) |
+| Browser QA / milestone verification | [cookbooks/qa.md](cookbooks/qa.md) |

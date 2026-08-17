@@ -1047,6 +1047,7 @@ npm scripts stamped into the project (`FIA.npmScripts`):
 ```bash
 npm run fda:demo      # node imp/fda_prompt.mjs "Summarize this repo…" --agent scout
 npm run fda:quality   # node imp/fda_quality.mjs "quality gate"
+npm run fda:qa        # node imp/fda_qa.mjs "<scope>"  (browser QA)
 npm run fda:sessions  # node imp/scripts/fia-query.mjs sessions
 npm run fda:phases    # node imp/scripts/fia-query.mjs phases
 npm run fda:tail      # node imp/scripts/fia-query.mjs tail
@@ -1105,6 +1106,7 @@ same name lands on the session row (§9.7). A run stopped by a policy limit
 | `fda_sdlc` | planner, builder, reviewer, documenter | request → plan → build → *test* (single run, no fix loop) → *spec_coverage* → checklist gate → UI gate → review → *commit_code* → document → *commit_docs* | Full cycle with an independent review — the review runs even when tests failed, and acceptance requires green tests AND an approved review. |
 | `fda_bug` | planner, builder (+reviewer) | request → plan → red_test → *red_check* → build → *test* → fix loop (≤ `stop.attempt_cap`, default 3; `no_progress` ends it early) → gates → *commit* | Defect fixing with a **valid RED** gate: the reproduction test must fail on an assertion BEFORE the fix (passing = "bug not reproduced"; module/syntax/env failures = invalid RED). |
 | `fda_quick` | builder | request → build → *quality_1* (lint+typecheck+focal test) → one fix round (by design, not from `stop:`; still red = `attempt_cap`) → *quality_2* → *quicklog* → *commit* | Small guarded changes (`/quick`). Appends the `## Q-NNN` audit entry, then stamps the commit sha into it as a separate one-line commit. |
+| `fda_qa` | builder, reviewer | request → scope → preflight → author → *e2e* → audit → report → gate | Browser QA at milestone/spec/task boundaries (`/qa`). Playwright e2e + design audit; writes `ai-docs/qa/` report. No fix loop — failures go to `/bug` or `/task`. Does not re-run unit tests. |
 
 Examples:
 
@@ -1112,6 +1114,7 @@ Examples:
 node imp/fda_plan_build_test.mjs ai-docs/todos/briefs/task-07.md
 node imp/fda_bug.mjs "Deleting the last org member 500s instead of blocking"
 node imp/fda_quick.mjs "Make the empty-state copy on /invoices friendlier"
+node imp/fda_qa.mjs "M1"
 node imp/fda_sdlc.mjs ai-docs/todos/briefs/task-12.md
 node imp/fda_plan_build_test.mjs --fda-id 3fa9c21b --resume     # resume a failed run
 ```
@@ -1500,7 +1503,9 @@ stack-aware checks across six sections:
   planned rows at launch), `wiki_fresh` (repo-wiki pages whose declared
   sources changed since they were stamped — skipped when there is no
   `ai-docs/wiki/` yet, §10), `spec_diagrams` (specs with no ```` ```mermaid ````
-  block under `## Flow` — skipped when the project has no spec).
+  block under `## Flow` — skipped when the project has no spec),
+  `qa_evidence` (milestones marked `done` with UI but no passing report in
+  `ai-docs/qa/` — warn, suggests `/qa M1`).
 - **Secrets**: tracked `.env*` files (blocker — untrack AND rotate),
   `.env.example` present, secret-shaped values in `NEXT_PUBLIC_*` (blocker).
 - **Security**: raw `query(`/`mutation(` outside `convex/lib` (use the authed
@@ -1658,6 +1663,12 @@ student's plan. They live under `stop:` in `imp/fia.config.yaml`:
 | `no_progress_window` | `2` | Consecutive identical rounds after which the run is declared stuck. `0` turns the detector off. |
 | `budget_minutes` | `0` (**off**) | Wall-clock ceiling for one run. |
 | `breadth_ceiling` | `0` (**off**) | Maximum files one run may touch. Turning it on costs one tree fingerprint per phase, and a `Kind: foundation` run legitimately touches many. |
+
+**Browser QA** (`/qa`) video retention lives under optional `qa:` in the same file:
+
+| Key | Default | What it controls |
+|---|---|---|
+| `video` | `retain-on-failure` | Playwright video: `off`, `on`, or `retain-on-failure`. Overridable per run with `--video`. Large artifacts land in gitignored `imp/data/qa/<fda-id>/`; the committed report is `ai-docs/qa/*.md`. |
 
 - **`no_progress`** compares a fingerprint of *where the run is stuck*: the
   names of the FAILING checks plus `path:size,sha1` for every path this run
@@ -2077,11 +2088,17 @@ the design system deterministic instead:
   date+time), menus incl. right-click ContextMenu, dialogs, toast, Skeleton,
   EmptyState — plus the FULL per-component contracts. The DataTable contract
   (TanStack Table as `default`; REUI Data Grid registered `alternative`) is
-  the big one: global fuzzy multi-word search, header menu on click AND
-  right-click (sort/hide/filter), per-column filters adapted to the column
-  type (text/enum-facet/date-range/number-range), active-filter chips +
-  clear-all, column visibility, pagination, row selection + bulk-actions
-  bar, row-click edit, skeleton/empty/no-results states.
+  the big one: global fuzzy multi-word search with yellow match highlights,
+  header menu on click AND right-click (sort/hide/filter), per-column
+  filters adapted to the column type (text/enum-facet/date-range/number-range)
+  reached from the header or a single Filter control — never a toolbar row
+  of per-column buttons — active-filter chips with an x + clear-all, column
+  visibility, pagination, row selection + bulk-actions bar, row-click edit,
+  skeleton/empty/no-results states. Cross-cutting interaction contracts
+  (pointer cursor, yellow `<mark>` on any typed search, Combobox popover as
+  wide as the trigger, calendar caption that jumps month and year,
+  `/ui-components` one-component-per-card) live in
+  `references/interaction.md`.
 - **Greenfield**: Task 01 is always the fixed Foundation scaffold and Task
   02 the fixed **Core component kit** (`Kind: kit`), blocked by 01 and
   blocking every feature task — sequenced after the `/theme` checkpoint, so
@@ -2153,13 +2170,14 @@ theme, design, examples, launch, update_roster.
 | `/prd` | `[focus?]` | Quick reviewer opinion on the PRD — never edits it. |
 | `/map` | `[notes?]` | PRD → `map.yaml` + screens-routes + issues/task-master + specs + registry seed + `/ui-components` + milestones; ends by opening the Plan page (`npm run plan -- --detach`). Greenfield build order: `/task` (foundation) → `/theme` → `/goal`. |
 | `/task` | `[number\|description?]` | ONE task: the task-sequencer writes the brief (enforcing the theme and env gates), then `node imp/fda_plan_build_test.mjs <brief>` (bigger/riskier work → `fda_sdlc`). On failure: `npm run fda:phases -- <id>`, resume with `--fda-id <id> --resume`. |
-| `/goal` | `[limit?]` | All unblocked tasks to done, one FDA per task (never batched), gates inside the loop, human-only steps handled MID-goal; ends with the app RUNNING + "How to test", then suggests `/launch`. |
+| `/goal` | `[limit?]` | All unblocked tasks to done, one FDA per task (never batched), gates inside the loop, human-only steps handled MID-goal; ends with the app RUNNING + "How to test", suggests `/qa <milestone>` when a milestone completes, then `/launch`. |
 | `/feature` | `"request"` | Delta on an existing mapped system: size triage (module-sized routes UP to `/idea`), delta mini-grill, delta spec, DELTA tasks, approval before executing. Requires `map.yaml` (`/absorb` first otherwise). |
 | `/bug` | `"symptom"` | Issue + `node imp/fda_bug.mjs` with the RED-validity gate (assertion-failing reproduction before any fix). |
 | `/quick` | `"small change"` | Triage; SIMPLE runs `node imp/fda_quick.mjs` + the `Q-NNN` quick-log entry; COMPLEX routes to `/feature`/`/bug` naming the failed criterion. |
 | `/note` | `"idea"` | One line into `ai-docs/inbox.md`, zero questions. |
 | `/spec` | `"capability"\|NNNN` | Create/update a durable spec, `## Flow` mermaid diagram included; the Definition Gate (requirements + scenarios + diagram, no open P1) flips `Status: defined`; ticks related inbox items. |
-| `/launch` | `[beta\|production?]` | Go live by rungs, `fia-launch-check.mjs --json` as the fact source; confirms before every irreversible step; secrets never in chat. |
+| `/launch` | `[beta\|production?]` | Go live by rungs, `fia-launch-check.mjs --json` as the fact source; confirms before every irreversible step; secrets never in chat. Warns when `qa_evidence` is missing for done milestones. |
+| `/qa` | `[M1\|NNNN\|NN] [--video]` | Browser QA: `node imp/fda_qa.mjs` — Playwright e2e at 375/768/1280, registry/patterns audit, report in `ai-docs/qa/`. Suggested after milestone/spec completion; not per-task. |
 | `/component` | `name + URL/cmd \| list \| sync` | Design-system entry path (dedupe → research → install → register → showcase). |
 | `/theme` | `[hint\|accept?]` | Identity interview → FDA-built side-by-side preview at `/ui-components/preview` → explicit approval. `accept` records "keep the default" (satisfies the theme gate) with zero app changes. AA contrast is a blocker. |
 | `/design` | `images + scope` | Layout redesign from references — structure from the image, identity from OUR system. |
