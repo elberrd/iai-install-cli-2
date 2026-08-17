@@ -585,6 +585,33 @@ export function normSpecStatus(s) {
 }
 
 /**
+ * Does the spec carry a mermaid diagram? Only a fence OPENED at line start with
+ * ```mermaid counts: a ```mermaid line inside an already-open ~~~ or ````
+ * block is quoted content (specs do quote the rule), and an indented fence is
+ * not at line start. Implemented locally on purpose — scripts/ imports only its
+ * siblings — so this is the TWIN of `specHasDiagram` in
+ * `fia-templates/modules/gates.mjs` (that one gates, this one only reports) and
+ * the two must agree.
+ * Caveat: `cached()` truncates a document at MAX_DOC_BYTES, so a diagram past
+ * 512KB reads as absent here — detection only, never a refusal.
+ */
+function hasMermaidFence(md) {
+  let fence = null;
+  for (const line of String(md || '').split(/\r?\n/)) {
+    const f = /^(\s*)(`{3,}|~{3,})\s*(.*)$/.exec(line);
+    if (!f) continue;
+    const ch = f[2][0];
+    if (fence) {
+      if (ch === fence) fence = null;
+      continue;
+    }
+    fence = ch;
+    if (!f[1] && ch === '`' && /^mermaid\b/i.test(f[3].trim())) return true;
+  }
+  return false;
+}
+
+/**
  * One spec file (ai-docs/specs/NNNN-slug.md): id + title from the
  * `# Spec 0003 — <Title>` H1, header Status/Created/Updated/Tasks lines and
  * the append-only `## Gate log` lines. Anything absent → null/[], never throws.
@@ -613,12 +640,19 @@ export function parseSpec(md) {
     updated: (/updated\s*:\s*(\d{4}-\d{2}-\d{2})/i.exec(md) || [])[1] || null,
     tasks: parseBlockers(clean(metaLine(md, 'tasks|tarefas').replace(/\([^)]*\)\s*$/, '')) || ''),
     gateLog,
+    hasDiagram: hasMermaidFence(md),
   };
 }
 
 export function readPlanSpecs(aiDocsDir) {
   const specsDir = join(aiDocsDir, 'specs');
-  const empty = { available: false, dir: 'specs', updatedAt: null, specs: [], counts: { total: 0, draft: 0, defined: 0, inProgress: 0, done: 0 } };
+  const empty = {
+    available: false,
+    dir: 'specs',
+    updatedAt: null,
+    specs: [],
+    counts: { total: 0, draft: 0, defined: 0, inProgress: 0, done: 0, withoutDiagram: 0 },
+  };
   let names;
   try {
     // `0000-example.md` is the shipped reference example — it documents the
@@ -646,14 +680,16 @@ export function readPlanSpecs(aiDocsDir) {
       updated: parsed.updated,
       tasks: parsed.tasks,
       gateLog: parsed.gateLog,
+      hasDiagram: Boolean(parsed.hasDiagram),
     });
   }
-  const counts = { total: specs.length, draft: 0, defined: 0, inProgress: 0, done: 0 };
+  const counts = { total: specs.length, draft: 0, defined: 0, inProgress: 0, done: 0, withoutDiagram: 0 };
   for (const s of specs) {
     if (s.status === 'done') counts.done++;
     else if (s.status === 'in-progress') counts.inProgress++;
     else if (s.status === 'defined') counts.defined++;
     else counts.draft++;
+    if (!s.hasDiagram) counts.withoutDiagram++;
   }
   return { available: true, dir: 'specs', updatedAt, specs, counts };
 }

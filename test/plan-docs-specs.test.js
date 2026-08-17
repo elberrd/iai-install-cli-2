@@ -234,7 +234,9 @@ test('readPlanSpecs: lists NNNN-slug.md only; missing dir → available:false', 
   assert.equal(r.specs[1].id, '0002');
   assert.equal(r.specs[1].title, 'Billing flow');
   assert.equal(r.specs[1].status, 'draft');
-  assert.deepEqual(r.counts, { total: 2, draft: 1, defined: 1, inProgress: 0, done: 0 });
+  // withoutDiagram: neither fixture spec carries a ```mermaid block (the /spec
+  // format asks for one under `## Flow`; the launch check warns on the count).
+  assert.deepEqual(r.counts, { total: 2, draft: 1, defined: 1, inProgress: 0, done: 0, withoutDiagram: 2 });
 
   assert.equal(readPlanSpecs(join(root, 'nope')).available, false);
 });
