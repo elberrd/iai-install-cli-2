@@ -23,6 +23,9 @@ export { readPlanDoc as readDoc };
 
 export const STALE_MS = 10 * 60_000;
 const SAFE_ID = /^[a-zA-Z0-9_-]+$/;
+// A pragma name cannot be a bound parameter, so the table name is interpolated —
+// it is always a literal here, and this keeps it that way.
+const SAFE_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /** Read-only handle, or null while the db does not exist yet. */
 export function openDb(dbPath) {
@@ -39,6 +42,22 @@ export function openDb(dbPath) {
  */
 export function dataVersion(db) {
   return db.pragma('data_version', { simple: true });
+}
+
+/**
+ * Does this table carry that column? The trace schema is create-only, so a
+ * column added later (sessions.outcome) exists ONLY in databases a new Tracer
+ * has opened. A read-only reader must probe instead of naming it in a SELECT:
+ * naming a missing column throws, and every reader here answers a throw with an
+ * empty shape — which would blank the whole dashboard on an older project.
+ */
+export function hasColumn(db, table, column) {
+  if (!SAFE_IDENT.test(String(table || ''))) return false;
+  try {
+    return db.pragma(`table_info(${table})`).some((c) => c.name === column);
+  } catch {
+    return false; /* schema-less db (see listSessions) */
+  }
 }
 
 function pidAlive(pid) {
@@ -90,11 +109,15 @@ export function runningSessions(db, now = Date.now()) {
 /** Newest-first session list, running ones tagged stale/last_activity. */
 export function listSessions(db, limit = 80) {
   let rows;
+  // `outcome`/`outcome_reason` only exist once a new Tracer has opened the db
+  // (create-only schema + guarded ALTER). Probe, never assume: naming a missing
+  // column would throw into the catch below and render "no runs yet".
+  const outcomeCols = hasColumn(db, 'sessions', 'outcome') ? ', outcome, outcome_reason' : '';
   try {
     rows = db
       .prepare(
         `SELECT fda_id, fda_name, status, engineer, substr(request,1,120) AS request,
-                started_at, ended_at, total_tokens, total_cost
+                started_at, ended_at, total_tokens, total_cost${outcomeCols}
          FROM sessions ORDER BY started_at DESC LIMIT ?`,
       )
       .all(limit);

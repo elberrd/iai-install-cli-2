@@ -27,6 +27,7 @@ import React from 'react';
 import { render, Box, Text, useApp, useInput, useWindowSize } from 'ink';
 import chokidar from 'chokidar';
 import { fmtDur, fmtAge, fmtTime, fmtTokens, fmtCost, durSec } from '../modules/format.mjs';
+import { outcomeLabel } from '../modules/outcome.mjs';
 import * as data from './fia-tui-data.mjs';
 import { renderMarkdown } from './fia-tui-md.mjs';
 
@@ -118,7 +119,10 @@ function ContextGauge({ agentSessions }) {
   );
 }
 
-function RunPanel({ run, now }) {
+// Exported (like DocView/TestsPane below) so tests can mount the run surfaces
+// through React at a chosen width — a --once smoke frame is always 80 columns
+// and never carries a selection.
+export function RunPanel({ run, now }) {
   const s = run.session;
   const ph = data.currentPhase(run.phases);
   const live = s.status === 'running' && !s.stale;
@@ -140,6 +144,10 @@ function RunPanel({ run, now }) {
       h(Text, { color: live ? 'cyan' : 'gray', bold: true }, `${head}: `),
       h(Text, { bold: true }, s.fda_id),
       h(Text, { color: 'gray' }, `  ${s.fda_name || ''} · ${st(s.status).glyph} ${s.status}`),
+      // The run's NAMED terminal outcome, on the first card a student sees.
+      // Older runs (and databases no new Tracer has opened) carry none — the
+      // bare status above stays the fallback.
+      s.outcome ? h(Text, { color: 'gray' }, ` (${outcomeLabel(s.outcome)})`) : null,
       h(
         Text,
         { color: 'gray' },
@@ -395,7 +403,7 @@ function WorkTab({ items, sel, height, width, trace }) {
 
 // ── Runs ─────────────────────────────────────────────────────────────────────
 
-function RunsList({ sessions, sel, height, width, dbMissing, dbPath }) {
+export function RunsList({ sessions, sel, height, width, dbMissing, dbPath }) {
   if (dbMissing) {
     return h(
       Box,
@@ -404,7 +412,12 @@ function RunsList({ sessions, sel, height, width, dbMissing, dbPath }) {
       h(Line, { color: 'gray' }, 'Runs appear after the first FDA (/task, /quick, /bug or /goal).'),
     );
   }
-  const cols = { id: 16, status: 9, age: 7, dur: 8, tok: 8, cost: 7 };
+  // STATUS carries the run's NAMED outcome when the trace has one, so this list
+  // — the screen used to pick which run to open — separates `attempt cap
+  // reached` from `blocked by a gate` instead of printing "fail" for both.
+  // Labels reach 23 chars, so the column only spends terminal width that is
+  // already surplus: below ~98 columns it stays 9 and REQUEST keeps every char.
+  const cols = { id: 16, status: clamp(width - 88, 9, 23), age: 7, dur: 8, tok: 8, cost: 7 };
   const reqW = Math.max(16, width - Object.values(cols).reduce((a, b) => a + b, 0) - 8);
   const { start, slice } = windowed(sessions, sel, height - 3);
   return h(
@@ -429,7 +442,7 @@ function RunsList({ sessions, sel, height, width, dbMissing, dbPath }) {
         { key: s.fda_id, inverse: idx === sel },
         h(Text, { color: g.color }, `${g.glyph} `),
         pad(s.fda_id, cols.id - 2) +
-          pad(s.status, cols.status) +
+          pad(s.outcome ? outcomeLabel(s.outcome) : s.status, cols.status) +
           pad(fmtAge(s.started_at), cols.age) +
           pad(fmtDur(durSec(s.started_at, s.ended_at || s.last_activity)), cols.dur) +
           pad(fmtTokens(s.total_tokens), cols.tok) +
@@ -441,7 +454,7 @@ function RunsList({ sessions, sel, height, width, dbMissing, dbPath }) {
   );
 }
 
-function RunDetail({ detail, now, height, width }) {
+export function RunDetail({ detail, now, height, width }) {
   const s = detail.session;
   const tokensByPhase = new Map((detail.phaseTokens || []).map((r) => [r.phase_id, r.tokens]));
   const failedGates = (detail.gates || []).filter((g) => !g.passed).length;
@@ -467,10 +480,12 @@ function RunDetail({ detail, now, height, width }) {
   const relays = (detail.engineEvents || [])
     .filter((e) => (e.type === 'engine_fallback' || e.type === 'engine_relay') && e.payload?.from && e.payload?.to)
     .slice(-3);
-  const phaseRoom = Math.max(3, height - 8 - relays.length);
+  // The runner's own sentence for WHY the run stopped costs one more row.
+  const whyRow = s.outcome_reason ? 1 : 0;
+  const phaseRoom = Math.max(3, height - 8 - relays.length - whyRow);
   const hiddenPhases = Math.max(0, phaseRows.length - phaseRoom);
   const shownPhases = hiddenPhases ? phaseRows.slice(-phaseRoom) : phaseRows;
-  const evRoom = Math.max(0, height - shownPhases.length - relays.length - 6 - (hiddenPhases ? 1 : 0));
+  const evRoom = Math.max(0, height - shownPhases.length - relays.length - whyRow - 6 - (hiddenPhases ? 1 : 0));
   // slice(-0) is slice(0) — it would return the WHOLE buffer, so guard zero.
   const events = evRoom > 0 ? (detail.events || []).slice(-evRoom) : [];
   return h(
@@ -482,6 +497,10 @@ function RunDetail({ detail, now, height, width }) {
       h(Text, { bold: true }, s.fda_id),
       h(Text, { color: 'gray' }, `  ${s.fda_name || ''} · `),
       h(Text, { color: st(s.status).color }, s.status),
+      // The run's NAMED terminal outcome, when the trace carries one. Older runs
+      // (and databases the migration has not opened yet) have none — the bare
+      // status above stays the fallback.
+      s.outcome ? h(Text, { color: 'gray' }, ` (${outcomeLabel(s.outcome)})`) : null,
       h(
         Text,
         { color: 'gray' },
@@ -490,6 +509,10 @@ function RunDetail({ detail, now, height, width }) {
       failedGates ? h(Text, { color: 'red' }, `${failedGates} gate fail${failedGates > 1 ? 's' : ''}`) : null,
     ),
     s.request ? h(Line, { color: 'gray' }, `“${trunc(s.request, width - 6)}”`) : null,
+    // WHY it stopped, in the runner's own words. The label above is only the
+    // category ("attempt cap reached"); without the sentence ("suite failed
+    // after 3 fix attempt(s)") the student is back to reading the trace db.
+    s.outcome_reason ? h(Line, { color: 'gray' }, `↳ ${trunc(s.outcome_reason, width - 8)}`) : null,
     ...relays.map((e, i) =>
       h(
         Line,

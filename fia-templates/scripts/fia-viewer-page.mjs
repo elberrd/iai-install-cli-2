@@ -73,7 +73,8 @@ export const PAGE = `<!doctype html>
   .scard .id { font-family:var(--mono); font-size:11px; color:var(--faint); margin-top:2px; }
   .scard .req { color:var(--dim); font-size:12px; margin-top:5px; display:-webkit-box;
                 -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
-  .scard .meta { display:flex; gap:10px; color:var(--faint); font-size:11px; margin-top:7px; }
+  .scard .meta { display:flex; gap:10px; color:var(--faint); font-size:11px; margin-top:7px; flex-wrap:wrap; }
+  .scard .meta .oc { color:var(--dim); font-weight:600; }
   .side-empty { color:var(--faint); text-align:center; padding:40px 20px; font-size:12.5px; }
 
   main { flex:1; min-width:0; display:flex; flex-direction:column; padding:14px 16px; gap:12px; overflow-y:auto; }
@@ -82,6 +83,7 @@ export const PAGE = `<!doctype html>
   .kpi .k { color:var(--faint); font-size:11px; text-transform:uppercase; letter-spacing:.7px; }
   .kpi .v { font-size:17px; font-weight:650; margin-top:3px; font-variant-numeric:tabular-nums; }
   .kpi .v.ok{color:var(--ok)} .kpi .v.fail{color:var(--err)} .kpi .v.running{color:var(--warn)}
+  .kpi .why { color:var(--faint); font-size:11px; margin-top:4px; line-height:1.35; }
   .tokmodels { display:flex; gap:7px; flex-wrap:wrap; align-items:center; }
   .tokmodels .tm-label { color:var(--faint); font-size:11px; text-transform:uppercase; letter-spacing:.7px; }
   .tokmodels .chip b { font-family:var(--mono); font-weight:600; font-size:11px; color:var(--text); }
@@ -374,6 +376,19 @@ var EV_FILTERS = [
 function $(id){ return document.getElementById(id); }
 function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
   return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+// Terminal-outcome labels. Mirrors LABELS in imp/modules/outcome.mjs, which the
+// page cannot import (this file is a single template literal) — keep both sides
+// in sync by hand. Every value here is a literal, so it is safe to interpolate.
+var OUTCOME_LABELS = { goal_met:'goal met', verification_failed:'verification failed',
+  attempt_cap:'attempt cap reached', no_progress:'no progress',
+  budget_exhausted:'time budget exhausted', breadth_exceeded:'change breadth exceeded',
+  blocked_by_gate:'blocked by a gate', engine_exhausted:'engines exhausted',
+  aborted:'aborted', failed:'failed' };
+// The NAMED outcome as display text, already escaped, or '' when the trace
+// carries none (older runs, and databases a new Tracer has not opened yet).
+// An unrecognised value degrades exactly as outcomeLabel() does.
+function outcomeText(outcome){ if(!outcome) return '';
+  return OUTCOME_LABELS[outcome] || esc(String(outcome)) + ' (unknown outcome)'; }
 function fmtDur(sec){ if(sec == null) return '—'; if(sec < 10) return sec.toFixed(1)+'s';
   var t = Math.round(sec);
   if(t < 60) return t+'s';
@@ -463,16 +478,23 @@ function renderSidebar(){
   if(S.view === 'pi'){ renderPiSidebar(); return; }
   if(S.view === 'agents'){ renderAgentsSidebar(); return; }
   var q = S.filterText.toLowerCase();
+  // The outcome slug rides the haystack too, so typing "no_progress" finds the
+  // runs that stalled — the label alone would only match its English words.
   var items = S.sessions.filter(function(s){
-    return !q || (s.fda_id+' '+(s.fda_name||'')+' '+(s.request||'')+' '+(s.engineer||'')).toLowerCase().indexOf(q) !== -1;
+    return !q || (s.fda_id+' '+(s.fda_name||'')+' '+(s.request||'')+' '+(s.engineer||'')+' '+
+      (s.outcome||'')+' '+(s.outcome_reason||'')).toLowerCase().indexOf(q) !== -1;
   });
   var html = items.map(function(s){
+    // The NAMED outcome belongs in the LIST: 20 cards that all say "fail" make
+    // the student open each one to find the runs that stalled.
+    var oc = outcomeText(s.outcome);
     return '<div class="scard'+(s.fda_id===S.selected?' sel':'')+'" data-id="'+esc(s.fda_id)+'"'+(s.stale?' title="abandoned (stale) — the run stopped without finishing"':'')+'>'+
       '<div class="row1"><span class="sdot '+esc(s.stale ? 'fail' : s.status)+'"></span>'+
       '<span class="name">'+esc(s.fda_name||'fda')+'</span><span class="ago">'+(s.stale?'abandoned · ':'')+ago(s.started_at)+'</span></div>'+
       '<div class="id">'+esc(s.fda_id)+'</div>'+
       '<div class="req">'+esc(s.request||'(no request)')+'</div>'+
-      '<div class="meta"><span>'+esc(s.engineer||'')+'</span><span>'+fmtTokens(s.total_tokens)+' tok</span>'+
+      '<div class="meta">'+(oc ? '<span class="oc">'+oc+'</span>' : '')+
+      '<span>'+esc(s.engineer||'')+'</span><span>'+fmtTokens(s.total_tokens)+' tok</span>'+
       '<span>$'+Number(s.total_cost||0).toFixed(3)+'</span></div></div>';
   }).join('');
   $('list').innerHTML = html || '<div class="side-empty">No runs'+(q?' for this filter':'')+'.</div>';
@@ -554,9 +576,18 @@ function renderKpis(){
   var dur = s.started_at ? (end - Date.parse(s.started_at))/1000 : null;
   var done = phases.filter(function(p){ return p.status==='success'; }).length;
   // A 'running' session with no recent activity was orphaned (Ctrl-C/crash).
-  var label = s.status==='success' ? 'accepted' : s.status==='fail' ? 'failed' : s.stale ? 'abandoned (stale)' : 'running';
+  // A run that closed carries a NAMED terminal outcome; runs recorded before
+  // outcomes existed (and databases not yet migrated) carry none, so the old
+  // status/staleness derivation stays as the fallback.
+  // outcomeText() mirrors LABELS in imp/modules/outcome.mjs — the page cannot
+  // import it (it is one big string), so the two are kept in sync by hand.
+  var label = outcomeText(s.outcome) ||
+    (s.status==='success' ? 'accepted' : s.status==='fail' ? 'failed' : s.stale ? 'abandoned (stale)' : 'running');
+  // The reason is a SENTENCE, not a tooltip: a title= attribute is invisible on
+  // touch and to anyone scanning the KPI row, which is where it is needed.
+  var why = s.outcome_reason ? '<div class="why">'+esc(s.outcome_reason)+'</div>' : '';
   $('kpis').innerHTML =
-    kpi('Status', '<span class="v '+esc(s.stale ? 'fail' : s.status)+'">'+label+'</span>') +
+    kpi('Status', '<span class="v '+esc(s.stale ? 'fail' : s.status)+'">'+label+'</span>'+why) +
     kpi('Duration', '<span class="v">'+fmtDur(dur)+'</span>') +
     kpi('Phases', '<span class="v">'+done+'/'+phases.length+'</span>') +
     kpi('Tokens', '<span class="v">'+fmtTokens(s.total_tokens)+'</span>') +
@@ -762,18 +793,27 @@ function evClass(type){
   if(type==='engine_fallback'||type==='engine_relay') return ['ty-gatef',type];
   if(type==='engine_continuation') return ['ty-log',type];
   if(type==='agent_start'||type==='agent_end') return ['ty-agent',type];
+  // The run's closing row — its name IS the terminal outcome. Styled with the
+  // lifecycle family, because that is what it is: the last phase-level fact.
+  if(type==='run_end') return ['ty-phase','run_end'];
   if(type==='log') return ['ty-log','log'];
   return ['ty-other',type];
 }
 var ENGINE_EVENTS = ['engine_error','engine_fallback','engine_relay','engine_continuation'];
-function evMatches(type){
+function evMatches(type, name){
   var f = S.evFilter;
   if(f==='all') return true;
   if(f==='tool') return type==='tool_call';
   if(f==='gate') return type==='gate_pass'||type==='gate_fail';
-  if(f==='phase') return type==='phase_start'||type==='phase_end';
+  // run_end rides BOTH lifecycle and errors: it is the run's last phase-level
+  // fact, and it is the first thing someone hunting a failure wants to read.
+  // There is exactly one per run, so it cannot crowd either filter. Leaving it
+  // out of every filter would make it reachable only under "All".
+  if(f==='phase') return type==='phase_start'||type==='phase_end'||type==='run_end';
   if(f==='log') return type==='log';
-  if(f==='error') return type==='error'||type==='gate_fail'||ENGINE_EVENTS.indexOf(type)>=0;
+  // Only a run that did NOT meet its goal belongs under Errors — putting every
+  // run_end there made the filter never empty, which is the same as useless.
+  if(f==='error') return type==='error'||type==='gate_fail'||(type==='run_end'&&name!=='goal_met')||ENGINE_EVENTS.indexOf(type)>=0;
   return true;
 }
 function renderEvFilters(){
@@ -787,7 +827,7 @@ function renderEvFilters(){
 }
 function renderEvents(){
   var box = $('events'); if(!box) return;
-  var rows = S.events.filter(function(e){ return evMatches(e.type); });
+  var rows = S.events.filter(function(e){ return evMatches(e.type, e.name); });
   if(!rows.length){ box.innerHTML = '<div class="mini-empty">No events'+(S.evFilter!=='all'?' for this filter':'')+
     ' — they show up here in real time.</div>'; return; }
   var html = '';

@@ -23,11 +23,21 @@
  * Usage:
  *   node imp/scripts/decision-log.mjs open <command> [--topic "…"] [--json]
  *   node imp/scripts/decision-log.mjs log <id|path> --q "…" [--rec "…"] --a "…"
+ *   node imp/scripts/decision-log.mjs log <id|path> --q "…" --rec "…" --accepted
  *   node imp/scripts/decision-log.mjs note <id|path> --text "…"
  *   node imp/scripts/decision-log.mjs close <id|path> [--outcome "…"] [--artifact <p>]…
  *   node imp/scripts/decision-log.mjs latest [command] [--json]
  *   node imp/scripts/decision-log.mjs list [--command <c>] [--json]
  * All subcommands accept --dir <project root> (default: cwd).
+ *
+ * `--accepted` is the beginner's exit from an open question: the student takes
+ * the recommendation instead of typing an answer. It REQUIRES --rec and refuses
+ * a simultaneous --a, and the entry records the recommendation as the answer
+ * with a literal marker, so the file stays unambiguous about who decided:
+ *
+ *   ### 3. Which database?
+ *   - Recommendation: Convex
+ *   - Answer: Convex (accepted)
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, resolve } from 'node:path';
@@ -176,13 +186,22 @@ export function openLog(root, command, topic) {
   return join(DECISIONS_DIR, name);
 }
 
-/** Append one answered question. Returns the entry number. */
-export function logEntry(file, { question, recommendation, answer }) {
+/**
+ * Append one answered question. Returns the entry number.
+ * `accepted: true` means the student took the recommendation instead of typing
+ * an answer: the answer line becomes the recommendation plus the literal
+ * ` (accepted)` marker. This is the SINGLE writer for both forms — the accepted
+ * shape is not a second format, only a different answer text. Without a
+ * recommendation there is nothing to accept, so it degrades to the plain answer
+ * (the CLI refuses that combination up front).
+ */
+export function logEntry(file, { question, recommendation, answer, accepted }) {
   const content = readFileSync(file, 'utf8');
   const n = nextEntryNumber(content);
   const lines = [`### ${n}. ${oneLine(question)}`];
-  if (recommendation) lines.push(`- Recommendation: ${oneLine(recommendation)}`);
-  lines.push(`- Answer: ${String(answer ?? '').trim()}`, '');
+  const rec = recommendation ? oneLine(recommendation) : '';
+  if (rec) lines.push(`- Recommendation: ${rec}`);
+  lines.push(`- Answer: ${accepted && rec ? `${rec} (accepted)` : String(answer ?? '').trim()}`, '');
   writeFileSync(file, content.replace(/\n*$/, '\n\n') + lines.join('\n'));
   return n;
 }
@@ -251,8 +270,15 @@ export function main(argv) {
     if (cmd === 'log') {
       const question = flagValue(argv, '--q');
       const answer = flagValue(argv, '--a');
-      if (!question || answer === undefined) fail('usage: decision-log log <id|path> --q "…" [--rec "…"] --a "…"');
-      const n = logEntry(file, { question, recommendation: flagValue(argv, '--rec'), answer });
+      const recommendation = flagValue(argv, '--rec');
+      const accepted = argv.includes('--accepted');
+      if (accepted && !recommendation)
+        fail('--accepted needs --rec "…" — the accepted answer IS the recommendation, so there must be one to accept');
+      if (accepted && answer !== undefined)
+        fail('--accepted and --a are mutually exclusive — either accept the recommendation or record a typed answer, never both');
+      if (!question || (answer === undefined && !accepted))
+        fail('usage: decision-log log <id|path> --q "…" [--rec "…"] (--a "…" | --accepted)');
+      const n = logEntry(file, { question, recommendation, answer, accepted });
       console.log(json ? JSON.stringify({ entry: n }) : `logged #${n}`);
     } else if (cmd === 'note') {
       const text = flagValue(argv, '--text');

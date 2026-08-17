@@ -292,11 +292,16 @@ export function startViewer({
         res.end(PAGE);
       } else if (url.pathname === '/api/sessions') {
         const d = getDb();
+        // `outcome`/`outcome_reason` are probed, not named blindly: the trace
+        // schema is create-only, so they exist only in a db a new Tracer has
+        // opened, and naming a missing column would 500 the whole list.
+        const outcomeCols =
+          d && d.pragma('table_info(sessions)').some((c) => c.name === 'outcome') ? ', outcome, outcome_reason' : '';
         const rows = d
           ? d
               .prepare(
                 `SELECT fda_id, fda_name, status, engineer, substr(request,1,120) AS request,
-                        started_at, ended_at, total_tokens, total_cost
+                        started_at, ended_at, total_tokens, total_cost${outcomeCols}
                  FROM sessions ORDER BY started_at DESC LIMIT 80`,
               )
               .all()

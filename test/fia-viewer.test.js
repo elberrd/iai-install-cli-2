@@ -237,3 +237,46 @@ test('agents editor: the fallback cap comes from MAX_FALLBACKS (server and page 
   assert.match(PAGE, new RegExp(`fallbacks\\.length < ${MAX_FALLBACKS} \\?`));
   assert.doesNotMatch(PAGE, /fallbacks\.length < 3 \?/);
 });
+
+test('viewer page: run_end is reachable from a filter, not only from "All"', async () => {
+  const { PAGE } = await import('../fia-templates/scripts/fia-viewer-page.mjs');
+  // lessons.md: a new event TYPE needs the dashboard classifiers updated, or it
+  // is invisible. `run_end` is the run's closing row — the single most useful
+  // event in the stream — so it must ride the lifecycle and the error filters.
+  const phaseFilter = /if\(f==='phase'\) return ([^;]+);/.exec(PAGE);
+  assert.ok(phaseFilter, 'the page still has a phase filter branch');
+  assert.match(phaseFilter[1], /run_end/, "run_end rides the 'phase' filter");
+
+  const errorFilter = /if\(f==='error'\) return ([^;]+);/.exec(PAGE);
+  assert.ok(errorFilter, 'the page still has an error filter branch');
+  assert.match(errorFilter[1], /run_end/, "run_end rides the 'error' filter");
+  // …but only when the run did NOT meet its goal: a filter that always has a row
+  // in it stops meaning anything.
+  assert.match(errorFilter[1], /name!=='goal_met'/, 'a green run_end stays out of Errors');
+  assert.match(PAGE, /function evMatches\(type, name\)/, 'the filter can see the outcome');
+
+  // And it must be styled, not fall through to the generic 'other' bucket.
+  assert.match(PAGE, /type==='run_end'\) return \['ty-/, 'run_end has its own style class');
+});
+
+test('viewer page: the named outcome is on the sidebar cards, and the reason is visible text', async () => {
+  const { PAGE } = await import('../fia-templates/scripts/fia-viewer-page.mjs');
+  // One label helper, shared by the sidebar list and the Status KPI.
+  assert.match(PAGE, /function outcomeText\(outcome\)/, 'the page has a single outcome-label helper');
+
+  const sidebar = /\nfunction renderSidebar\(\)\{([\s\S]*?)\n\}/.exec(PAGE);
+  assert.ok(sidebar, 'the page still has renderSidebar');
+  // A list of 20 runs that all say "fail" cannot answer "which ones stalled?".
+  assert.match(sidebar[1], /outcomeText\(s\.outcome\)/, 'each card shows the named outcome');
+  // …and typing the slug must find them, so it rides the text filter too.
+  assert.match(sidebar[1], /\(s\.outcome\|\|''\)/, 'the sidebar filter matches on the outcome');
+  assert.match(PAGE, /\.scard \.meta \.oc \{/, 'the card outcome is styled');
+
+  const kpis = /\nfunction renderKpis\(\)\{([\s\S]*?)\n\}/.exec(PAGE);
+  assert.ok(kpis, 'the page still has renderKpis');
+  // The sentence is the point of the vocabulary — a hover tooltip is invisible
+  // on touch and to anyone scanning the KPI row.
+  assert.match(kpis[1], /class="why">'\+esc\(s\.outcome_reason\)/, 'the reason renders as text');
+  assert.doesNotMatch(kpis[1], /title="'\+esc\(s\.outcome_reason\)/, 'not hidden in a title attribute');
+  assert.match(PAGE, /\.kpi \.why \{/, 'the reason line is styled');
+});

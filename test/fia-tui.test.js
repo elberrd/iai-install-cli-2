@@ -360,6 +360,73 @@ test('tui: DocView and TestsPane mount through React with real props', async () 
   assert.match(out, /suite passed/);
 });
 
+test('tui: the named outcome reaches both LIST surfaces, and its reason the detail', async () => {
+  const { Writable } = await import('node:stream');
+  const { RunPanel, RunsList, RunDetail } = await import('../fia-templates/scripts/fia-tui.mjs');
+  const React = (await import('react')).default;
+  const { render } = await import('ink');
+  const chunks = [];
+  const fakeStdout = (columns) => {
+    const s = new Writable({
+      write(c, _enc, cb) {
+        chunks.push(String(c));
+        cb();
+      },
+    });
+    s.columns = columns;
+    s.rows = 40;
+    return s;
+  };
+  const t0 = new Date(Date.now() - 13_000).toISOString();
+  const t1 = new Date().toISOString();
+  const run = (fda_id, status, outcome, outcome_reason) => ({
+    fda_id,
+    fda_name: 'quick',
+    status,
+    outcome,
+    outcome_reason,
+    started_at: t0,
+    ended_at: t1,
+    total_tokens: 12300,
+    total_cost: 0.42,
+    request: 'Add a settings page',
+  });
+  const capped = run('r1', 'fail', 'attempt_cap', 'suite failed after 3 fix attempt(s)');
+  const gated = run('r2', 'fail', 'blocked_by_gate', 'the ui gate refused the diff');
+  const legacy = run('r3', 'success', undefined, undefined); // recorded before outcomes existed
+
+  // Home card: the very first line a student reads after a run.
+  const home = render(React.createElement(RunPanel, { run: { session: capped, phases: [] }, now: Date.now() }), {
+    stdout: fakeStdout(130),
+    patchConsole: false,
+  });
+  home.unmount();
+  // Runs tab: the screen used to pick WHICH run to open.
+  const list = render(
+    React.createElement(RunsList, { sessions: [capped, gated, legacy], sel: 0, height: 20, width: 120 }),
+    { stdout: fakeStdout(130), patchConsole: false },
+  );
+  list.unmount();
+  // Detail: the sentence that says why, not just the category.
+  const detail = render(
+    React.createElement(RunDetail, {
+      detail: { session: capped, phases: [], gates: [], agentSessions: [], phaseTokens: [], engineEvents: [] },
+      now: Date.now(),
+      height: 20,
+      width: 100,
+    }),
+    { stdout: fakeStdout(110), patchConsole: false },
+  );
+  detail.unmount();
+
+  const out = chunks.join('');
+  assert.match(out, /last run: r1/);
+  assert.match(out, /attempt cap reached/); // Home card + Runs row
+  assert.match(out, /blocked by a gate/); // two failed runs are told apart in the list
+  assert.match(out, /success/); // a row with no outcome keeps the bare status
+  assert.match(out, /suite failed after 3 fix attempt\(s\)/); // the reason, on screen
+});
+
 test('tui: --help prints usage without a terminal', () => {
   const r = spawnSync(process.execPath, [TUI, '--help'], { encoding: 'utf8', timeout: 20_000 });
   assert.equal(r.status, 0);
