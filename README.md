@@ -140,8 +140,8 @@ imp settings                   # where every machine setting comes from (read-on
 | `/spec [capability]` | Durable spec — requirements + BDD scenarios + traceability gates. |
 | `/onboarding [focus?] [--report-only]` | Existing project, first run: chains `/absorb` → `/stack` → `/kit` in one guided pass — ends ready for `/idea` or `/feature`. Interrupted tours resume where they stopped; `--report-only` defers the design-system decisions. |
 | `/absorb [focus]` | Existing project → as-built PRD, map, conventions, stack manifest, component registry and the maintained `ai-docs/wiki/` (pages agents read instead of re-reading the code). |
-| `/kit` | Design-system audit of existing code: as-built registry, gap report, design-only tasks. |
-| `/component`, `/theme`, `/design`, `/example` | Design system: add a component, change colors/fonts, redesign from references, register an external reference. |
+| `/kit` | Design-system audit of existing code: as-built registry, `/ui-components`, gap report vs the core kit (including interaction contracts: yellow search highlight, Combobox width, calendar month/year jump, Filter + chips, one component per card), then approved design-only tasks. |
+| `/component`, `/theme`, `/design`, `/example` | Design system: add a component (register + isolated `/ui-components` card), change colors/fonts, redesign from references, register an external reference. |
 | `/launch` | Go live — public beta and production, with readiness gates. |
 | `/qa [scope?]` | Browser QA at milestone/spec/task — Playwright e2e, responsive check, design audit, durable report. |
 | `/agents` | Visual roster editor: engine, model and fallbacks per FDA agent — with automatic mid-run relay when an engine dies. |
@@ -265,8 +265,12 @@ the agent harness (skills, commands, gates) and the FIA runtime:
   observability SQLite, the terminal TUI and the web viewer.
 - **`.pi/`** — Pi's project config: prompts, the `fia` skill and cookbooks.
 - **`ai-docs/`** — the project's living documentation: PRD, stack manifest,
-  specs, decisions, design system and the repo wiki (`wiki/`, kept honest by
-  `npm run wiki:check`).
+  specs, decisions, the component registry + live `/ui-components` page, and
+  the repo wiki (`wiki/`, kept honest by `npm run wiki:check`).
+- **Design system** — `/ui-components` demos the kit for real. Search
+  highlights in yellow, Combobox dropdowns match the trigger, calendars jump
+  month and year, tables filter from the header (chips, not a button farm),
+  and each showcase card is one component.
 
 ## Requirements
 

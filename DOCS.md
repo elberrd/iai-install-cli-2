@@ -944,11 +944,11 @@ Design system and references:
 
 | Command | What it does |
 | --- | --- |
-| `/component <name + URL/cmd> \| list \| sync` | The legal entry path for a new UI component: duplicate check against the registry first (roles `default`/`alternative` resolved), research → `ai-docs/components/<lib>/<name>.md`, install, adapt to theme/i18n/a11y (semantic-domain fields ship with their canonical source wired), registry row, `/ui-components` section. `sync` reconciles registry ↔ code ↔ page; `list` prints the registry by category. |
+| `/component <name + URL/cmd> \| list \| sync` | The legal entry path for a new UI component: duplicate check against the registry first (roles `default`/`alternative` resolved), research → `ai-docs/components/<lib>/<name>.md`, install, adapt to theme/i18n/a11y (semantic-domain fields ship with their canonical source wired), registry row, isolated `/ui-components` section (one component per card — `references/interaction.md`). `sync` reconciles registry ↔ code ↔ page; `list` prints the registry by category. |
 | `/theme [hint\|accept?]` | Visual identity behind a side-by-side preview: ~7-question interview (colors, dark/light, typography via `next/font`, shape, interaction patterns), generates the full token set (WCAG AA contrast is a blocker), renders Current × Proposed at `/ui-components/preview` with REAL registry components, and only applies to `app/globals.css` after explicit approval. `accept` fast-path records a conscious "keep the default" decision — enough to satisfy the theme gate. |
 | `/design <images + description>` | Layout redesign from reference images: structure/hierarchy/density/motion come from the reference, colors/fonts/components stay OURS (theme + registry only). Contained scope applies directly; broad scope becomes roadmap tasks. Uses the Impeccable skill for motion when installed. |
 | `/example <url> [notes] \| list` | Registers an external reference on the example shelf: reads the source (never registers from a URL alone), pins license + commit, writes `ai-docs/examples/<slug>/NOTES.md` (mandatory `## What NOT to take`) + a registry row. GPL-family/unknown licenses are never copied verbatim. |
-| `/kit [focus?] [--report-only]` | Brownfield design-system audit: as-built registry rows → `/ui-components` page → **gap report** vs the core kit (`kit-report.md`: missing needs, below-contract items with file/line evidence — the DataTable contract audited item by item — duplicates without roles) → engineer approves → delta spec + `Kind: kit` design-only tasks with one checkbox per contract item. Changes no component and no screen itself. |
+| `/kit [focus?] [--report-only]` | Brownfield design-system audit: as-built registry rows → `/ui-components` page → **gap report** vs the core kit (`kit-report.md`: missing needs, below-contract items with file/line evidence — the DataTable contract audited item by item, plus Combobox overlay width, yellow search highlight, calendar month/year caption, pointer cursor, and one-component-per-card isolation from `references/interaction.md` — duplicates without roles) → engineer approves → delta spec + `Kind: kit` design-only tasks with one checkbox per contract item. Changes no component and no screen itself. |
 
 Going live and meta:
 
@@ -972,25 +972,38 @@ without the FIA runtime.
 | `start-mapper` | Reads the whole codebase → `ai-docs/map.yaml` (mapping only). |
 | `start-scaffolding` | Folder structure + empty placeholders only — explicitly no implementation code. |
 | `component-architect` | Seeds the component registry: core-kit `planned` rows in scaffold-less greenfield, as-built `installed` rows when code exists (`/kit` runs it in as-built mode). |
-| `ui-component-page` | Creates/updates the live `/ui-components` design-system page (every registry component rendered for real, searchable, by category). |
+| `ui-component-page` | Creates/updates the live `/ui-components` design-system page (every registry component rendered for real, searchable, by category). Each card isolates ONE registry component — a kitchen-sink form reused across DateInput/Calendar/Combobox is a contract failure (`references/interaction.md`). |
 | `ui-component-researcher` | Researches/documents a single UI component into `ai-docs/components/<lib>/<name>.md`. |
 | `api-docs-researcher` | Researches an external API/technology and writes the project-tailored doc into `ai-docs/apis/` (also logs the four research dimensions). |
 
-`.cursor/agents/` are symlinks to `.claude/agents/` (canonical) — real
-copies on a Windows machine without the symlink privilege (§8, extraction
-fallback). Cursor additionally ships router skills (`project-workflow` +
-`workflow-*` wrappers for the original 8 pipelines) because Cursor routes by
-skill.
+`.cursor/agents/` **and** `.agents/agents/` are symlinks to
+`.claude/agents/` (canonical) — real copies on a Windows machine without
+the symlink privilege (§8, extraction fallback). Cursor and Pi discover
+agents through `.agents/agents/`; editing only a copy under `.cursor/`
+that is not the symlink leaves them on the old prompt. Cursor additionally
+ships router skills (`project-workflow` + `workflow-*` wrappers for the
+original 8 pipelines) because Cursor routes those commands by skill — the
+wrapper then reads `.cursor/commands/<name>.md`.
 
 ### 8.3 Skills shipped
 
 Six skills for both engines: **tdd** (the red→green loop `/dev` follows),
 **frontend-profissional**, **design-system** (incl. `references/core-kit.md`
-— the canonical component contracts — and `references/semantic-fields.md` —
-known-domain data never becomes a free-text input), **security** (incl. the
+— the canonical component contracts — `references/semantic-fields.md` —
+known-domain data never becomes a free-text input — and
+`references/interaction.md` — pointer cursor, yellow search highlight,
+overlay width = trigger, calendar month/year caption, DataTable Filter +
+chips, `/ui-components` one-component-per-card), **security** (incl. the
 `/launch` checklist and the multi-tenancy reference), **backend-profissional**
 and **examples** (the reference-shelf matching rules). The four professional
 ones are the template-ownable paths described above.
+
+In the harness checkout the edit path is **not** `.agents/` first: shared
+skills are edited in `harness/.claude/skills/`, `npm run sync:skills`
+mirrors them to `harness/.cursor/skills/`, and `harness/.agents/skills/<name>`
+is a directory symlink to that Cursor tree — that is the path Cursor and Pi
+resolve in a stamped project. Skipping the sync leaves Cursor/Pi on the
+previous skill bytes.
 
 ### 8.4 Seeing what the plan created
 
@@ -2116,6 +2129,14 @@ design-system skill (`references/semantic-fields.md`), the sequencer adds a
 Semantic fields table to briefs that touch such data, and both the C8
 quality checklist and the UI gate's rubric audit it.
 
+**Interaction contracts** ride along the same way: pointer cursor on every
+clickable control, yellow `<mark>` on any typed search or filter, Combobox
+popover at least as wide as the trigger, calendar caption that jumps month
+and year, DataTable filters as header / one Filter control + chips (never a
+toolbar row of per-column buttons), and `/ui-components` isolating one
+registry component per card. The catalog is `references/interaction.md`;
+the UI gate and `/qa` audit it; `/kit` gap-reports against it.
+
 **The theme checkpoint**: on greenfield paths, after the Foundation task the
 sequencer refuses to hand out any other task until a **closed `theme`
 decision log** exists — either `/theme` ran (interview → side-by-side
@@ -2178,14 +2199,14 @@ theme, design, examples, launch, update_roster.
 | `/spec` | `"capability"\|NNNN` | Create/update a durable spec, `## Flow` mermaid diagram included; the Definition Gate (requirements + scenarios + diagram, no open P1) flips `Status: defined`; ticks related inbox items. |
 | `/launch` | `[beta\|production?]` | Go live by rungs, `fia-launch-check.mjs --json` as the fact source; confirms before every irreversible step; secrets never in chat. Warns when `qa_evidence` is missing for done milestones. |
 | `/qa` | `[M1\|NNNN\|NN] [--video]` | Browser QA: `node imp/fda_qa.mjs` — Playwright e2e at 375/768/1280, registry/patterns audit, report in `ai-docs/qa/`. Suggested after milestone/spec completion; not per-task. |
-| `/component` | `name + URL/cmd \| list \| sync` | Design-system entry path (dedupe → research → install → register → showcase). |
+| `/component` | `name + URL/cmd \| list \| sync` | Design-system entry path (dedupe → research → install → register → isolated `/ui-components` card). |
 | `/theme` | `[hint\|accept?]` | Identity interview → FDA-built side-by-side preview at `/ui-components/preview` → explicit approval. `accept` records "keep the default" (satisfies the theme gate) with zero app changes. AA contrast is a blocker. |
 | `/design` | `images + scope` | Layout redesign from references — structure from the image, identity from OUR system. |
 | `/example` | `URL [notes] \| list` | Register an external reference on the shelf (license researched, `What NOT to take` mandatory). |
 | `/agents` | — | Opens the viewer's Agents tab (`npm run agents -- --detach`) to edit engines/models/fallbacks; Pi is forbidden from editing `imp/fia.config.yaml` itself. |
 | `/onboarding` | `[focus?] [--report-only]` | First command on an EXISTING system: chains `/absorb` → `/stack` → `/kit` in one guided pass (each stage's own prompt is the law; stages whose artifacts already exist can be kept and skipped), then hands over explaining the split — `/idea` for a MODULE-sized addition vs `/feature` for a one-sentence delta. The tour keeps a **resume rail** in the decision log (`open onboarding` → one stage note each → `close`): an interrupted session resumes from its last stage note instead of restarting. `--report-only` is the express path — the `/kit` stage presents its gap report and defers the design decisions to a later `/kit` run. |
 | `/absorb` | `[focus?]` | Brownfield onboarding (as-built PRD/map/conventions/registry, the maintained `ai-docs/wiki/` + its digest stamp, and a project skill in `.pi/skills/project/` AND `.claude/skills/project/`); recommends `/kit` when the registry comes out empty/duplicated. |
-| `/kit` | `[focus?] [--report-only]` | Brownfield design-system audit → gap report → approved design-only tasks. |
+| `/kit` | `[focus?] [--report-only]` | Brownfield design-system audit → gap report vs core-kit + `interaction.md` → approved design-only tasks. |
 | `/status` | — | Read-only progress: tasks, milestones (status as declared), specs, inbox, latest runs and failed phases. |
 
 ### 12.2 The interactive subagents, chains and extensions
@@ -2936,14 +2957,21 @@ npm run sync:skills                         # regenerate harness/.cursor/skills
 **Mirror rule (single source of truth):** shared skills are edited ONLY in
 `harness/.claude/skills/` — `harness/.cursor/skills/` is GENERATED by
 `npm run sync:skills` (Cursor-only skills like `project-workflow` and
-`workflow-*` are untouched). `test/consistency.test.js` fails on drift and
-`sync:skills:check` reports it without writing. Commands
-(`.claude/commands` ↔ `.cursor/commands`) stay manual on purpose: their
-diffs are intentional (frontmatter, `.claude→.cursor` paths, Cursor-only
-extras like `bugbot`). Cross-runtime knowledge follows the same principle:
-one canonical file + pointers (e.g. the semantic-fields catalog in the
-design-system skill; `test/semantic-fields.test.js` is the tripwire that no
-runtime loses its pointer).
+`workflow-*` are untouched). `harness/.agents/skills/<name>` is a directory
+symlink to that Cursor tree — **that** is what Cursor and Pi resolve in a
+stamped project (Claude Code gets a symlink of its own to the same store).
+`test/consistency.test.js` fails on skill drift and `sync:skills:check`
+reports it without writing. Agents are the other way around: edit
+`harness/.claude/agents/`; `.cursor/agents/` and `.agents/agents/` are
+file symlinks to it. Commands (`.claude/commands` ↔ `.cursor/commands`)
+stay manual on purpose: their diffs are intentional (frontmatter,
+`.claude→.cursor` paths, Cursor-only extras like `bugbot`);
+`.agents/commands/` links at the Cursor copy. Cross-runtime knowledge
+follows the same principle: one canonical file + pointers (the
+semantic-fields catalog and the interaction catalog in the design-system
+skill; `test/semantic-fields.test.js` and `test/interaction-contracts.test.js`
+are the tripwires that no runtime — including the `.agents/` path Cursor
+actually opens — loses its pointer).
 
 Structure: `bin/` (entrypoints: `create-iai.js` = `npx impactus`, `imp.js` =
 the launcher) · `src/main.js` (pipeline) · `src/config.js` (catalogs:
