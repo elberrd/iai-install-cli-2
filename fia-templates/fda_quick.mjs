@@ -6,6 +6,7 @@ import { runFda, phaseParams } from './modules/fda-cli.mjs';
 import { artifactsExist } from './modules/gates.mjs';
 import { defaultSpecs, focalSpec, runQuality, asEnvelope } from './modules/quality.mjs';
 import { appendQuickLog, setQuickLogCommit } from './modules/quicklog.mjs';
+import { OUTCOMES } from './modules/outcome.mjs';
 import * as git from './modules/git-helper.mjs';
 
 /** Files declared by the persisted builder envelopes (build + fix) — see fda_plan_build_test. */
@@ -151,6 +152,9 @@ await runFda(
 
     return run.finish({
       accepted: Boolean(quality.passed),
+      // /quick has a cap of exactly one repair round, by design — spending it
+      // without going green IS the attempt cap, and it is known precisely here.
+      outcome: quality.passed ? null : OUTCOMES.ATTEMPT_CAP,
       reason: 'quality still failing after the single /quick repair round — route the work through /feature',
     });
   },

@@ -13,7 +13,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   started_at TEXT,
   ended_at TEXT,
   total_tokens INTEGER DEFAULT 0,
-  total_cost REAL DEFAULT 0
+  total_cost REAL DEFAULT 0,
+  outcome TEXT,
+  outcome_reason TEXT
 );
 CREATE TABLE IF NOT EXISTS phases (
   phase_id TEXT PRIMARY KEY,
@@ -98,6 +100,29 @@ export class Tracer {
     this.db.pragma('synchronous = NORMAL');
     this.db.pragma('busy_timeout = 5000');
     this.db.exec(SCHEMA);
+    this.#migrate();
+  }
+
+  /**
+   * The schema above is create-only (`IF NOT EXISTS`), so a project database
+   * created by an older runtime never gains new columns from it. Probe and add
+   * the ones the current runtime writes. Best-effort on purpose: a locked or
+   * read-only database must degrade, never break the run.
+   */
+  #migrate() {
+    try {
+      const present = new Set(
+        this.db
+          .prepare('PRAGMA table_info(sessions)')
+          .all()
+          .map((c) => c.name),
+      );
+      for (const column of ['outcome', 'outcome_reason']) {
+        if (!present.has(column)) this.db.exec(`ALTER TABLE sessions ADD COLUMN ${column} TEXT`);
+      }
+    } catch {
+      /* locked or read-only db — the run continues without the new columns */
+    }
   }
 
   event(record) {
@@ -128,9 +153,20 @@ export class Tracer {
     this.db
       .prepare(
         `INSERT INTO sessions (fda_id, status, engineer, started_at) VALUES (?, 'running', ?, ?)
-         ON CONFLICT(fda_id) DO UPDATE SET status='running'`,
+         ON CONFLICT(fda_id) DO UPDATE SET status='running', ended_at=NULL`,
       )
       .run(fdaId, engineer, nowIso());
+    // A resumed run reuses its fda_id, so the row still carries the PREVIOUS
+    // attempt's terminal outcome — and every reader prefers `outcome` over
+    // `status`, which would label a live run "attempt cap reached" for its whole
+    // duration. Clear it here, in its own guarded statement: naming these
+    // columns inside the upsert above would throw on a database whose
+    // best-effort ALTER never ran.
+    try {
+      this.db.prepare('UPDATE sessions SET outcome=NULL, outcome_reason=NULL WHERE fda_id=?').run(fdaId);
+    } catch {
+      /* pre-migration db without the columns — nothing to clear */
+    }
     if (fdaName) {
       const row = this.db.prepare('SELECT fda_name FROM sessions WHERE fda_id=?').get(fdaId);
       const names = row?.fda_name ? row.fda_name.split(' + ') : [];
@@ -149,10 +185,25 @@ export class Tracer {
       .run(tokens, cost, fdaId);
   }
 
-  sessionFinish(fdaId, ok) {
+  /**
+   * Close the session. `outcome` is the NAMED terminal reason (see
+   * modules/outcome.mjs); it is written only when non-empty, so a later, more
+   * precise settle is never overwritten by a vaguer one — and every existing
+   * two-argument caller keeps working unchanged.
+   */
+  sessionFinish(fdaId, ok, { outcome = null, reason = '' } = {}) {
     this.db
       .prepare('UPDATE sessions SET status=?, ended_at=? WHERE fda_id=?')
       .run(ok ? 'success' : 'fail', nowIso(), fdaId);
+    if (typeof outcome === 'string' && outcome) {
+      try {
+        this.db
+          .prepare('UPDATE sessions SET outcome=?, outcome_reason=? WHERE fda_id=?')
+          .run(outcome, String(reason || ''), fdaId);
+      } catch {
+        /* pre-migration db without the columns — status still tells the story */
+      }
+    }
     this.db.prepare('UPDATE processes SET ended_at=? WHERE fda_id=? AND ended_at IS NULL').run(nowIso(), fdaId);
   }
 

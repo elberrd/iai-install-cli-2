@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** FDA SDLC — plan → build → test → review → document. */
 import { runFda, phaseParams } from './modules/fda-cli.mjs';
-import { artifactsExist, filesNonEmpty, verdictConsistent, parseSpecLine, checkSpecCoverage, isFoundationBrief } from './modules/gates.mjs';
+import { artifactsExist, filesNonEmpty, verdictConsistent, parseSpecLine, checkSpecCoverage, checkSpecDiagram, isFoundationBrief } from './modules/gates.mjs';
 import { resolveBriefPath, runChecklistGate } from './modules/checklist.mjs';
 import { runUiGate } from './modules/ui-gate.mjs';
 import { runTestsForBrief } from './modules/quality.mjs';
@@ -51,6 +51,15 @@ await runFda(
           const report = checkSpecCoverage({ specId: ref.specId, ids: ref.ids, repoRoot: run.repoRoot });
           if (!report.passed) throw new Error(`spec coverage incomplete:\n- ${report.violations.join('\n- ')}`);
           ph.log({ spec: ref.specId, covered: ref.ids.join(',') });
+          // A spec with no `## Flow` diagram is a documentation gap, not a broken
+          // build: it is recorded in the trace here and enforced (warn) by the
+          // launch check, so a missing diagram never blocks an otherwise green run.
+          const diagram = checkSpecDiagram({
+            specId: ref.specId,
+            aiDocsDir: process.env.FIA_AI_DOCS || 'ai-docs',
+            repoRoot: run.repoRoot,
+          });
+          if (!diagram.passed) ph.log({ diagram: `missing — ${diagram.violations[0]}` });
         },
       );
 
@@ -131,9 +140,13 @@ await runFda(
       }
     }
 
+    // A red suite or a rejected review is exactly "verification failed" — the
+    // outcome finish() derives on its own. There is nothing more precise to
+    // name here, so no explicit outcome is passed; only the reason gets
+    // sharper, saying WHICH of the two verifications refused the work.
     return run.finish({
       accepted: Boolean(test.passed && review.approved),
-      reason: 'tests or review did not pass',
+      reason: test.passed ? 'the reviewer did not approve the build' : 'the test suite did not pass',
     });
   },
   { agents: ['planner', 'builder', 'reviewer', 'documenter'] },

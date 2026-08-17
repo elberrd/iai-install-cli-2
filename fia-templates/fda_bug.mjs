@@ -3,10 +3,12 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runFda, phaseParams } from './modules/fda-cli.mjs';
-import { artifactsExist, filesNonEmpty, validateRedReason, parseSpecLine, checkSpecCoverage } from './modules/gates.mjs';
+import { artifactsExist, filesNonEmpty, validateRedReason, parseSpecLine, checkSpecCoverage, checkSpecDiagram } from './modules/gates.mjs';
 import { resolveBriefPath, runChecklistGate } from './modules/checklist.mjs';
 import { runUiGate } from './modules/ui-gate.mjs';
 import { runTests, runFocalTests, asEnvelope } from './modules/quality.mjs';
+import { OUTCOMES } from './modules/outcome.mjs';
+import { changedContentSignature, createRepairTracker } from './modules/stop.mjs';
 import * as git from './modules/git-helper.mjs';
 
 /**
@@ -48,10 +50,13 @@ function savedPhaseResult(run, name) {
   }
 }
 
-const MAX_FIX = 3;
-
 await runFda(
   async ({ run, prompt, args }) => {
+    // The repair cap and the no-progress window come from the student's
+    // `stop:` config, with code defaults when the block is absent.
+    // The tracker owns the whole round accounting (modules/stop.mjs), so the
+    // rules cannot drift between this FDA and its sibling.
+    const repair = createRepairTracker(run.stop);
     const briefPath = resolveBriefPath(run, args.prompt);
     await run.runPhase(phaseParams('request', 'engineer', run.engineer, 'Capture the bug report'), async (ph) => {
       ph.log({ input: prompt });
@@ -120,12 +125,31 @@ await runFda(
         }),
     );
 
-    const runTestPhase = (n) =>
+    const runTestPhase = (n, { repairExecuted = false } = {}) =>
       run.runPhase(
         phaseParams(`test_${n}`, 'code', 'quality', 'Run the test suite — a known command executed by code, not an agent'),
         async (ph) => {
           const result = await runTests(run);
           ph.log({ passed: result.passed, checks: result.checks.length });
+          // No-progress detection. The signature is CONTENT-addressed (failing
+          // check names plus `path:hash` for everything this run changed), so a
+          // repair that edits the same file again reads as progress — a bare
+          // path list could not tell those apart. The tree is only fingerprinted
+          // on a red round, so a green suite costs no extra git call.
+          const round = repair.noteRound({
+            passed: result.passed,
+            failures: result.passed ? [] : result.checks.filter((c) => !c.passed).map((c) => c.name),
+            changed: result.passed ? [] : changedContentSignature(run.repoRoot, run.baseline),
+            repairExecuted,
+          });
+          if (!result.passed) {
+            ph.log({
+              identical_rounds: round.repeats,
+              counted_as_a_round: round.counted,
+              no_progress_window: repair.window || 'off',
+              stalled: round.stalled,
+            });
+          }
           return result;
         },
       );
@@ -133,7 +157,8 @@ await runFda(
     // Every fix is followed by a test: fix_i is verified by test_{i+1}, so the
     // last repair round is never left untested.
     let test = await runTestPhase(1);
-    for (let i = 1; i <= MAX_FIX && !test.passed; i++) {
+    for (let i = 1; i <= repair.cap && !test.passed && !repair.stalled; i++) {
+      const replayedBefore = run.replayed;
       previous = await run.runPhase(
         phaseParams(`fix_${i}`, 'agent', 'builder', 'Repair failures reported by the test suite', { retries: 1 }),
         async (ph) =>
@@ -144,7 +169,23 @@ await runFda(
             gates: [artifactsExist],
           }),
       );
-      test = await runTestPhase(i + 1);
+      // On --resume every fix_i is REPLAYED from disk as a no-op while the
+      // code-kind test phases re-execute. A round behind a replayed repair
+      // proves nothing and must never count toward the stall streak, or the
+      // documented recovery path dead-ends before a single repair is tried.
+      test = await runTestPhase(i + 1, { repairExecuted: run.replayed === replayedBefore });
+    }
+
+    // Stalled: the same checks failing over a tree the repair did not change,
+    // round after round. More rounds would cost tokens and change nothing.
+    if (!test.passed && repair.stalled) {
+      return run.finish({
+        accepted: false,
+        outcome: OUTCOMES.NO_PROGRESS,
+        reason:
+          `the same checks failed over an unchanged tree ${repair.repeats} repair round(s) in a row — ` +
+          'stopping instead of spending more of your plan',
+      });
     }
 
     if (test.passed) {
@@ -161,6 +202,15 @@ await runFda(
           const report = checkSpecCoverage({ specId: ref.specId, ids: ref.ids, repoRoot: run.repoRoot });
           if (!report.passed) throw new Error(`spec coverage incomplete:\n- ${report.violations.join('\n- ')}`);
           ph.log({ spec: ref.specId, covered: ref.ids.join(',') });
+          // A spec with no `## Flow` diagram is a documentation gap, not a broken
+          // build: it is recorded in the trace here and enforced (warn) by the
+          // launch check, so a missing diagram never blocks an otherwise green run.
+          const diagram = checkSpecDiagram({
+            specId: ref.specId,
+            aiDocsDir: process.env.FIA_AI_DOCS || 'ai-docs',
+            repoRoot: run.repoRoot,
+          });
+          if (!diagram.passed) ph.log({ diagram: `missing — ${diagram.violations[0]}` });
         },
       );
 
@@ -197,7 +247,12 @@ await runFda(
       );
     }
 
-    return run.finish({ accepted: Boolean(test.passed), reason: `suite failed after ${MAX_FIX} fix attempt(s)` });
+    return run.finish({
+      accepted: Boolean(test.passed),
+      // Reaching here still red means the configured cap was spent.
+      outcome: test.passed ? null : OUTCOMES.ATTEMPT_CAP,
+      reason: `suite failed after ${repair.cap} fix attempt(s)`,
+    });
   },
   { agents: ['planner', 'builder', 'reviewer'] },
 );

@@ -114,6 +114,39 @@ defaults:
 observability:
   db: imp/data/fia.db
 
+# stop — how a run is allowed to end. Every run closes with ONE named outcome:
+#   goal_met · verification_failed · attempt_cap · no_progress ·
+#   budget_exhausted · breadth_exceeded · blocked_by_gate · engine_exhausted ·
+#   aborted · failed        (only goal_met is success)
+# The values below are the CODE defaults — this whole block is optional and a
+# missing/typo'd/negative key degrades to the default with a printed warning.
+# stop:
+#   attempt_cap: 3          # fix rounds /task and /bug may spend on a red suite
+#                             (/quick has a fixed cap of one round, by design)
+#   no_progress_window: 2   # stop when the SAME failing checks AND the same changed
+#                             files repeat this many rounds — the run is stuck and
+#                             more rounds only spend your plan. 0 = off.
+#   budget_minutes: 0       # wall-clock ceiling for one run. 0 = off (the default).
+#   breadth_ceiling: 0      # max files one run may touch. 0 = off (the default);
+#                             turning it on costs one tree fingerprint per phase,
+#                             and a `Kind: foundation` run legitimately touches many.
+
+# notify — tell you when a run ends, so you can walk away from a long /goal.
+# OPT-IN: off unless `enabled: true` AND at least one valid target. Only https://
+# targets are accepted (http:// only for localhost). A target URL is treated as a
+# secret — only its host is ever printed. A notification can never fail a run.
+# The same block is accepted at ~/.impactus-cli/config.json (machine-wide);
+# what is written here wins per key. See `imp notify` and `imp settings`.
+# notify:
+#   enabled: true
+#   events: [run_end]       # run_end | gate_blocked | decision_needed — only
+#                             run_end is emitted by a run today; gate_blocked and
+#                             decision_needed are reserved for a future release.
+#   timeout_ms: 4000        # clamped to [500, 20000]
+#   targets:
+#     - { kind: slack, url: 'https://hooks.slack.com/services/…' }
+#     - { kind: telegram, url: 'https://api.telegram.org/bot<token>', chat_id: '123456' }
+
 agents:
   - name: planner
     coding_agent: claude_code
