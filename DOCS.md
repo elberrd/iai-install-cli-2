@@ -142,6 +142,7 @@ the login, keys and logs survive — `src/lib/state-dir.js`):
 | Path | What |
 | --- | --- |
 | `auth.json` | `{ token, apiBase, savedAt, label }`, mode 600. |
+| `config.json` | Machine-wide preferences (today the `notify` block), mode 600 — hand-edited, read by `imp settings` and by the run notifier (§14.6). |
 | `keys/<slug>.env` | Service keys pasted in the web UI (`--keys` reads them; mode 600, machine-local only). |
 | `logs/run-<timestamp>.log` | Full log of each installer run (secrets redacted) — what students attach to bug reports. |
 
@@ -840,11 +841,12 @@ anonymously in guest mode: harness + FIA are the free tier)
 and merges **without overwriting anything** — existing files
 win, the harness `README.md` becomes `imp/HARNESS.md`, and its `AGENTS.md` is
 appended to the project's between the `<!-- harness-start/end -->` markers.
-For Claude Code AND Cursor it brings **21 slash commands**, 9 specialist
+For Claude Code AND Cursor it brings **22 slash commands**, 9 specialist
 agents, 6 skills and the whole `ai-docs/` scaffold: PRD template, maps,
 task roadmap (`todos/`), specs (`specs/0000-example.md`), milestones, inbox,
 decisions/, ui/ (interaction patterns), components/ (140+ reference docs),
-apis/, examples/ and `start/map-start.yaml`.
+apis/, examples/, `wiki/` (the page contract in `wiki/README.md` + the optional
+`wiki-plan.yaml` — §10) and `start/map-start.yaml`.
 
 Skills shared with the templates (`HARNESS.templateOwnedPaths` — the four
 professional ones, in `.claude/skills` and `.cursor/skills`): the harness is
@@ -911,7 +913,7 @@ no-overwrite rule — records the HARNESS sha on purpose: it then reads as
 ever silently overwriting your version. Projects installed by an older CLI
 have no manifest (doctor says so); the next harness stamp records one.
 
-### 8.1 Command reference (Claude Code / Cursor — all 21)
+### 8.1 Command reference (Claude Code / Cursor — all 22)
 
 The core build loop:
 
@@ -930,12 +932,12 @@ Planning, specs and scope:
 | --- | --- |
 | `/grill [doc\|topic?]` | Stress-tests the PRD (default) or any doc/decision — one question at a time, each with a recommendation, decisions recorded in the decision log and written back into the document. Hunts placeholders, missing actors/permissions/edge cases and a `## Launch criteria` section. Run BEFORE `/start`. |
 | `/stack [tech\|layer?]` | Owns `ai-docs/stack.md`: decides pending layers by interview (IAI preference rules), researches each tech across the 4 mandatory dimensions (docs+llms.txt, skills, CLI, MCP) into the code-verified research ledger, writes `ai-docs/apis/<tech>.md` (9 required sections incl. the Production runbook `/launch` executes), and equips the project (skills in two invocations, CLIs, MCPs). |
-| `/spec [capability\|NNNN?]` | Creates/updates a durable spec `ai-docs/specs/NNNN-<slug>.md` (requirements FR/NFR, BDD scenarios S-n, traceability, gate log) via a short interview. Definition Gate flips `Status: defined`. |
-| `/feature "what you want"` | New functionality on an EXISTING system: size triage (module-sized → `/idea` in Pi), delta mini-grill, delta spec, then ONLY the new tasks (numbering continues, `Blocked by:` real tasks), shown for approval before anything executes. Requires `map.yaml` (`/absorb` first on a never-onboarded system). |
+| `/spec [capability\|NNNN?]` | Creates/updates a durable spec `ai-docs/specs/NNNN-<slug>.md` (requirements FR/NFR, a `## Flow` mermaid diagram, BDD scenarios S-n, traceability, gate log) via a short interview. Definition Gate flips `Status: defined` — the diagram is one of its conditions. |
+| `/feature "what you want"` | New functionality on an EXISTING system: size triage (module-sized → `/idea` in Pi), delta mini-grill, delta spec (with its own `## Flow` mermaid diagram of the delta), then ONLY the new tasks (numbering continues, `Blocked by:` real tasks), shown for approval before anything executes. Requires `map.yaml` (`/absorb` first on a never-onboarded system). |
 | `/bug "the symptom"` | Registers the defect as an issue, then fixes it through the normal pipeline with a **RED-for-the-right-reason** gate: the reproduction test must fail on an assertion before the fix (a passing or broken test never counts). |
 | `/quick "small change"` | Triage: SIMPLE only when blast radius ≤ ~3 files, one obvious shape, and none of: schema/migrations, auth/permissions, payments, new dependency, new route/page, new UI component, destructive data op. SIMPLE ships in one sitting with the guardrails on + one `## Q-NNN` audit line in `ai-docs/todos/quick-log.md`; anything else routes to `/feature`/`/bug` with the reason. Never touches the roadmap. |
 | `/note "idea"` | Appends `- [ ] YYYY-MM-DD — <idea>` to `ai-docs/inbox.md` and stops — zero questions. Later `/feature`/`/quick`/`/spec` tick items with `→ spec NNNN` / `→ Q-NNN` / `→ task NN`. |
-| `/absorb [focus?]` | Onboards an EXISTING system: surveys the code, writes `map.yaml`, the as-built PRD (never overwriting a human PRD — `PRD-as-built.md` instead), `stack.md` from what was observed, `conventions.md`, the as-built component registry and a distilled project skill; short interview for what code can't reveal. Changes no code, creates no tasks; recommends `/kit` when the registry comes out empty/duplicated. |
+| `/absorb [focus?]` | Onboards an EXISTING system: surveys the code, writes `map.yaml`, the as-built PRD (never overwriting a human PRD — `PRD-as-built.md` instead), `stack.md` from what was observed, `conventions.md`, the as-built component registry, the maintained `ai-docs/wiki/` (stamped with `wiki-check.mjs --stamp` at the end, so `npm run wiki:check` reads `fresh`) and a distilled project skill; short interview for what code can't reveal. Changes no code, creates no tasks; recommends `/kit` when the registry comes out empty/duplicated. |
 | `/onboarding [focus?] [--report-only]` | The first command on an EXISTING system: chains `/absorb` → `/stack` → `/kit` in one guided pass (each command's own file stays the law — interviews, decision logs and approvals included), resumable via its `onboarding` decision-log rail, then hands over explaining `/idea` (module-sized discovery, in Pi) vs `/feature` (one-sentence delta). `--report-only` defers the `/kit` decisions to a later run. |
 
 Design system and references:
@@ -1024,7 +1026,7 @@ Plus/Pro) — never API keys, never per-token billing.
    `pi-templates/.pi/`) — copy-skip-existing, never overwrites; a partial
    stamp is a hard error telling you to re-run (it only adds what's missing).
 4. Ensures the gitignore entries (`imp/node_modules/`, `imp/data/sessions/`,
-   the SQLite files, backups), merges the npm scripts below (a name conflict
+   the SQLite files, backups, `imp/reports/`), merges the npm scripts below (a name conflict
    keeps YOUR script and ships ours as `<name>:fia`), and records the runtime
    manifest (`imp/.runtime-manifest.json`, template sha1 per stamped file —
    the `--update-runtime` baseline; on re-runs existing baselines win).
@@ -1053,6 +1055,12 @@ npm run plan          # viewer --view plan                       (Plan tab)
 npm run agents        # viewer --view agents                     (Agents tab)
 npm run launch:check  # node imp/scripts/fia-launch-check.mjs   (read-only readiness)
 npm run env:check     # node imp/scripts/env-preflight.mjs      (dev keys preflight)
+npm run wiki:check    # node imp/scripts/wiki-check.mjs         (repo-wiki freshness)
+npm run security:scan # node imp/scripts/security-scan.mjs      (L1 pattern scan)
+npm run loop:health   # node imp/scripts/loop-health.mjs        (agent-loop score)
+npm run fda:rewind    # node imp/scripts/rewind.mjs             (undo a run, restore-only)
+npm run notify        # node imp/scripts/notify.mjs             (run-end pings, opt-in)
+npm run fda:verdict   # node imp/scripts/verdict.mjs                (bounded continuation)
 npm run fda:status    # node imp/scripts/fda-lock.mjs status    (is an FDA running?)
 npm run docs:commit   # node imp/scripts/docs-commit.mjs        (ai-docs-only commit)
 npm run tui           # node imp/scripts/fia-tui.mjs            (terminal dashboard)
@@ -1075,8 +1083,15 @@ the trace. `--agent` is only read by `fda_prompt`. `--debug` (or env
 `FIA_DEBUG`) prints full stack traces. A failed run always prints the exact
 resume command (`node imp/fda_<name>.mjs --fda-id <id> --resume`) — nothing
 is lost. Exit codes: 0 accepted · 1 any failure (including "phases green but
-not accepted") · 130/143 on SIGINT/SIGTERM (the session is marked `failed`
-first, never left as an eternal `running`).
+not accepted") · 130/143 on SIGINT/SIGTERM (the session is closed with the
+named `aborted` outcome first, never left as an eternal `running`).
+
+Every run closes with ONE **terminal outcome** — the end banner reads
+`══ ACCEPTED (goal met) — …` / `══ FAILED (attempt cap reached) — …` and the
+same name lands on the session row (§9.7). A run stopped by a policy limit
+(time budget, change breadth) is not a crash: it prints a calm
+`■ FIA run stopped: …` panel with the recorded outcome, the knob to tune
+(`stop:` in `imp/fia.config.yaml`) and the resume command, and still exits 1.
 
 | Runner | Agents | Phases (code phases in *italics*) | Use it for |
 | --- | --- | --- | --- |
@@ -1086,10 +1101,10 @@ first, never left as an eternal `running`).
 | `fda_scout` | scout (read-only) | request → scout | Recon: "where is billing implemented?" — any repo change is rolled back. |
 | `fda_document` | documenter | request → document | Write up recent changes (docs paths only). |
 | `fda_quality` | none | request → *quality* | Lint + typecheck + build + test with no agent — works with nothing logged in. |
-| `fda_plan_build_test` | planner, builder (+reviewer for the UI gate) | request → plan → build → *test* → up to 3 × (fix → *test*) → *spec_coverage* → checklist gate → UI gate → *commit* | The task workhorse (`/task` uses it via the sequencer). |
+| `fda_plan_build_test` | planner, builder (+reviewer for the UI gate) | request → plan → build → *test* → up to `stop.attempt_cap` × (fix → *test*), default 3, cut short by `no_progress` → *spec_coverage* → checklist gate → UI gate → *commit* | The task workhorse (`/task` uses it via the sequencer). |
 | `fda_sdlc` | planner, builder, reviewer, documenter | request → plan → build → *test* (single run, no fix loop) → *spec_coverage* → checklist gate → UI gate → review → *commit_code* → document → *commit_docs* | Full cycle with an independent review — the review runs even when tests failed, and acceptance requires green tests AND an approved review. |
-| `fda_bug` | planner, builder (+reviewer) | request → plan → red_test → *red_check* → build → *test* → fix loop (≤3) → gates → *commit* | Defect fixing with a **valid RED** gate: the reproduction test must fail on an assertion BEFORE the fix (passing = "bug not reproduced"; module/syntax/env failures = invalid RED). |
-| `fda_quick` | builder | request → build → *quality_1* (lint+typecheck+focal test) → one fix round → *quality_2* → *quicklog* → *commit* | Small guarded changes (`/quick`). Appends the `## Q-NNN` audit entry, then stamps the commit sha into it as a separate one-line commit. |
+| `fda_bug` | planner, builder (+reviewer) | request → plan → red_test → *red_check* → build → *test* → fix loop (≤ `stop.attempt_cap`, default 3; `no_progress` ends it early) → gates → *commit* | Defect fixing with a **valid RED** gate: the reproduction test must fail on an assertion BEFORE the fix (passing = "bug not reproduced"; module/syntax/env failures = invalid RED). |
+| `fda_quick` | builder | request → build → *quality_1* (lint+typecheck+focal test) → one fix round (by design, not from `stop:`; still red = `attempt_cap`) → *quality_2* → *quicklog* → *commit* | Small guarded changes (`/quick`). Appends the `## Q-NNN` audit entry, then stamps the commit sha into it as a separate one-line commit. |
 
 Examples:
 
@@ -1133,6 +1148,15 @@ defaults:
 
 observability:
   db: imp/data/fia.db
+
+# Both blocks below ship COMMENTED OUT and are optional: every key has a code
+# default, so an untouched config behaves exactly like the documented defaults.
+# stop:                    # deterministic stop conditions — §9.7
+#   attempt_cap: 3
+#   no_progress_window: 2
+# notify:                  # run-end notifications — §9.8, off until enabled
+#   enabled: true
+#   targets: [{ kind: slack, url: 'https://hooks.slack.com/services/…' }]
 
 agents:
   - name: planner
@@ -1224,6 +1248,10 @@ as disproportionate.
   misread the fixed code as "bug not reproduced"); `fda_quick`'s `quicklog`
   reuses the entry it already appended (the append is not idempotent).
 - **Agent phases retry once by default** (`retries: 1`) before failing the run.
+- **A run may stop ITSELF, on purpose.** Four zero-token limits (repair cap,
+  no-progress detector, wall-clock budget, change-breadth ceiling) end a run
+  that would only keep spending the plan, and the reason is recorded as a named
+  outcome instead of a generic failure — §9.7.
 - **An engine that dies mid-phase no longer takes the run with it.** An exit
   without a report, or a binary that vanished, is classified (`login` |
   `limit` | `missing` | `crash`) and written to
@@ -1359,7 +1387,10 @@ as disproportionate.
 self-contained — no CDN). Four views, each a URL hash that survives reload:
 
 - **FDAs** (default) — run list + drill-down: status/duration/tokens/cost
-  KPIs, "tokens per model" chips, a Gantt timeline (one lane per phase owner,
+  KPIs (the Status KPI reads the run's named outcome when the trace carries
+  one — `goal met`, `attempt cap`… — with `outcome_reason` as its tooltip, and
+  falls back to the old status/staleness label for runs recorded before
+  outcomes existed), "tokens per model" chips, a Gantt timeline (one lane per phase owner,
   roster colors, running bars dashed), per-phase detail (engine, model,
   effort/thinking, context gauge, gates with expandable checks, typed
   envelopes with syntax-highlighted JSON, the compiled system/user prompts)
@@ -1389,7 +1420,9 @@ The FDA-side of the same data is `--view pi`-free in the terminal:
 dashboard, five tabs: **1 Home** (tasks/specs/milestone/inbox/all-runs cards +
 the current run with per-phase chips and a context gauge), **2 Work**
 (tasks + specs with the traceability table — uncovered requirements in red),
-**3 Runs** (table + drill-down with phases, retries, live event tail),
+**3 Runs** (table + drill-down with phases, retries, live event tail — the
+detail header prints the run's named outcome next to its status when one was
+recorded),
 **4 Plan**, **5 Agents** (roster + the per-LLM usage ledger, attributed at
 spend time). Keys: `1-5`/`Tab` tabs · `↑↓ j k` move · `Enter` open ·
 `Esc` back · `t` run the test suite in a pane (disabled while an FDA holds
@@ -1401,7 +1434,8 @@ file watcher); non-TTY without `--once` exits 1 pointing at the query CLI.
 **Query CLI** — `node imp/scripts/fia-query.mjs`:
 
 ```bash
-npm run fda:sessions                      # 20 newest runs (id, status, request, tokens)
+npm run fda:sessions                      # 20 newest runs (id, status, outcome,
+                                          # request, tokens, relayed)
 npm run fda:phases -- <fda_id>            # phase list of one run
 npm run fda:tail   -- <fda_id>            # last 20 raw JSONL events of a run
 node imp/scripts/fia-query.mjs models     # per-LLM lifetime ledger (engine, model,
@@ -1414,11 +1448,21 @@ The `models` ledger sums what actually ran (`agent_end` + failed-attempt
 re-attribute history; tokens recorded before model stamping surface as an
 explicit `unattributed` row, never silently dropped.
 
+Every reader **probes** for `sessions.outcome`/`outcome_reason` before naming
+them in a SELECT (`hasColumn` in `imp/scripts/fia-tui-data.mjs`, the same
+`PRAGMA table_info(sessions)` check in the query CLI and in the viewer's
+`/api/sessions`). The trace schema is create-only, so those columns exist only
+in a database a current runtime has opened (the Tracer adds them with a guarded
+`ALTER TABLE` — best-effort: a locked or read-only db just keeps running
+without them). Naming a column that is not there throws, and these readers
+answer a throw with an empty shape — which would blank a whole dashboard on an
+older project.
+
 **Launch readiness** — `npm run launch:check` (`node
 imp/scripts/fia-launch-check.mjs [--json] [--strict] [--dir <p>]`). Read-only
 red/green report — it never publishes anything. Detects the current rung
 (`local` → `beta` when `.vercel/project.json` exists → `production` when a
-`pk_live_` Clerk key or an own-domain production URL is found) and runs ~29
+`pk_live_` Clerk key or an own-domain production URL is found) and runs 32
 stack-aware checks across six sections:
 
 - **Versioning**: git repo (blocker), clean tree (blocker), remote, pushed,
@@ -1430,12 +1474,19 @@ stack-aware checks across six sections:
   (lint/typecheck/test/build present), `docs_sync` (schema-ish files
   committed after `stack.md`/specs), `theme_tokens` (raw hex colors in
   components), `registry_seeded` / `registry_planned` (blind registry,
-  planned rows at launch).
+  planned rows at launch), `wiki_fresh` (repo-wiki pages whose declared
+  sources changed since they were stamped — skipped when there is no
+  `ai-docs/wiki/` yet, §10), `spec_diagrams` (specs with no ```` ```mermaid ````
+  block under `## Flow` — skipped when the project has no spec).
 - **Secrets**: tracked `.env*` files (blocker — untrack AND rotate),
   `.env.example` present, secret-shaped values in `NEXT_PUBLIC_*` (blocker).
 - **Security**: raw `query(`/`mutation(` outside `convex/lib` (use the authed
-  wrappers), `dangerouslySetInnerHTML`, webhook signature verification in
-  `convex/http.ts` (blocker).
+  wrappers), `dangerous_html` and `security_l1` — both delegated to the L1
+  scanner below, so they cover `app/`, `components/`, `src/`, `lib/`, `pages/`
+  (and `convex/`) instead of only `app/` + `components/`; `security_l1` fails
+  on any HIGH finding and also fails — never passes — when the scan hit its
+  file cap, because a partial scan that reports "clean" is the worst failure
+  mode there is. Webhook signature verification in `convex/http.ts` (blocker).
 - **Production**: Vercel linked, `convex deploy` in the build command, dev
   deployment noted, Clerk dev vs live keys, production URL, and the
   `automations_runbook` **blocker** when the manifest declares an external
@@ -1447,6 +1498,272 @@ stack-aware checks across six sections:
 `{rung, checks[], summary}`. `/launch` (in `pi`) uses this report as its
 source of truth and walks you through each fix.
 
+**L1 security scan** — `npm run security:scan` (`node
+imp/scripts/security-scan.mjs [--dir <root>] [--json] [--sarif]
+[--fail-on high|medium|low]`). Deterministic textual rules over the source
+roots (`app/`, `components/`, `src/`, `lib/`, `pages/`; the Convex rule scans
+`convex/`), read-only, zero tokens, never a throw — a missing root or an
+unreadable file simply gives the scan less ground. Layer 1 only: semantic
+review (authorization models, tenant isolation, business-rule bypasses) stays
+with the `security` skill. The rule **ids are a public contract** — CI configs
+and the launch check key off them, so they are only ever added, never renamed:
+
+| Rule id | Severity | What it catches |
+|---|---|---|
+| `raw_sql_interpolation` | high | SQL built by `${}` interpolation or `+` concatenation inside a `query(`/`execute(`/`raw(`/`sql(` call (a tagged `` sql`…` `` template never fires). |
+| `jwt_decode_without_verify` | high | `jwtDecode(` / `jwt.decode(` in a file that never verifies a signature. |
+| `public_env_secret` | high | `NEXT_PUBLIC_`/`VITE_`/`PUBLIC_` variable whose name says SECRET/PRIVATE/TOKEN/PASSWORD, or ends in `_KEY` (except the four public-by-design ones: `PUBLISHABLE_KEY`, `API_KEY`, `ANON_KEY`, `PUBLIC_KEY`). |
+| `eval_usage` | high | `eval(` / `new Function(`. |
+| `child_process_shell_true` | high | a child process spawned with `shell: true`. |
+| `hardcoded_secret_literal` | high | a live-looking secret in a quoted literal (`sk_live_`/`sk_test_`, `whsec_`, `re_`, `sntrys_`, `xai-`, `AKIA…`). |
+| `dangerous_html` | medium | `dangerouslySetInnerHTML`. |
+| `missing_auth_check` | medium | `route.ts`/`route.tsx`/`+server.ts` exporting POST/PUT/PATCH/DELETE with no auth/session mention anywhere in the file. |
+| `convex_missing_args_validator` | medium | a Convex function declared without `args:` (`convex/lib/` and `_generated/` excluded). |
+| `http_url` | low | a plaintext `http://` URL (local dev hosts — `localhost`, `127.0.0.1`, `0.0.0.0`, `[::1]` — and the w3.org/schema XML namespaces excluded). |
+
+Output: the human report by default, `--json` for the full
+`{available, findings[], summary, rules[]}`, and `--sarif` for a SARIF 2.1.0
+document (findings become results with `error`/`warning`/`note` levels) piped
+straight into a code-scanning upload — `--sarif` wins over `--json` and prints
+nothing else. `--fail-on <severity>` exits 1 when a finding at that severity or
+worse exists (an unknown severity is a usage error, exit 1); without it the
+scan always exits 0. A false positive is treated as worse than a miss, so every
+pattern is narrow and the known-legitimate shapes are excluded by name.
+
+**Loop health** — `npm run loop:health` / `imp health` (`node
+imp/scripts/loop-health.mjs [--dir <root>] [--json] [--html <path>]
+[--strict]`). An evidence-based score of the project's agent work loop, computed
+by code from what the harness already produces (the trace db, the `ai-docs/`
+documents, the launch check) — never inferred by a model. Five dimensions:
+
+| Dimension | Question it answers |
+|---|---|
+| `task_understanding` | Did the loop start from a written goal an agent can act on — specs, filled traceability, a task index, a real PRD? |
+| `controlled_execution` | Did deterministic FDA runs actually happen, reach their goal, and run against a decided stack? |
+| `change_validation` | Was the change proved — the quality commands exist and the test/lint/build gates really passed inside a run? |
+| `reliable_delivery` | Is the work delivered as promised — no launch blockers, clean and pushed tree, test users recorded, CI in place? |
+| `learning_capture` | Was what the project decided and learned written down — decision logs closed, inbox drained, registry honest? |
+
+The honesty rule: a dimension whose evidence is ABSENT is reported as
+**`unknown`**, never as zero. An unknown criterion adds 0 to the score AND 0 to
+the maximum, each missing input is named in `gaps`, and every finding ends in
+the exact IMPACTUS command that repairs it. Statuses are `strong` (≥ 80% of the
+judged criteria), `partial` (≥ 40%), `weak` below that, `unknown` when nothing
+could be judged. `--strict` exits 1 when any dimension is `weak`; `--html`
+also writes a self-contained report (default `imp/reports/loop-health.html`,
+gitignored) and **refuses while an FDA holds `imp/data/.fda.lock`** — that
+run's permission gate would roll the write back, so nothing is written and the
+command exits 1. Under `--json` stdout stays pure JSON and the HTML notice goes
+to stderr.
+
+**Undo a run** — `npm run fda:rewind` / `imp rewind` (`node
+imp/scripts/rewind.mjs [--dir <root>] [--list]` ·
+`… --run <fda_id> [--to <sha>] [--json] [--dry-run] [--yes] [--allow-dirty]`).
+An FDA run already leaves everything an undo needs on disk (it commits per
+phase and photographs the tree before it starts); this is the way to see and
+use those checkpoints. With no `--run` it lists the 20 newest runs from the
+trace db with the commits each one made (matched by the run's time window, plus
+subject-matching for commits the window missed) and the pre-run HEAD. With
+`--run <fda_id>` it prints the exact file impact of undoing that run — per file,
+with +added/−deleted counts and a total.
+
+**Restore-only by contract**: it writes files with `git restore --worktree` and
+deletes files the run created from the **working tree only**, leaving the index
+untouched — so `git status` shows an unstaged deletion you can inspect and undo
+with a plain `git restore <path>`, and nothing rides into your next commit. It
+never runs `git reset`, never moves HEAD or a branch, never stages, never commits
+and never rewrites history — so the rewind is
+itself undoable (every commit is still there). The default target is the run's
+**baseline commit** (the HEAD when the run started); `--to <sha>` overrides it.
+Nothing is touched without `--yes` — the preview is the default, `--dry-run`
+stops after it. The plan refuses, naming the reason, when: the run id is not
+`[A-Za-z0-9_-]+`; the folder is not a git repository; the run is not in the
+trace db (or there is no trace db yet); an FDA is currently running in the tree;
+the working tree has uncommitted changes (`--allow-dirty` accepts losing them);
+the run has no baseline commit on record (pass an explicit `--to`); or the
+commit does not resolve. Exit 0 = listing/preview printed or the restore
+succeeded; 1 = blocked, unknown run id, or a restore failed. Nothing is
+committed: review with `git status` / `git diff`.
+
+### 9.7 Terminal outcomes and stop conditions
+
+A run used to end as a boolean — `success` / `fail` — and the human reason
+survived only as a console line. Now every run that closes records ONE named
+**terminal outcome** plus a one-sentence reason. The vocabulary lives in
+`imp/modules/outcome.mjs`, shared by the writer and every reader, so an outcome
+can never be spelled two ways:
+
+| Outcome | What it means |
+|---|---|
+| `goal_met` | **The only success**: the phases are green and the run's acceptance criterion was met. |
+| `verification_failed` | The work ran but the verification refused it — a red suite, or a reviewer that did not approve. |
+| `attempt_cap` | The fix loop spent its `stop.attempt_cap` repair rounds with the suite still red. |
+| `no_progress` | The SAME checks failing over a tree the repair did not change, round after round — stopped early on purpose. |
+| `budget_exhausted` | `stop.budget_minutes` was reached. |
+| `breadth_exceeded` | The run had already changed more files than `stop.breadth_ceiling`. |
+| `blocked_by_gate` | A gate or the permission allowlist refused (`GateFailure`, `PermissionBreach`). |
+| `engine_exhausted` | Every engine in the fallback chain died (`EngineFailure`). |
+| `aborted` | Ctrl+C / SIGTERM — the signal handler closes the session instead of leaving an eternal `running` orphan. |
+| `failed` | An unclassified throw. |
+
+Where it is written:
+
+- **`sessions.outcome` and `sessions.outcome_reason`** — two columns on the
+  session row. The schema is create-only (`CREATE TABLE IF NOT EXISTS`), so the
+  Tracer adds them to an older project's database with a guarded
+  `PRAGMA table_info` + `ALTER TABLE` on open; a locked or read-only db degrades
+  and the run continues without them. Readers probe before selecting (§9.6).
+- **A closing `run_end` event** — `type: 'run_end'`, `name: <outcome>`, payload
+  `{ outcome, reason, accepted, phases, replayed, tokens, cost }`.
+- **The end banner** — `══ ACCEPTED (goal met) — <tokens> tokens, $<cost> …`,
+  the label coming from the same vocabulary.
+
+Closing a run is **first-writer-wins**: the precise reason (a stop condition, a
+gate, a signal) is never overwritten by the vaguer one that follows it up the
+stack, and both trace writes are best-effort — a failed write never masks the
+real failure. An outcome the caller knows precisely is passed in (`attempt_cap`,
+`no_progress`); otherwise it is derived (`goal_met` when accepted,
+`verification_failed` when not) or classified from the error.
+
+**Stop conditions** — four limits that cost zero tokens to evaluate, so a run
+that keeps re-trying the same failing thing stops instead of spending the
+student's plan. They live under `stop:` in `imp/fia.config.yaml`:
+
+| Key | Default | What it counts |
+|---|---|---|
+| `attempt_cap` | `3` | Repair rounds `fda_plan_build_test` and `fda_bug` may spend on a red suite (minimum 1 — a value below that is raised). |
+| `no_progress_window` | `2` | Consecutive identical rounds after which the run is declared stuck. `0` turns the detector off. |
+| `budget_minutes` | `0` (**off**) | Wall-clock ceiling for one run. |
+| `breadth_ceiling` | `0` (**off**) | Maximum files one run may touch. Turning it on costs one tree fingerprint per phase, and a `Kind: foundation` run legitimately touches many. |
+
+- **`no_progress`** compares a fingerprint of *where the run is stuck*: the
+  names of the FAILING checks plus `path:size,sha1` for every path this run
+  changed against its baseline — de-duplicated, sorted and hashed as JSON, so a
+  shuffled report never reads as progress. The **content** matters, not the path
+  list: a normal brief reports exactly one check (named `test`) whether twelve
+  assertions fail or one, and a repair almost always edits files the build phase
+  already touched — with paths alone, a run that fixed eleven of twelve failures
+  would hash identically to the round before it and be stopped as stuck. So a
+  round only counts toward the streak when **the repair before it actually
+  ran and changed nothing**:
+  - the first test round has no repair behind it and is only a baseline;
+  - on `--resume` every `fix_i` is replayed from disk as a no-op while the
+    `code`-kind test phases re-execute, and those rounds never count — otherwise
+    the documented recovery path would dead-end before a single repair;
+  - a green round clears the streak, because a passing suite is never a stall.
+
+  The whole accounting lives in one place (`createRepairTracker` in
+  `imp/modules/stop.mjs`) so the two FDAs that drive it cannot drift. Every RED
+  test round logs `identical_rounds`, `counted_as_a_round`, `no_progress_window`
+  and `stalled` into the trace.
+- **`budget_minutes` / `breadth_ceiling`** are run-level and apply to every
+  runner. They are checked before a phase is created — so a stopped run never
+  leaves a half-started phase in the trace — and only for phases that will
+  actually execute (a replayed phase costs nothing).
+- **Tolerant by design**: a missing block, a missing key, a typo'd value or a
+  negative number all fall back to the default and are printed as a warning at
+  the start of the run. Nothing here can throw.
+
+**Bounded continuation** — the other half of "how did it end": a run that closed
+`verification_failed`, `attempt_cap` or `no_progress` did real work, and `--resume`
+already replays every phase that succeeded. What it cannot know is what a reviewer
+considers still owed, so a blind resume either repeats accepted work or stops at
+the same wall. A **verdict** is that judgement, written down before the resume:
+
+```bash
+node imp/scripts/verdict.mjs set <fda_id> \
+  --missing "the empty state is not handled" \
+  --missing "no test covers the 403 path" \
+  --redo review
+node imp/fda_sdlc.mjs --fda-id <fda_id> --resume
+```
+
+- It lands as `imp/data/sessions/<fda_id>/run_verdict.json` — a sibling of the
+  engine-death marker, with the same best-effort IO contract (an unreadable
+  verdict reads as "no verdict" and the run proceeds exactly as it would have).
+  `outcome` is filled in from the trace automatically; `missing` is capped at 20
+  items, because a verdict is a scope and not a backlog.
+- `--redo <phase>` names phases whose **saved result must not be replayed**.
+  `ensure()` removes those `phase_results/<name>.json` files, so the ordinary
+  resume rule ("no saved result → execute") re-runs them — the replay predicate
+  in the runner is not special-cased at all. A name that is not
+  `[A-Za-z0-9_-]+` is refused, so a verdict can never name a path.
+- The phase names are **per-FDA and per-run**: `review` above belongs to
+  `fda_sdlc` and does not exist in `fda_plan_build_test`, and a repeated phase is
+  counter-suffixed (`test_1`, `fix_1`). `set` therefore checks each name against
+  the phases the run actually saved and refuses an unknown one, printing the
+  list — an unchecked name would drop nothing, so the phase would replay from
+  disk while the run reported it as re-executed.
+- Every agent phase of that run is prepended a scope block (user prompt only —
+  the system prefix stays byte-stable for prompt caching) listing the missing
+  work with three rules: do only what is listed, treat the list as the gap and
+  not a design, and say so rather than manufacture a change when an item is
+  already satisfied.
+- The verdict is **one-shot**: consumed by the run it narrows, so a later resume
+  of the same id is unrestricted again. A `bounded_continuation` log event records
+  what the scope was, which phases were re-armed (`redo`), what the verdict asked
+  for (`redo_requested`) and which of those had no saved result to drop
+  (`redo_skipped`) — requested is not applied, and the ledger says so.
+- `verdict show <fda_id> [--json]` reads one back, `verdict clear <fda_id>` drops
+  it, and `set` refuses while THAT run still holds the FDA lock — a verdict about
+  a run in progress is a guess. Alias: `npm run fda:verdict`.
+
+**Rollout matters here**: `imp/fia.config.yaml` is student-owned and
+`--update-runtime` never rewrites it (§14.2). Every existing project therefore
+gets the defaults above from the code, with no edit and no migration — the
+template ships the whole block commented out, and a project that never adds it
+behaves exactly as documented. Editing the YAML is how you tighten the limits,
+never how you get them.
+
+### 9.8 Run notifications (opt-in)
+
+A student starts a long `/goal` and walks away; nothing used to tell them it
+finished. `imp/modules/notify.mjs` sends one ping when a run ends, fired from
+the runner's CLI wrapper on every termination path (success, failure, stop
+condition) — exactly once per run, awaited before the process exits.
+
+**Off by default, and it can never fail a run.** `enabled` must be explicitly
+`true` AND at least one valid target must survive validation; anything else
+stays off, with the reason reported as a warning. Nothing in the notifier
+throws: a malformed config, a dead webhook, a missing `fetch` or a timeout all
+degrade into a warning or one line in `failures`.
+
+Configuration comes from two places — the machine file
+`~/.impactus-cli/config.json` (key `notify`, §14.6) and the project's
+`imp/fia.config.yaml` (key `notify`) — merged **per key, the project winning**.
+Both are student-owned and optional:
+
+| Key | Default | Notes |
+|---|---|---|
+| `enabled` | `false` | Must be literally `true`. |
+| `events` | `[run_end]` | `run_end` · `gate_blocked` · `decision_needed`; unknown names are dropped with a warning. Only `run_end` is emitted by a run today; `gate_blocked` and `decision_needed` are **reserved for a future release** — they are accepted by config and sendable with `--test` (which says so), so a target can be verified before the producer exists. |
+| `timeout_ms` | `4000` | Per target, clamped to `[500, 20000]` (out-of-range values are clamped with a warning). |
+| `targets` | `[]` | `{ kind, url }` entries: `webhook` (posts the JSON payload), `slack` (`{text}`), `discord` (`{content}`), `telegram` (`sendMessage` with `chat_id` — required, and the url works with or without the `/sendMessage` suffix). |
+
+**Only `https://` targets are accepted** — the URL carries a token that must not
+cross the network in the clear; `http://` is allowed for `localhost`,
+`127.0.0.1` and `[::1]` only, so a student can test against a local receiver.
+**A target URL is treated as a secret**: every warning, failure line and report
+names a target by kind + HOST only, and fetch/JSON error messages are never
+interpolated (undici and V8 quote the offending input back at you, which would
+leak the token that was just redacted). Targets are posted in parallel, each
+with its own deadline.
+
+Inspect and test it with `imp notify` / `npm run notify` (`node
+imp/scripts/notify.mjs [--dir <root>] [--json] [--home <dir>]` ·
+`… --test [--event <name>]`):
+
+```bash
+imp notify                 # the RESOLVED config: status, events, timeout,
+                           # machine + project file paths, targets as kind → host.
+                           # When it is off, it prints the exact JSON to paste
+                           # into ~/.impactus-cli/config.json. Always exits 0.
+imp notify --test          # sends ONE synthetic notification; exit 0 when at
+                           # least one target took it, 1 when none did
+imp notify --test --event gate_blocked
+imp notify --json          # same information as JSON — never contains a URL
+```
+
 ## 10. The durable planning layer
 
 Shared conventions between the harness (Claude Code/Cursor) and Pi, all under
@@ -1456,7 +1773,10 @@ Shared conventions between the harness (Claude Code/Cursor) and Pi, all under
   `0000-example.md` is the shipped format reference and never counts).
   Header: `Status: draft | defined | in-progress | done`, created/updated
   dates and the linked task numbers. Sections: Problem & Outcome, Scope
-  (In/Out), Actors & Permissions, Requirements (`FR-1`/`NFR-1`, one
+  (In/Out), **Flow** (ONE ```` ```mermaid ```` diagram of the capability — the
+  happy path plus where it can refuse; `flowchart TD` for a data/decision flow,
+  `sequenceDiagram` when the point is who calls whom), Actors & Permissions,
+  Requirements (`FR-1`/`NFR-1`, one
   obligation per ID), Scenarios (BDD, `S-1` — with mandatory classes for
   user-facing mutations: success, validation, authorization, cross-tenant
   isolation and idempotency where they apply), Traceability
@@ -1465,6 +1785,16 @@ Shared conventions between the harness (Claude Code/Cursor) and Pi, all under
   "Not applicable — <why>" is a valid section body. Created by `/feature`
   (delta specs replacing the old mini-PRD), `/spec` (short interview, also
   for work not born from the PRD) and the full mapping.
+- **The Flow diagram is checked, not enforced.** Detection is deterministic —
+  only a fence OPENED at line start with ```` ```mermaid ```` counts, so a
+  quoted example inside another fence and an indented fence do not
+  (`specHasDiagram`/`checkSpecDiagram` in `imp/modules/gates.mjs`, twinned with
+  `hasDiagram` in `plan-docs.mjs`, which also exposes a `withoutDiagram` count
+  per project). The `/spec` Definition Gate requires the diagram before it flips
+  `Status: defined`; `npm run launch:check` warns per spec without one
+  (`spec_diagrams`, §9.6); and the FDA spec-coverage phase records a missing
+  diagram in the trace as `diagram: missing — …` without ever failing the run —
+  a documentation gap is not a broken build.
 - **Test markers** — a test file proving a spec carries
   `spec:NNNN covers:S-1,S-2,FR-2` (one marker per spec, grep target
   `spec:NNNN`). Tasks/briefs link back with a `Spec: 0003 (S-1, S-4)` line;
@@ -1498,11 +1828,20 @@ Shared conventions between the harness (Claude Code/Cursor) and Pi, all under
   ```bash
   node imp/scripts/decision-log.mjs open stack --topic "backend choice"
   node imp/scripts/decision-log.mjs log 3 --q "Which database?" --rec "Convex" --a "Convex"
+  node imp/scripts/decision-log.mjs log 3 --q "Which database?" --rec "Convex" --accepted
   node imp/scripts/decision-log.mjs note 3 --text "constraint that surfaced mid-talk"
   node imp/scripts/decision-log.mjs close 3 --outcome "Convex + Clerk" --artifact ai-docs/stack.md
   node imp/scripts/decision-log.mjs list [--command theme] [--json]
   node imp/scripts/decision-log.mjs latest [command]
   ```
+
+  `--accepted` is the beginner's exit from an open question: the student takes
+  the recommendation instead of typing an answer, and the entry is written as
+  `- Answer: <recommendation> (accepted)` — so a later reader can tell a
+  deliberate choice from a default that was waved through. It REQUIRES `--rec`
+  (there must be something to accept) and refuses a simultaneous `--a`; both
+  refusals are usage errors. Every interview command is told to carry a
+  recommendation and to offer accepting it — never to invent an acceptance.
 
   One file per run = versioning: re-running a command opens the next `NNN`;
   a still-open log of the same command becomes `superseded`, closed ones are
@@ -1535,6 +1874,74 @@ Shared conventions between the harness (Claude Code/Cursor) and Pi, all under
   history lives in git). The hardcoded tables (installer catalog, `/stack`
   hint table) are bootstrap hints: research that diverges from them wins, and
   the divergence is reported so the tables get updated.
+- **Repo wiki** — `ai-docs/wiki/`: one page per subsystem (`auth.md`,
+  `billing.md`, `data-model.md`…), written by `/absorb` and **kept honest by
+  code**. The point is not documentation for its own sake: an agent that can
+  read a fresh page about `auth` does not have to re-read `src/auth/**` to
+  answer a question about it — that is the student's subscription, saved.
+  `/absorb` produced only a one-shot snapshot before; the wiki is the
+  maintained version of it. Every page opens with frontmatter naming the source
+  paths it describes:
+
+  ```markdown
+  ---
+  updated: 2026-08-17
+  sources: src/auth, src/lib/session.ts
+  digest: 6b0ffb0223a8f5e4be87c130e40d728c859e940a
+  ---
+  ```
+
+  `sources:` is the load-bearing field (a comma list, or a YAML `- path` block
+  list): a page without it can never be checked and is reported as
+  `unverifiable`. `digest:` is a **content digest of those paths** — sha1 over
+  every declared file (a directory contributes every file beneath it, sorted, up
+  to 8 levels and 2000 files; a source that no longer exists is hashed as
+  `missing`, so a DELETION moves the digest instead of being invisible). Text is
+  hashed line-ending agnostic — a checkout with `core.autocrlf=true` (the Git for
+  Windows default) must not report every page stale without a single content
+  change — while a file containing a NUL byte is hashed as raw binary. No git,
+  no LLM, no tokens: it cannot be wrong about *whether* the code moved, and it
+  deliberately says nothing about whether the prose is still accurate — which is
+  what makes `stale` a prompt to reread rather than a verdict. `updated:` is
+  free text, reported and never interpreted. Text between
+  `<!-- human:start -->` and `<!-- human:end -->` is a human's writing and
+  survives every regeneration.
+
+  ```bash
+  npm run wiki:check                  # fresh / stale / unverifiable, per page
+  npm run wiki:check -- --strict      # exit 1 when any page is stale (CI)
+  npm run wiki:check -- --json        # the full report
+  node imp/scripts/wiki-check.mjs --stamp   # re-record the digests
+  ```
+
+  The checker is read-only with exactly one exception: `--stamp`, which
+  re-records `digest:` (and today's `updated:`) on the pages this run found
+  stale. It rewrites **only those two frontmatter lines** — the body is sliced
+  off and concatenated back byte-for-byte, preserving the page's own line
+  endings, so a `<!-- human -->` block cannot be disturbed even in principle —
+  and it **refuses entirely while an FDA holds `imp/data/.fda.lock`** (that
+  run's permission gate would roll the write back), exiting 1 with the reason.
+  Whoever rewrites a page's prose runs `--stamp` afterwards to close the loop:
+  computing a rolling sha1 by hand is not a thing an agent can do. `/absorb`
+  writes the pages with `digest:` empty, then stamps and shows the result;
+  `npm run launch:check` carries the same signal as the `wiki_fresh` warning
+  (§9.6). `ai-docs/wiki/README.md` is the shipped page contract and is skipped by
+  the checker; the optional `ai-docs/wiki/wiki-plan.yaml` scopes GENERATION only
+  (`preset: architecture | product`, `pages`, `include`/`exclude`, `guidance`) so
+  a large repo does not turn into fifty shallow pages — delete it and the wiki
+  still works. When the plan names pages that have no file on disk, they are
+  reported as `summary.plannedMissing` (a promise the wiki has not kept yet); it
+  deliberately does not make `passed` false, because an unwritten page is not a
+  stale one. A missing wiki, an unreadable page or a mangled plan file all
+  degrade into a status, never a crash. `wiki_fresh` in the launch check stays a
+  `skip` until the wiki has at least one page: the harness *ships* the directory
+  with its README, so directory existence alone would report a green "matches the
+  code it describes" for a wiki nobody has written. The seed comes with the
+  harness merge (a fresh install, or `--harness-only` on an older project) —
+  `--update-runtime` carries `imp/` and `.pi/` only (§14.2), so a project that
+  predates the wiki keeps `wiki_fresh` on `skip` until it re-merges the harness
+  or `/absorb` writes the first page; the prompts carry the page contract
+  themselves, so a missing `README.md` costs nothing.
 - **Docs commits** — `imp/scripts/docs-commit.mjs` (alias
   `npm run docs:commit`): pathspec-limited commit for `ai-docs/` artifacts,
   called by the flows that generate durable documents (`/stack`, `/map` and
@@ -1728,7 +2135,7 @@ theme, design, examples, launch, update_roster.
 | `/bug` | `"symptom"` | Issue + `node imp/fda_bug.mjs` with the RED-validity gate (assertion-failing reproduction before any fix). |
 | `/quick` | `"small change"` | Triage; SIMPLE runs `node imp/fda_quick.mjs` + the `Q-NNN` quick-log entry; COMPLEX routes to `/feature`/`/bug` naming the failed criterion. |
 | `/note` | `"idea"` | One line into `ai-docs/inbox.md`, zero questions. |
-| `/spec` | `"capability"\|NNNN` | Create/update a durable spec; Definition Gate flips `Status: defined`; ticks related inbox items. |
+| `/spec` | `"capability"\|NNNN` | Create/update a durable spec, `## Flow` mermaid diagram included; the Definition Gate (requirements + scenarios + diagram, no open P1) flips `Status: defined`; ticks related inbox items. |
 | `/launch` | `[beta\|production?]` | Go live by rungs, `fia-launch-check.mjs --json` as the fact source; confirms before every irreversible step; secrets never in chat. |
 | `/component` | `name + URL/cmd \| list \| sync` | Design-system entry path (dedupe → research → install → register → showcase). |
 | `/theme` | `[hint\|accept?]` | Identity interview → FDA-built side-by-side preview at `/ui-components/preview` → explicit approval. `accept` records "keep the default" (satisfies the theme gate) with zero app changes. AA contrast is a blocker. |
@@ -1736,7 +2143,7 @@ theme, design, examples, launch, update_roster.
 | `/example` | `URL [notes] \| list` | Register an external reference on the shelf (license researched, `What NOT to take` mandatory). |
 | `/agents` | — | Opens the viewer's Agents tab (`npm run agents -- --detach`) to edit engines/models/fallbacks; Pi is forbidden from editing `imp/fia.config.yaml` itself. |
 | `/onboarding` | `[focus?] [--report-only]` | First command on an EXISTING system: chains `/absorb` → `/stack` → `/kit` in one guided pass (each stage's own prompt is the law; stages whose artifacts already exist can be kept and skipped), then hands over explaining the split — `/idea` for a MODULE-sized addition vs `/feature` for a one-sentence delta. The tour keeps a **resume rail** in the decision log (`open onboarding` → one stage note each → `close`): an interrupted session resumes from its last stage note instead of restarting. `--report-only` is the express path — the `/kit` stage presents its gap report and defers the design decisions to a later `/kit` run. |
-| `/absorb` | `[focus?]` | Brownfield onboarding (as-built PRD/map/conventions/registry + project skill in `.pi/skills/project/` AND `.claude/skills/project/`); recommends `/kit` when the registry comes out empty/duplicated. |
+| `/absorb` | `[focus?]` | Brownfield onboarding (as-built PRD/map/conventions/registry, the maintained `ai-docs/wiki/` + its digest stamp, and a project skill in `.pi/skills/project/` AND `.claude/skills/project/`); recommends `/kit` when the registry comes out empty/duplicated. |
 | `/kit` | `[focus?] [--report-only]` | Brownfield design-system audit → gap report → approved design-only tasks. |
 | `/status` | — | Read-only progress: tasks, milestones (status as declared), specs, inbox, latest runs and failed phases. |
 
@@ -1855,6 +2262,9 @@ one repairs:
 | "my `imp/` + `.pi/` came from an older CLI" | `npx impactus --update-runtime --dir .` (§14.2) |
 | "audit this install in CI" | `npx impactus --verify --dir . --json` (§14.1) |
 | "update the CLI itself, Pi and the extensions" | `imp update` (§14.3) |
+| "is my agent loop actually working?" | `imp health` — the evidence-based loop-health report (§9.6) |
+| "undo what that FDA run did" | `imp rewind` — checkpoints, preview, restore-only (§9.6) |
+| "where does this setting come from?" | `imp settings` — read-only view of the machine config (§14.6) |
 
 The split is deliberate: **doctor never writes, fix never overwrites**. A
 checkup is therefore always safe to run, and the one command that can change
@@ -1912,6 +2322,19 @@ re-install. The contract:
   `imp/data/`, `imp/node_modules/`, anything outside the template trees.
   Files the template no longer ships are LEFT in place — additive + replace,
   never delete.
+- **The harness half is NOT in scope** and there is no `--update-harness`: the
+  slash commands (`.claude/commands/`, `.cursor/commands/`), the specialist
+  agents, the skills and the `ai-docs/` scaffold come from the harness repo, so
+  a feature that lands on both sides (a new `ai-docs/` seed plus the prompt that
+  reads it — `ai-docs/wiki/` is the current example) only half-arrives through
+  `--update-runtime`. To refresh that half, re-run the installer in the project:
+  `npx impactus --dir . --harness-only` merges every harness file the project is
+  MISSING (new `ai-docs/` seeds land; nothing existing is overwritten), and
+  `npx impactus --dir . --harness-only --agent-files replace` also brings the
+  UPDATED command/agent/skill files, moving the current ones to
+  `.agents-backup-<date>/` first (§4.6 — that policy covers `.pi/` too, which
+  the FIA step then re-stamps). Prompts are written so a seed that never arrived
+  degrades instead of dangling.
 - **Per file**: missing → add; byte-identical → skip; differs with the disk
   sha matching the manifest (unmodified since the stamp) → overwrite; differs
   otherwise (edited locally, or no manifest) → interactive runs ask per file —
@@ -1965,8 +2388,18 @@ impactus`) is a thin brand wrapper over the real `pi` binary — NOT a fork:
 | `imp doctor [--json]` | Read-only checkup of the machine and, inside a project, of the install — detection only, fixes nothing. Full reference: §14.4. |
 | `imp fix [flags]` | The remediating sibling of doctor — restore-only, plan → one y/N → apply. Full reference: §14.5. |
 | `imp handoff [args]` | Runs the project-stamped `imp/scripts/handoff.mjs`: hands the newest interactive Pi conversation to the `claude` CLI with a continuation prompt pointing at the session transcript (same preamble the FDA relay uses). Works while Codex is down — that is the point. `--list` picks a session, `--session <id>` targets one, `--full` asks for a full transcript read, `--print` prints the prompt without launching. Also `npm run handoff`. |
+| `imp health [args]` | Runs the project-stamped `imp/scripts/loop-health.mjs` — the five-dimension loop-health report (`--json`, `--html [path]`, `--strict`; §9.6). |
+| `imp rewind [args]` | Runs the project-stamped `imp/scripts/rewind.mjs` — checkpoints of an FDA run, preview, restore-only apply (`--list`, `--run <id>`, `--to <sha>`, `--dry-run`, `--yes`, `--allow-dirty`, `--json`; §9.6). |
+| `imp notify [args]` | Runs the project-stamped `imp/scripts/notify.mjs` — the resolved notification config, or `--test` to send one (`--event <name>`, `--json`; §9.8). |
+| `imp settings [--json] [--path]` | Read-only report of where every machine-level setting comes from (§14.6). The verb is `settings`, **never `config`**: unknown verbs fall through to Pi and `pi config` is a real Pi command that must keep working. |
 | `imp help` / `imp --version` | Help / bare version. |
 | anything else | Straight through to `pi` (e.g. `imp -p "prompt"`, `imp --continue`). |
+
+`health`, `rewind` and `notify` follow the same contract as `imp tui`/`imp
+handoff`: the script comes from the project's own `imp/scripts/` (so it
+version-matches the runtime readers it imports) and every argument is passed
+through untouched. Outside a stamped project they exit 1 pointing at `imp init`
+— or `npx impactus --update-runtime` on an install that predates the script.
 
 Version-notice choreography: imp launches Pi with `PI_SKIP_VERSION_CHECK=1`
 (suppressing Pi's pi-branded update banner), probes npm in the background
@@ -2048,7 +2481,7 @@ What it knows how to repair:
 | `mcp-npx-yes` | project | Adds `-y` to npx MCP servers in `.mcp.json`. |
 | `skills-missing` | project | Restores agent skills that `skills-lock.json` records but `.agents/skills/` lost. |
 | `pi-skill-dupes` | project | Deletes skill copies duplicated into `.pi/skills/` (the "Skill conflicts" panel at every Pi launch — §6.2). |
-| `runtime-missing` | project | Restores FIA runtime files the stamp manifest recorded and the disk no longer has. |
+| `runtime-missing` | project | Restores FIA runtime files the stamp manifest recorded and the disk no longer has — **plus any runtime module they import**. The manifest belongs to the version that stamped the project, so trusting it alone can restore a file whose imports were added in a later runtime: the siblings would never be restored and the file could not be loaded at all (`ERR_MODULE_NOT_FOUND` on every FDA) while this command reported success. `imp/modules/`, `imp/scripts/` and `imp/fda_*.mjs` are therefore completed from the bundled templates; prose (`.pi/prompts/`, `.pi/skills/`) is not — it has no import graph and belongs to `--update-runtime`. |
 | `harness-missing` | project | Re-downloads the harness from the community API and copies back ONLY the paths `imp/.harness-manifest.json` lists as missing. Dangling symlinks are re-pointed at the stamped target (or materialized as a copy where the OS denies links — §8); a path the current harness no longer ships is reported, not invented. |
 | `agents-md-block` | project | Re-appends the harness block to `AGENTS.md` (or recreates the file) via the same idempotent marker merge the installer uses — your own content is kept. |
 
@@ -2061,6 +2494,72 @@ imp fix --json | jq .pending     # { ok, pending, notes } — never mutates
 
 Exit code: 0 = nothing pending (and, in apply mode, nothing failed); 1 =
 fixes pending, a fix failed, or findings remain.
+
+### 14.6 Machine configuration (`imp settings`)
+
+Until now the state folder held only the login (`auth.json`), the keys pasted
+in the web UI (`keys/`) and the run logs (`logs/`) — every other knob was an env
+var, which nobody can discover and nobody can persist.
+**`~/.impactus-cli/config.json`** is the home for machine-wide preferences
+(today: notifications). You create it by hand — no command writes it for you,
+and the CLI's own writer (`src/lib/config-file.js`) keeps the permissions the
+rest of the folder uses: directory `700`, file `600`.
+
+```json
+{
+  "version": 1,
+  "notify": {
+    "enabled": true,
+    "events": ["run_end"],
+    "targets": [{ "kind": "slack", "url": "https://hooks.slack.com/services/…" }]
+  }
+}
+```
+
+The file is **hand-editable and optional**, so it is read tolerantly: a missing
+file is not an error (the code defaults win); a key this CLI does not recognize
+is a **warning**, never fatal, and is kept in the file verbatim (a newer CLI may
+have written it — downgrading must not brick the machine); a `version` higher
+than the one this CLI understands warns and points at `imp update`. Only a file
+that exists and cannot be parsed — or an invalid *recognized* value — is
+reported as a problem. Every message names a bad target by its index, never by
+its URL, and a JSON parse error keeps only the position hint (the parser's own
+message quotes the offending line, tokens included).
+
+`imp settings` is **read-only by contract**: it never writes, never creates the
+file and never migrates anything. It answers three questions and stops — where
+the machine config is and whether it exists; which sources are in play (the
+machine file, the project's `imp/fia.config.yaml`, the env vars that override
+behaviour: `IMPACTUS_API`, `IMPACTUS_TOKEN`, `PI_OFFLINE`,
+`IMP_SKIP_VERSION_CHECK`); and, per effective value, what it is and WHERE it
+came from — `[default] < [machine] < [project] < [env]`. Anything that needs
+changing you change in an editor, and when the file does not exist yet the
+report ends with the exact JSON to paste.
+
+Every printed value goes through the redaction in `src/lib/config-file.js`, and
+it redacts by VALUE as well as by key name: a key ending in
+`url`/`token`/`key`/`secret`/`chat_id` is never echoed, **any** string that looks
+like a URL collapses to `<host> (path hidden)` whatever its key is called, and
+every field of a `notify.targets[N]` entry except `kind` is sensitive by default.
+So a webhook pasted under a mistyped key still cannot leak. That is deliberate:
+this output is exactly what students paste into a support channel.
+
+`imp settings` also enforces the same three rules the notifier does, so it can
+never bless a config the runtime silently drops: a target URL must be `https:`
+(`http:` only for `localhost`/`127.0.0.1`/`[::1]`), an event name must be one of
+`run_end`/`gate_blocked`/`decision_needed`, and a `timeout_ms` outside
+`[500, 20000]` is reported as **clamped** rather than as effective. The
+duplication is deliberate (`src/` never imports the stamped runtime) and a test
+asserts the two tables agree key by key.
+
+```bash
+imp settings                 # human report (banner, sources, effective values)
+imp settings --json          # the same report as JSON
+imp settings --path          # just the path — scriptable, like `git rev-parse`
+```
+
+Exit code: 0 when nothing is invalid, 1 when the machine config has problems
+(the defaults are used until it is fixed).
 
 ## 15. Recipes — worked examples
 
@@ -2127,7 +2626,7 @@ imp
 ### 15.4 A failed FDA run — diagnose and resume
 
 ```bash
-npm run fda:sessions                     # find the run id (status: failed)
+npm run fda:sessions                     # find the run id + HOW it ended (outcome)
 npm run fda:phases -- 3fa9c21b           # which phase failed
 npm run fda:tail   -- 3fa9c21b           # last events (raw JSONL)
 npm run fda:viewer                       # or drill down in the browser
@@ -2135,6 +2634,18 @@ npm run fda:viewer                       # or drill down in the browser
 node imp/fda_plan_build_test.mjs --fda-id 3fa9c21b --resume
 # succeeded agent phases replay from saved results; tests re-run against the
 # CURRENT tree — you can fix code by hand first and the resume re-tests it.
+```
+
+Read the outcome before re-running (§9.7): `no_progress` means a repair round
+changed nothing and the same checks kept failing, so a blind resume will stall
+again — fix what it named first. `attempt_cap` means the repair rounds ran out (raise
+`stop.attempt_cap`, or take the last failure by hand). To walk the run back
+instead:
+
+```bash
+imp rewind                               # the runs and the commits each one made
+imp rewind --run 3fa9c21b --dry-run      # exactly which files an undo touches
+imp rewind --run 3fa9c21b --yes          # restore them (no reset, nothing committed)
 ```
 
 ### 15.5 Change which LLM each agent uses
@@ -2173,6 +2684,9 @@ imp fix                           # restore missing harness/runtime/skills files
 imp update                        # impactus + Pi + the pinned extension packages
 npx impactus --update-runtime --dir .   # new FDAs/gates/prompts into imp/ + .pi/
 npx impactus --verify --dir .           # audit that everything is still intact
+imp health --html                       # how well the agent loop is working (+ HTML report)
+npm run wiki:check                      # which wiki pages the code has outgrown
+npm run security:scan                   # the L1 pattern scan over the whole source tree
 ```
 
 ### 15.8 Go live
@@ -2297,16 +2811,17 @@ Recognized by the FIA runtime inside a project:
 
 | Variable | Effect |
 | --- | --- |
-| `FIA_DB` | Trace database path (default `imp/data/fia.db`) — fia-query, viewer, TUI. |
-| `FIA_CONFIG` | Agent roster path (default `imp/fia.config.yaml`) — viewer, TUI. |
-| `FIA_AI_DOCS` | `ai-docs/` dir override — viewer/TUI Plan views, launch-check, env-preflight, quick-log. |
+| `FIA_DB` | Trace database path (default `imp/data/fia.db`) — fia-query, viewer, TUI, `imp rewind`. |
+| `FIA_CONFIG` | Agent roster path (default `imp/fia.config.yaml`) — viewer, TUI, and the project side of `imp notify`. |
+| `FIA_AI_DOCS` | `ai-docs/` dir override — viewer/TUI Plan views, launch-check, env-preflight, quick-log, wiki-check, the spec-diagram check. |
+| `FIA_BACKUPS_DIR` | Backup folder the loop-health report looks for instead of the one under the home directory (`imp health`; machine-friendly and testable). |
 | `FIA_PROJECT_ROOT` | Project root override for the viewer. |
 | `FIA_DEBUG` | Same as `--debug` on any FDA (full stack traces). |
 | `FIA_FDA_RUN` | Exported BY the runner into its child agents — makes the fda-lock hooks/extension silent for the run's own process tree. Never set it yourself. |
 | `ENGINEER_NAME` | Engineer identity stamped in the trace (fallback: `git config user.name` → `$USER`). |
 | `PI_PATH` / `CLAUDE_PATH` / `CURSOR_AGENT_PATH` | Engine binary overrides (`pi` / `claude` / `cursor-agent`). |
 | `PI_SESSIONS_DIR` | Override for the viewer's interactive-Pi session dir (`~/.pi/agent/sessions/<slug>`). |
-| `IAI_DECISION_LOG_NOW` | Fixed timestamp for decision-log/stack-research (tests). |
+| `IAI_DECISION_LOG_NOW` | Fixed timestamp for decision-log/stack-research, the loop-health report and the `updated:` line `wiki-check.mjs --stamp` writes (tests). |
 | `OPENROUTER_API_KEY`, `XAI_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`, `FIREWORKS_API_KEY`, `DEEPSEEK_API_KEY`, `CEREBRAS_API_KEY`, `MISTRAL_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | Pi API-key providers (per-token billing — the subscription providers `openai-codex`/`github-copilot` log in via `/login` instead). |
 
 Recognized by the `imp` launcher:

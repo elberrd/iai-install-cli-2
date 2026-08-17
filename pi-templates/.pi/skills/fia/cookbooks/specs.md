@@ -24,10 +24,17 @@ Sections, in order ("Not applicable — <why>" is a valid section body):
 
 1. `## Problem & Outcome` — observable problem, expected outcome. No solution bias.
 2. `## Scope` — `In:` / `Out:` bullets.
-3. `## Actors & Permissions`
-4. `## Requirements` — bullets with IDs `FR-1`, `FR-2`… (functional) and
+3. `## Flow` — ONE ```mermaid diagram of the capability: the happy path plus
+   where it can refuse. `flowchart TD` for a data/decision flow,
+   `sequenceDiagram` when the point is who calls whom. Keep it to the nodes a
+   reader needs — a diagram nobody can hold in their head is worse than prose.
+   Deterministic requirement: the fenced block must open with ```mermaid at line
+   start. `npm run launch:check` warns for every spec without one
+   (`spec_diagrams`), and each FDA run records the gap in its trace.
+4. `## Actors & Permissions`
+5. `## Requirements` — bullets with IDs `FR-1`, `FR-2`… (functional) and
    `NFR-1`… (non-functional). ONE obligation per ID.
-5. `## Scenarios` — BDD, IDs `S-1`, `S-2`…:
+6. `## Scenarios` — BDD, IDs `S-1`, `S-2`…:
 
    ```markdown
    ### S-1 — <name> (covers: FR-1)
@@ -39,12 +46,12 @@ Sections, in order ("Not applicable — <why>" is a valid section body):
    isolation (multi-tenant projects only), idempotency (webhooks/retried
    mutations only). A class that does not apply is listed under
    `Scenario classes considered:` with a one-line reason.
-6. `## Traceability` — table `| Requirement | Scenario | Test |`. The Test
+7. `## Traceability` — table `| Requirement | Scenario | Test |`. The Test
    column is filled with file paths as tests land — update it at task completion.
-7. `## Gate log` — append-only lines:
-   - `Definition Gate: passed — YYYY-MM-DD` (requirements + scenarios present, no open P1 questions)
+8. `## Gate log` — append-only lines:
+   - `Definition Gate: passed — YYYY-MM-DD` (requirements + scenarios present, a `## Flow` diagram present, no open P1 questions)
    - `Delivery Gate: passed — YYYY-MM-DD — <evidence: suite green, coverage check ok>`
-8. `## Decisions` — dated one-liners with rationale.
+9. `## Decisions` — dated one-liners with rationale.
 
 Lifecycle: `draft` → `defined` (Definition Gate passed; tasks may be generated)
 → `in-progress` (first task started) → `done` (all linked tasks done + Delivery

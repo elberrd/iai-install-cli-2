@@ -47,10 +47,14 @@ Short commands (prompt templates in `.pi/prompts/`) are the student entry points
 | `/example [URL or slug]` | register an external reference (repo, code, docs, design) on the examples shelf | examples |
 | `/agents` | visual roster editor — engines, models, fallbacks (viewer "Agents" tab) | update_roster |
 | `/onboarding [focus?] [--report-only]` | first command on an existing system — chains /absorb → /stack → /kit in one guided pass (resumable via its decision-log rail; `--report-only` defers the kit decisions), ends ready for /idea or /feature | decision-log |
-| `/absorb [focus]` | existing project → as-built PRD + map + conventions + stack manifest + component registry | — |
+| `/absorb [focus]` | existing project → as-built PRD + map + conventions + stack manifest + component registry + the maintained `ai-docs/wiki/` (stamped, then checked by `npm run wiki:check`) | — |
 | `/kit` | existing code → design-system audit: as-built registry + `/ui-components`, gap report vs the core kit, approved design-only tasks (`Kind: kit`) | components |
 | `/status` | progress + latest runs | observability |
 | `imp handoff` (terminal, outside Pi) | Codex outage — continue the newest Pi conversation in the `claude` CLI (`--list` picks a session) | update_roster |
+| `imp health` (terminal) | five-dimension score of this project's agent work loop, from its own evidence — every finding names the command that repairs it (`--html` writes a report, `--strict` for CI) | observability |
+| `imp rewind` (terminal) | undo an FDA run — lists its checkpoints, previews the exact file impact, restores only with `--yes`. Restore-only: never resets, never rewrites history | run_fda |
+| `imp notify` (terminal) | show (or `--test`) the run-end ping — webhook/Slack/Discord/Telegram, off until the engineer turns it on | observability |
+| `imp settings` (terminal) | where every setting comes from (machine config, project roster, env), read-only and secrets redacted | — |
 
 For anything else, route by request:
 
@@ -67,6 +71,8 @@ For anything else, route by request:
 | Run an FDA | [cookbooks/run_fda.md](cookbooks/run_fda.md) |
 | Create a new FDA | [cookbooks/create_fda.md](cookbooks/create_fda.md) |
 | Update the roster / agents | [cookbooks/update_roster.md](cookbooks/update_roster.md) |
-| Observe trace | [cookbooks/observability.md](cookbooks/observability.md) |
+| Observe trace / how a run ended (terminal outcomes) | [cookbooks/observability.md](cookbooks/observability.md) |
+| Resume only the MISSING work after a failed run (verdict) | [cookbooks/run_fda.md](cookbooks/run_fda.md) |
+| Keep the repo wiki true / a page went stale | [cookbooks/observability.md](cookbooks/observability.md) |
 | Bridge with ai-docs issues | [cookbooks/harness_bridge.md](cookbooks/harness_bridge.md) |
 | Go live / deploy / production | [cookbooks/launch.md](cookbooks/launch.md) |
