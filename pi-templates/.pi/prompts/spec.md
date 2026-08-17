@@ -16,14 +16,16 @@ Target: $@ (a number → update that spec in `ai-docs/specs/`; text → new spec
    question, `log` each answer as it lands, `close` at the end with
    `--artifact ai-docs/specs/NNNN-<slug>.md`.
 2. Write/update the spec per the cookbook: header block, Problem & Outcome,
-   Scope, Actors & Permissions, `FR-n`/`NFR-n` requirements, BDD `S-n`
+   Scope, **Flow** (one ```mermaid diagram — the happy path plus where it can
+   refuse), Actors & Permissions, `FR-n`/`NFR-n` requirements, BDD `S-n`
    scenarios (mandatory classes when data mutates: success, validation,
    authorization, cross-tenant isolation, idempotency — a class that doesn't
    apply gets a one-line reason), Traceability table, Gate log, Decisions.
    Lean beats complete — "Not applicable — <why>" is a valid section body.
-3. Requirements + scenarios in place and no open P1 questions → append
-   `Definition Gate: passed — YYYY-MM-DD` to the Gate log and set
-   `Status: defined`. Otherwise keep `draft` and show me what's still open.
+3. Requirements + scenarios + the Flow diagram in place and no open P1
+   questions → append `Definition Gate: passed — YYYY-MM-DD` to the Gate log
+   and set `Status: defined`. Otherwise keep `draft` and show me what's still
+   open. (`npm run launch:check` warns for any spec without a diagram.)
 4. Tick related unchecked items in `ai-docs/inbox.md` with `→ spec NNNN`.
    Suggest the next step: /feature to break it into tasks (they carry
    `Spec: NNNN (S-…)` lines) — or /task if the tasks already exist.

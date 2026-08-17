@@ -13,6 +13,7 @@ import {
   runLaunchChecks,
   renderReport,
 } from '../fia-templates/scripts/fia-launch-check.mjs';
+import { digestSources } from '../fia-templates/scripts/wiki-check.mjs';
 
 // ── pure helpers ─────────────────────────────────────────────────────────────
 
@@ -453,4 +454,145 @@ test('theme_tokens: hardcoded hex in UI components warns, token-based UI passes'
   assert.equal(by.theme_tokens.status, 'fail');
   assert.match(by.theme_tokens.detail, /components\/bad\.tsx/);
   assert.equal(by.theme_tokens.level, 'warn');
+});
+
+// ── the checks added with the wiki / L1-scan / spec-diagram layers ────────────
+
+test('wiki_fresh: skips without a wiki, passes when stamped, fails when a source moved', () => {
+  const root = seedProject();
+  const opts = { backupsDir: join(root, 'no-backups-here') };
+  const idOf = (r) => Object.fromEntries(r.checks.map((c) => [c.id, c]));
+
+  // No ai-docs/wiki/ at all — nothing to enforce, and the fix names /absorb.
+  let by = idOf(runLaunchChecks(root, opts));
+  assert.equal(by.wiki_fresh.status, 'skip');
+  assert.equal(by.wiki_fresh.level, 'info');
+  assert.match(by.wiki_fresh.fix, /\/absorb/);
+
+  // The DIRECTORY proves nothing: the harness ships ai-docs/wiki/ with its
+  // README explainer, so it exists on every installed project. A wiki with zero
+  // pages must stay a skip — reporting a green "matches the code it describes"
+  // for a wiki that was never written is the worst kind of false pass.
+  mkdirSync(join(root, 'ai-docs', 'wiki'), { recursive: true });
+  writeFileSync(join(root, 'ai-docs', 'wiki', 'README.md'), '# The repo wiki\n\nExplainer, not a page.\n');
+  by = idOf(runLaunchChecks(root, opts));
+  assert.equal(by.wiki_fresh.status, 'skip', 'a page-less wiki is not a pass');
+  assert.match(by.wiki_fresh.detail, /no pages yet/);
+  assert.match(by.wiki_fresh.fix, /\/absorb/);
+
+  // A page stamped against a real source is fresh.
+  mkdirSync(join(root, 'ai-docs', 'wiki'), { recursive: true });
+  const src = join(root, 'app', 'page.tsx');
+  const { digest } = digestSources(root, ['app/page.tsx']);
+  const page = (d) => `---\nupdated: 2026-08-17\nsources: app/page.tsx\ndigest: ${d}\n---\n# UI\n`;
+  writeFileSync(join(root, 'ai-docs', 'wiki', 'ui.md'), page(digest));
+  by = idOf(runLaunchChecks(root, opts));
+  assert.equal(by.wiki_fresh.status, 'pass');
+  assert.equal(by.wiki_fresh.level, 'warn');
+
+  // Touch the source the page describes → stale, and the page is named.
+  writeFileSync(src, 'export default () => <div>changed</div>;\n');
+  by = idOf(runLaunchChecks(root, opts));
+  assert.equal(by.wiki_fresh.status, 'fail');
+  assert.match(by.wiki_fresh.detail, /ai-docs\/wiki\/ui\.md/);
+  assert.match(by.wiki_fresh.fix, /\/absorb/);
+});
+
+test('wiki_fresh: a wiki nothing can verify is not a pass', () => {
+  const root = seedProject();
+  const opts = { backupsDir: join(root, 'no-backups-here') };
+  const idOf = (r) => Object.fromEntries(r.checks.map((c) => [c.id, c]));
+  const wiki = join(root, 'ai-docs', 'wiki');
+  mkdirSync(wiki, { recursive: true });
+
+  // Pages that declare no `sources:` at all are checked against NOTHING, so a
+  // green "matches the code it describes" is a claim no one verified. This row
+  // counted stale pages only, and 0 stale out of 4 unverifiable read as a pass.
+  writeFileSync(join(wiki, 'arch.md'), '---\nupdated: 2026-08-17\n---\n# Architecture\n');
+  writeFileSync(join(wiki, 'data.md'), '---\nupdated: 2026-08-17\n---\n# Data model\n');
+  let by = idOf(runLaunchChecks(root, opts));
+  assert.equal(by.wiki_fresh.status, 'fail', 'a wiki with nothing checkable is not a pass');
+  assert.match(by.wiki_fresh.detail, /none declaring sources:/);
+  assert.match(by.wiki_fresh.fix, /\/absorb/);
+
+  // One verified page next to the unverifiable ones: still a pass (nothing has
+  // drifted), but the detail must say how much of the wiki is unchecked.
+  const { digest } = digestSources(root, ['app/page.tsx']);
+  writeFileSync(join(wiki, 'ui.md'), `---\nupdated: 2026-08-17\nsources: app/page.tsx\ndigest: ${digest}\n---\n# UI\n`);
+  by = idOf(runLaunchChecks(root, opts));
+  assert.equal(by.wiki_fresh.status, 'pass');
+  assert.match(by.wiki_fresh.detail, /1 verified, 2 page\(s\) declare no sources:/);
+  assert.ok(!by.wiki_fresh.fix, 'a passing row prescribes nothing');
+});
+
+test('wiki_fresh: a page whose every source is gone fails and is named', () => {
+  const root = seedProject();
+  const opts = { backupsDir: join(root, 'no-backups-here') };
+  const wiki = join(root, 'ai-docs', 'wiki');
+  mkdirSync(wiki, { recursive: true });
+
+  // A page pointing only at paths that no longer exist can never go stale
+  // again — it describes code that was deleted or renamed, which is the exact
+  // drift the wiki exists to catch, and the worst thing to report as green.
+  writeFileSync(join(wiki, 'legacy.md'), '---\nupdated: 2026-08-17\nsources: app/gone.tsx\ndigest: abc123\n---\n# Legacy\n');
+  const { digest } = digestSources(root, ['app/page.tsx']);
+  writeFileSync(join(wiki, 'ui.md'), `---\nupdated: 2026-08-17\nsources: app/page.tsx\ndigest: ${digest}\n---\n# UI\n`);
+
+  const by = Object.fromEntries(runLaunchChecks(root, opts).checks.map((c) => [c.id, c]));
+  assert.equal(by.wiki_fresh.status, 'fail');
+  assert.match(by.wiki_fresh.detail, /ai-docs\/wiki\/legacy\.md/);
+  assert.doesNotMatch(by.wiki_fresh.detail, /ui\.md/, 'the verified page is not an offender');
+  assert.match(by.wiki_fresh.fix, /no longer exist/);
+});
+
+test('security_l1: a high finding fails the check and names file:line', () => {
+  const root = seedProject();
+  // A src/-layout file: the old app/+components/ grep never looked here.
+  mkdirSync(join(root, 'src', 'lib'), { recursive: true });
+  writeFileSync(join(root, 'src', 'lib', 'danger.ts'), 'export const boom = (s) => eval(s);\n');
+  const by = Object.fromEntries(
+    runLaunchChecks(root, { backupsDir: join(root, 'no-backups-here') }).checks.map((c) => [c.id, c]),
+  );
+  assert.equal(by.security_l1.status, 'fail');
+  assert.equal(by.security_l1.level, 'warn');
+  assert.match(by.security_l1.detail, /src\/lib\/danger\.ts:1/);
+  assert.match(by.security_l1.fix, /security-scan\.mjs/);
+  // dangerous_html still keys off the same scan, with its own rule id intact.
+  assert.equal(by.dangerous_html.status, 'fail');
+  assert.match(by.dangerous_html.detail, /app\/page\.tsx:1/);
+});
+
+test('security_l1: a clean project passes and reports the files scanned', () => {
+  const root = mkdtempSync(join(tmpdir(), 'launch-sec-clean-'));
+  mkdirSync(join(root, 'app'), { recursive: true });
+  writeFileSync(join(root, 'app', 'page.tsx'), 'export default () => <div>hello</div>;\n');
+  const by = Object.fromEntries(
+    runLaunchChecks(root, { backupsDir: join(root, 'no-backups-here') }).checks.map((c) => [c.id, c]),
+  );
+  assert.equal(by.security_l1.status, 'pass');
+  assert.match(by.security_l1.detail, /file\(s\) scanned/);
+});
+
+test('spec_diagrams: skips with no specs, fails for a spec with no mermaid block', () => {
+  const root = mkdtempSync(join(tmpdir(), 'launch-specdiag-'));
+  const opts = { backupsDir: join(root, 'no-backups-here') };
+  const idOf = (r) => Object.fromEntries(r.checks.map((c) => [c.id, c]));
+
+  mkdirSync(join(root, 'ai-docs'), { recursive: true });
+  assert.equal(idOf(runLaunchChecks(root, opts)).spec_diagrams.status, 'skip');
+
+  mkdirSync(join(root, 'ai-docs', 'specs'), { recursive: true });
+  writeFileSync(join(root, 'ai-docs', 'specs', '0001-a.md'), '# Spec 0001 — A\n\nStatus: draft\n\n## Scope\n\nIn: x\n');
+  let by = idOf(runLaunchChecks(root, opts));
+  assert.equal(by.spec_diagrams.status, 'fail');
+  assert.equal(by.spec_diagrams.level, 'warn');
+  assert.match(by.spec_diagrams.detail, /0001/);
+  assert.match(by.spec_diagrams.fix, /## Flow/);
+
+  writeFileSync(
+    join(root, 'ai-docs', 'specs', '0001-a.md'),
+    '# Spec 0001 — A\n\nStatus: draft\n\n## Flow\n\n```mermaid\nflowchart TD\n  A --> B\n```\n',
+  );
+  by = idOf(runLaunchChecks(root, opts));
+  assert.equal(by.spec_diagrams.status, 'pass');
 });

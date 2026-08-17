@@ -36,6 +36,7 @@ import { downloadErrorMessage, fetchTemplateToDir } from '../lib/template-fetch.
 import { classifyHarnessState, readHarnessManifest } from '../lib/harness-manifest.js';
 import { mergeAgentsMd } from './harness.js';
 import { readRuntimeManifest, templateTrees } from './update-runtime.js';
+import { missingRuntimeCode, staleRuntimeCode } from '../lib/runtime-health.js';
 
 const SAMPLE = (list, max = 4) => list.slice(0, max).join(', ') + (list.length > max ? ', …' : '');
 
@@ -138,20 +139,49 @@ export async function collectFixPlan({ cwd = process.cwd(), probes = {} } = {}) 
   }
 
   // ── FIA runtime: bring back files the STAMP recorded and the disk lost ────
-  // Restore-only and manifest-gated on purpose: a file in the runtime manifest
-  // was stamped once, so its absence means "deleted" — recreating it from the
-  // bundled template is additive. Template files ABSENT from the manifest are
-  // new in a later runtime and belong to --update-runtime, not here.
+  // Restore-only on purpose: recreating a file that is not there is additive,
+  // and nothing existing is ever overwritten (that is --update-runtime's job,
+  // with its own per-file consent).
+  //
+  // Two sources, and the second one matters: the manifest alone is not enough.
+  // The manifest belongs to the version that stamped the project, so a file
+  // restored from the CURRENT templates can import a sibling the old manifest
+  // never listed — that sibling is then never restored, and the restored file
+  // cannot be loaded at all (ERR_MODULE_NOT_FOUND on every FDA) while this
+  // command reports success. So the RUNTIME CODE directories, whose files
+  // import each other and are never student material, are completed from the
+  // current templates too. Prose (.pi/prompts, .pi/skills) stays out: it has no
+  // import graph to keep consistent and belongs to --update-runtime.
+  // NO manifest gate: doctor's rule (missingRuntimeCode) only requires imp/ to
+  // exist, so gating the repair on a manifest made doctor point at `imp fix`
+  // while `imp fix` answered "Nothing to fix" — a project whose manifest is
+  // missing OR unparseable was stuck between the two.
   const runtimeManifest = await readRuntimeManifest(cwd);
-  if (runtimeManifest) {
-    const goneRuntime = Object.keys(runtimeManifest.files ?? {}).filter((rel) => !existsSync(join(cwd, rel)));
+  {
+    const recorded = Object.keys(runtimeManifest?.files ?? {}).filter((rel) => !existsSync(join(cwd, rel)));
+    const required = (await missingRuntimeCode(cwd)).filter((rel) => !recorded.includes(rel));
+    const goneRuntime = [...recorded, ...required].sort();
+    // Restoring from the CURRENT templates next to files that are still at an
+    // OLDER version leaves the same unloadable mix the restore was meant to
+    // cure — and fix is restore-only, so it reports that instead of overwriting.
+    if (goneRuntime.length) {
+      const stale = await staleRuntimeCode(cwd);
+      if (stale.length) {
+        notes.push(
+          `${stale.length} runtime file(s) are present but at an older version than impactus ships ` +
+            `(${SAMPLE(stale)}). Restoring next to them can still leave a runtime that cannot load — ` +
+            'run `npx impactus --update-runtime` to bring imp/ to one version.',
+        );
+      }
+    }
     if (goneRuntime.length) {
       const trees = templateTrees();
       items.push({
         id: 'runtime-missing',
         kind: 'project',
         label: `Restore ${goneRuntime.length} missing FIA runtime file(s) (${SAMPLE(goneRuntime)})`,
-        detail: 'Recreated from the templates bundled in this impactus version; run `npx impactus --update-runtime` after, if you want everything current.',
+        detail:
+          'Recreated from the templates bundled in this impactus version, together with any runtime module they import (a half-restored runtime cannot load at all); run `npx impactus --update-runtime` after, if you want everything current.',
         apply: async () => {
           let restored = 0;
           const unavailable = [];

@@ -13,14 +13,21 @@ Requested task: $@ (if empty, the next unblocked one from `ai-docs/todos/issues/
    It also stops on the **env gate** before the foundation task itself —
    `node imp/scripts/env-preflight.mjs` reports dev keys missing from
    `.env.local`. Provision with me mid-flow per the cookbook: CLI parts
-   yourself, dashboard keys from me — then re-delegate)
+   yourself, dashboard keys from me — then re-delegate.
+   Stopped on an **impossible/circular dependency** with a recommended
+   split? Apply the split once — do not ask — and re-delegate. If the
+   second pass still cannot write a brief, THEN ask.)
 2. Run the FDA with the brief: `node imp/fda_plan_build_test.mjs ai-docs/actual-todo/<brief>.md`
    (bigger/riskier task → `node imp/fda_sdlc.mjs …`, as the cookbook shows)
 3. Follow along and report to me: phases executed, gate results, tokens and commit (if any).
    Brief with a `Spec: NNNN (…)` line → the FDA's spec-coverage gate is armed;
    on success, confirm the spec's Traceability table gained the new test paths.
 
-Rules: you implement NOTHING — the FDA does the work. If the FDA fails (exit != 0), stop and show me the evidence (`npm run fda:phases -- <fda_id>`), without retrying on your own.
+Rules: you implement NOTHING — the FDA does the work. If the FDA fails
+(exit != 0), apply ONE automatic recovery per the cookbook (re-run /
+repair once) before asking me. If that also fails, stop and show me the
+evidence (`npm run fda:phases -- <fda_id>`). Never a third attempt on
+your own.
 
 When reporting success, if the task is testable in the browser, ALWAYS close with
 **How to test**: minimal command to start (ideally `npm run dev`), URL and the

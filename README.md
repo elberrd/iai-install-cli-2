@@ -117,6 +117,10 @@ imp doctor                     # read-only checkup: subscriptions, CLIs, Pi, pro
 imp fix                        # repair what doctor found (plan + consent; restores missing files only)
 imp handoff                    # continue the newest Pi conversation in `claude`
                                # (Codex outage? your work keeps moving)
+imp health                     # loop-health report: how well the agent loop is working
+imp rewind                     # undo an FDA run — checkpoints, preview, restore-only
+imp notify                     # run-end pings (webhook/Slack/Discord/Telegram); off by default
+imp settings                   # where every machine setting comes from (read-only)
 ```
 
 ### Inside `pi` (run `imp`) — plan and automate
@@ -135,10 +139,11 @@ imp handoff                    # continue the newest Pi conversation in `claude`
 | `/quick "small change"` | Triage: a genuinely small change ships in one sitting; anything bigger routes to `/feature` or `/bug`. |
 | `/spec [capability]` | Durable spec — requirements + BDD scenarios + traceability gates. |
 | `/onboarding [focus?] [--report-only]` | Existing project, first run: chains `/absorb` → `/stack` → `/kit` in one guided pass — ends ready for `/idea` or `/feature`. Interrupted tours resume where they stopped; `--report-only` defers the design-system decisions. |
-| `/absorb [focus]` | Existing project → as-built PRD, map, conventions, stack manifest and component registry. |
-| `/kit` | Design-system audit of existing code: as-built registry, gap report, design-only tasks. |
-| `/component`, `/theme`, `/design`, `/example` | Design system: add a component, change colors/fonts, redesign from references, register an external reference. |
+| `/absorb [focus]` | Existing project → as-built PRD, map, conventions, stack manifest, component registry and the maintained `ai-docs/wiki/` (pages agents read instead of re-reading the code). |
+| `/kit` | Design-system audit of existing code: as-built registry, `/ui-components`, gap report vs the core kit (including interaction contracts: yellow search highlight, Combobox width, calendar month/year jump, Filter + chips, one component per card), then approved design-only tasks. |
+| `/component`, `/theme`, `/design`, `/example` | Design system: add a component (register + isolated `/ui-components` card), change colors/fonts, redesign from references, register an external reference. |
 | `/launch` | Go live — public beta and production, with readiness gates. |
+| `/qa [scope?]` | Browser QA at milestone/spec/task — Playwright e2e, responsive check, design audit, durable report. |
 | `/agents` | Visual roster editor: engine, model and fallbacks per FDA agent — with automatic mid-run relay when an engine dies. |
 | `/status` | Progress + latest runs. |
 | `/guide [goal?]` | Lost? Reads the project state, confirms your goal in one question and charts the shortest route. |
@@ -155,17 +160,24 @@ imp handoff                    # continue the newest Pi conversation in `claude`
 | `/test-ui [flow?]` | Tests the UI in a real browser, with automated sign-in and issue detection. |
 | `/team [task]` | Multi-agent orchestration: parallel specialist agents on one task. |
 | `/restore` | Rolls code + database back to a previous save (destructive — confirms first). |
-| `/grill`, `/stack`, `/absorb`, `/onboarding`, `/quick`, `/spec`, `/feature`, `/bug`, `/component`, `/theme`, `/design`, `/example`, `/kit`, `/launch`, `/note` | The same planning, spec and design-system commands also live here. |
+| `/grill`, `/stack`, `/absorb`, `/onboarding`, `/quick`, `/spec`, `/feature`, `/bug`, `/component`, `/theme`, `/design`, `/example`, `/kit`, `/launch`, `/qa`, `/note` | The same planning, spec and design-system commands also live here. |
 
 ### Dashboards & utilities (npm scripts stamped into the project)
 
 ```bash
-npm run tui           # terminal dashboard: tasks, specs, milestones, runs
+npm run tui           # terminal dashboard: tasks, specs, milestones, runs, Pi commands
 npm run plan          # web viewer, "Plan" tab — everything /map created
 npm run agents        # web viewer, "Agents" tab — engine/model per FDA
 npm run fda:viewer    # the full web viewer (observability of every run)
 npm run launch:check  # launch readiness: blockers/warnings before going live
 npm run env:check     # which keys your declared stack still needs in .env.local
+npm run loop:health   # five-dimension score of this project's agent work loop
+npm run wiki:check    # which ai-docs/wiki/ pages the code has outgrown
+npm run security:scan # L1 security scan (deterministic patterns, zero tokens)
+npm run fda:rewind    # an FDA run's checkpoints, and undo it (restore-only)
+npm run fda:verdict   # record what a closed run still owes → the next --resume
+                      #   is bounded to exactly that
+npm run notify        # show (or --test) the run-end notification targets
 npm run fda:status    # is an FDA running in this repo right now?
 npm run docs:commit   # commit ai-docs/ artifacts (docs only)
 ```
@@ -186,6 +198,16 @@ command that repairs it. `imp fix` only ever **restores what disappeared**
 overwrites a file you changed: those are reported, not touched. Use
 `--dry-run` to see the plan, `--yes --commit` to run it unattended with one
 git commit per fix.
+
+Two checkups sit next to that ladder, both read-only until you say otherwise:
+`imp health` scores five dimensions of your agent loop (understanding,
+execution, validation, delivery, learning) from the project's own evidence and
+names the command that repairs each finding — `--html` also writes
+`imp/reports/loop-health.html`. `imp rewind` lists the checkpoints of every
+FDA run, previews the exact file impact of undoing one, and restores only with
+`--yes`: it never resets, never rewrites history, so the rewind itself is
+undoable. Long run? `imp notify` shows (and `--test` exercises) the ping that
+fires when a run ends — off until you turn it on, and it can never fail a run.
 
 ### Example 1 — from zero, WITHOUT the template (your own stack; works as guest)
 
@@ -243,7 +265,12 @@ the agent harness (skills, commands, gates) and the FIA runtime:
   observability SQLite, the terminal TUI and the web viewer.
 - **`.pi/`** — Pi's project config: prompts, the `fia` skill and cookbooks.
 - **`ai-docs/`** — the project's living documentation: PRD, stack manifest,
-  specs, decisions, design system.
+  specs, decisions, the component registry + live `/ui-components` page, and
+  the repo wiki (`wiki/`, kept honest by `npm run wiki:check`).
+- **Design system** — `/ui-components` demos the kit for real. Search
+  highlights in yellow, Combobox dropdowns match the trigger, calendars jump
+  month and year, tables filter from the header (chips, not a button farm),
+  and each showcase card is one component.
 
 ## Requirements
 

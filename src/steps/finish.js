@@ -173,10 +173,18 @@ export async function finish(ctx) {
       ctx.fiaInstalled
         ? fiaNeedsLogin
           ? `FIA: installed — last step: run \`${agentCmd(ctx)}\` and type /login openai-codex (only that login)`
-          : `FIA: installed — run \`${agentCmd(ctx)}\` and use /fia, /map, /task, /goal (plan: npm run plan · agents: npm run agents · viewer: npm run fda:viewer · terminal dashboard: npm run tui)`
+          : `FIA: installed — run \`${agentCmd(ctx)}\` and use /fia, /map, /task, /goal, /qa (plan: npm run plan · agents: npm run agents · viewer: npm run fda:viewer · terminal dashboard: npm run tui)`
         : null,
       ctx.fiaInstalled
         ? 'Codex outage? `imp handoff` continues your newest Pi conversation in the `claude` CLI.'
+        : null,
+      // The reporters that answer "is this project healthy?" and "undo that run".
+      // Named here because nothing else in the install surfaces them.
+      ctx.fiaInstalled
+        ? 'Checkups: `imp health` (how well the agent loop is working) · `imp rewind` (undo an FDA run, preview first) · `imp settings` (where every setting comes from) · `npm run security:scan` · `npm run launch:check`'
+        : null,
+      ctx.fiaInstalled
+        ? 'Long run? `imp notify` sends a Slack/Discord/Telegram ping when it ends (off until you turn it on).'
         : null,
     ]
       .filter(Boolean)

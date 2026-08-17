@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
 
 export function gateReport() {
   const checks = [];
@@ -277,6 +277,79 @@ export function checkSpecCoverage({ specId, ids, repoRoot = process.cwd() }) {
     report.check(id, Boolean(at), at ? `covered by ${at}` : 'in no covers: list — write (or mark) the test that proves it');
   }
   return report;
+}
+
+/**
+ * Does the markdown carry a mermaid diagram? True only for a fence OPENED at
+ * line start with ```mermaid. Fences are tracked the same way
+ * `parseChecklistItems` tracks them (which delimiter char opened the block, and
+ * CRLF-safe splitting): a ```mermaid line INSIDE an already-open ~~~ or ````
+ * block is content — specs quote this very rule — and must not count. An
+ * indented ```mermaid is not at line start, so it opens a fence without
+ * counting as a diagram.
+ * Twin of `specHasDiagram` in `fia-templates/scripts/plan-docs.mjs` (that one
+ * only detects, this one gates): the two must agree.
+ */
+export function specHasDiagram(md) {
+  let fence = null;
+  for (const line of String(md || '').split(/\r?\n/)) {
+    const f = /^(\s*)(`{3,}|~{3,})\s*(.*)$/.exec(line);
+    if (!f) continue;
+    const ch = f[2][0];
+    if (fence) {
+      if (ch === fence) fence = null;
+      continue;
+    }
+    fence = ch;
+    if (!f[1] && ch === '`' && /^mermaid\b/i.test(f[3].trim())) return true;
+  }
+  return false;
+}
+
+/**
+ * Spec diagram gate: a spec a student has to read must SHOW the flow, not only
+ * describe it. The spec is located by its 4-digit id (the slug is whatever the
+ * author chose, so the directory is listed instead of guessed). Read-only and
+ * total: a missing directory, a missing spec or an unreadable file all become
+ * one failing check with the fix in the note — never a throw.
+ */
+export function checkSpecDiagram({ specId, aiDocsDir = 'ai-docs', repoRoot = process.cwd() }) {
+  const report = gateReport();
+  const id = String(specId ?? '').trim();
+  const base = isAbsolute(aiDocsDir) ? aiDocsDir : join(repoRoot, aiDocsDir);
+  const specsDir = join(base, 'specs');
+  const pattern = `${aiDocsDir}/specs/${id}-<slug>.md`;
+  let names = [];
+  try {
+    names = readdirSync(specsDir).filter((n) => n.startsWith(`${id}-`) && n.endsWith('.md'));
+  } catch {
+    names = []; // no specs/ directory at all → same failure as an absent spec
+  }
+  names.sort();
+  if (!names.length) {
+    return report.check(
+      `spec:${id}`,
+      false,
+      `spec file not found — expected ${pattern} (the id is the 4-digit prefix, the rest of the name is a slug)`,
+    );
+  }
+  const name = names[0];
+  const item = `${aiDocsDir}/specs/${name}`.replaceAll('\\', '/');
+  let md = null;
+  try {
+    md = readFileSync(join(specsDir, name), 'utf8');
+  } catch {
+    md = null; // unreadable — reported below, never thrown
+  }
+  if (md == null) return report.check(item, false, 'spec file cannot be read — check the file permissions');
+  const has = specHasDiagram(md);
+  return report.check(
+    item,
+    has,
+    has
+      ? 'carries a ```mermaid diagram'
+      : 'no ```mermaid block — add a mermaid flow diagram to the spec\'s "## Flow" section (right after "## Scope") so a reader sees the flow at a glance',
+  );
 }
 
 /**

@@ -20,5 +20,7 @@ Request: $@
    /feature, defect → /bug — and name the triage criterion that failed.
 4. Check `ai-docs/inbox.md`: an unchecked item this run resolves gets ticked
    `- [x] … → Q-NNN`.
-5. exit 0 → report files, verification and the Q-NNN entry. exit != 0 → stop
-   and show me the evidence; resume with `--fda-id <id> --resume`.
+5. exit 0 → report files, verification and the Q-NNN entry. exit != 0 →
+   ONE automatic recovery first (re-run / repair once per the cookbook).
+   If that also fails, stop and show me the evidence; further re-runs use
+   `--fda-id <id> --resume`.

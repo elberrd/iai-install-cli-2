@@ -3,6 +3,7 @@ import { basename } from 'node:path';
 import Database from 'better-sqlite3';
 import { loadConfig, validate } from './agents.mjs';
 import { ensure } from './session.mjs';
+import { classifyFailure, outcomeIsSuccess, outcomeLabel } from './outcome.mjs';
 import { resolvePrompt } from './utils.mjs';
 
 export function parseFdaArgs(argv, { agentDefault } = {}) {
@@ -69,6 +70,36 @@ function savedRequest(cfg, fdaId) {
 }
 
 /**
+ * Fire the opt-in end-of-run notification. Awaited HERE and nowhere else: both
+ * exits below are `process.exit`, which truncates pending async work, and a
+ * `process.on('exit')` handler could never finish an HTTP request. Exactly one
+ * call per termination path, so the notification cannot be sent twice.
+ * `notifyRunEnd` never throws — the try/catch only guards the import itself.
+ */
+async function announceRunEnd(run, cfg) {
+  if (!run) return;
+  try {
+    const { notifyRunEnd } = await import('./notify.mjs');
+    await notifyRunEnd(
+      {
+        event: 'run_end',
+        fdaId: run.fdaId,
+        outcome: run.outcome,
+        reason: run.outcomeReason,
+        accepted: run.outcome ? outcomeIsSuccess(run.outcome) : false,
+        tokens: run.tokens,
+        cost: run.cost,
+        durationSeconds: run.startedAtMs ? (Date.now() - run.startedAtMs) / 1000 : null,
+        project: basename(run.repoRoot || process.cwd()),
+      },
+      { project: cfg?.notify },
+    );
+  } catch {
+    /* notifications are a courtesy — never let one affect the run's exit */
+  }
+}
+
+/**
  * Shared prologue + error boundary for every fda_*.mjs script: parse args, load
  * and validate the config, ensure the session, then run `main`. Any failure is
  * reported as a short human message (reason + fda_id + the exact resume
@@ -88,8 +119,9 @@ export async function runFda(main, { agents = [], agentDefault } = {}) {
     process.exit(1);
   }
   let run = null;
+  let cfg = null;
   try {
-    const cfg = loadConfig(args.config);
+    cfg = loadConfig(args.config);
     if (!args.prompt && args.resume && args.fdaId) {
       args.prompt = savedRequest(cfg, args.fdaId);
       if (!args.prompt) {
@@ -103,9 +135,33 @@ export async function runFda(main, { agents = [], agentDefault } = {}) {
     run = ensure(cfg, args.fdaId, { resume: args.resume });
     const prompt = resolvePrompt(args.prompt);
     const exitCode = await main({ run, cfg, prompt, args });
+    await announceRunEnd(run, cfg);
     process.exit(exitCode ?? 0);
   } catch (error) {
+    // Close the session here too. `runPhase`'s catch only sees a throw from
+    // INSIDE a phase body; anything that fails between phases (entry-point glue
+    // dereferencing a replayed result, a gate helper called outside runPhase)
+    // would otherwise leave status='running', ended_at NULL, no outcome and no
+    // run_end event — the eternal orphan the signal handler exists to prevent.
+    // settle() is first-writer-wins, so this is a no-op on every path that
+    // already settled (stop conditions and phase failures included).
+    try {
+      run?.settle(classifyFailure(error), String(error?.message || error).slice(0, 1000));
+    } catch {
+      /* the trace is unavailable — never let it mask the real failure below */
+    }
     const fdaId = run?.fdaId || args.fdaId || null;
+    // A stop condition is the policy working, not a crash: the run was already
+    // settled with its named outcome before the throw, so it gets a calm panel
+    // that points at the knob instead of a failure banner and a stack trace.
+    if (error?.name === 'StopCondition') {
+      console.error(`\n■ FIA run stopped: ${String(error.message || error)}`);
+      console.error(`  Recorded outcome: ${outcomeLabel(error.outcome)} — nothing was lost.`);
+      console.error('  Tune the limits in imp/fia.config.yaml under `stop:`.');
+      if (fdaId) console.error(`  Resume when you are ready:  node imp/${script} --fda-id ${fdaId} --resume`);
+      await announceRunEnd(run, cfg);
+      process.exit(1);
+    }
     console.error(`\n✗ FIA run failed: ${String(error?.message || error)}`);
     if (fdaId) {
       console.error('  Nothing is lost — resume from the phase that failed with:');
@@ -113,6 +169,7 @@ export async function runFda(main, { agents = [], agentDefault } = {}) {
     }
     if (args.debug || process.env.FIA_DEBUG) console.error(`\n${error?.stack || error}`);
     else console.error('  (add --debug to see the full technical stack trace)');
+    await announceRunEnd(run, cfg);
     process.exit(1);
   }
 }

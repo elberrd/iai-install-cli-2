@@ -36,6 +36,23 @@ same command is marked `superseded` automatically).
    decision that surfaced outside the Q&A rhythm:
    `… note <id> --text "<decision>"`.
 
+   **Always carry a recommendation, and always offer to accept it.** Every
+   question names the recommended option first and marks it `(Recommended)`, and
+   the user may answer "accept" / "recommended" / "go with yours" — or, at the
+   top of the interview, "accept all recommended" to take every default and skip
+   straight to the artifact. An accepted recommendation is recorded with
+   `--accepted` instead of echoing the text back into `--a`:
+
+   ```
+   node imp/scripts/decision-log.mjs log <id> --q "<question>" --rec "<your recommendation>" --accepted
+   ```
+
+   That writes `- Answer: <recommendation> (accepted)`, so a later reader can
+   tell a deliberate choice from a default that was waved through. `--accepted`
+   requires `--rec` and refuses a simultaneous `--a`. Never use it for a
+   question the user actually answered, and never invent an acceptance — offer,
+   then wait.
+
 3. **At the wrap-up** — after writing the artifacts (PRD, spec, manifest…):
 
    ```
@@ -75,4 +92,5 @@ Keep the same record by hand: create
 `ai-docs/decisions/NNN-<command>-YYYY-MM-DD.md` (NNN continues from the
 existing files) with the frontmatter `command/topic/status/opened`, append a
 `### n. <question>` entry (with `- Recommendation:` and `- Answer:` lines)
-after each answer, and finish with a `## Outcome` section.
+after each answer — writing `- Answer: <recommendation> (accepted)` when the
+user took the recommendation — and finish with a `## Outcome` section.

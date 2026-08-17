@@ -1,13 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, realpathSync } from 'node:fs';
 import { connect } from 'node:net';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { Tracer } from '../fia-templates/modules/tracer.mjs';
-import { startViewer } from '../fia-templates/scripts/fia-viewer.mjs';
+import {
+  startViewer,
+  resolveViewerPaths,
+  shouldReuseViewer,
+} from '../fia-templates/scripts/fia-viewer.mjs';
 
 function seedDb(root) {
   const dbPath = join(root, 'fia.db');
@@ -58,6 +62,8 @@ test('viewer: page + sessions + full session detail', async () => {
     const sessions = await (await fetch(base + '/api/sessions')).json();
     assert.equal(sessions.db, true);
     assert.equal(sessions.sessions[0].fda_id, 'demo1');
+    assert.equal(sessions.dbPath, realpathSync(dbPath));
+    assert.ok(sessions.projectRoot, 'sessions advertise the project root so a later launch can tell whose page this is');
 
     const detail = await (await fetch(base + '/api/session?fda_id=demo1')).json();
     assert.equal(detail.session.status, 'success');
@@ -236,4 +242,154 @@ test('agents editor: the fallback cap comes from MAX_FALLBACKS (server and page 
   // hardcoded smaller number silently hides chain slots the server accepts.
   assert.match(PAGE, new RegExp(`fallbacks\\.length < ${MAX_FALLBACKS} \\?`));
   assert.doesNotMatch(PAGE, /fallbacks\.length < 3 \?/);
+});
+
+test('viewer page: run_end is reachable from a filter, not only from "All"', async () => {
+  const { PAGE } = await import('../fia-templates/scripts/fia-viewer-page.mjs');
+  // lessons.md: a new event TYPE needs the dashboard classifiers updated, or it
+  // is invisible. `run_end` is the run's closing row — the single most useful
+  // event in the stream — so it must ride the lifecycle and the error filters.
+  const phaseFilter = /if\(f==='phase'\) return ([^;]+);/.exec(PAGE);
+  assert.ok(phaseFilter, 'the page still has a phase filter branch');
+  assert.match(phaseFilter[1], /run_end/, "run_end rides the 'phase' filter");
+
+  const errorFilter = /if\(f==='error'\) return ([^;]+);/.exec(PAGE);
+  assert.ok(errorFilter, 'the page still has an error filter branch');
+  assert.match(errorFilter[1], /run_end/, "run_end rides the 'error' filter");
+  // …but only when the run did NOT meet its goal: a filter that always has a row
+  // in it stops meaning anything.
+  assert.match(errorFilter[1], /name!=='goal_met'/, 'a green run_end stays out of Errors');
+  assert.match(PAGE, /function evMatches\(type, name\)/, 'the filter can see the outcome');
+
+  // And it must be styled, not fall through to the generic 'other' bucket.
+  assert.match(PAGE, /type==='run_end'\) return \['ty-/, 'run_end has its own style class');
+});
+
+test('viewer page: the named outcome is on the sidebar cards, and the reason is visible text', async () => {
+  const { PAGE } = await import('../fia-templates/scripts/fia-viewer-page.mjs');
+  // One label helper, shared by the sidebar list and the Status KPI.
+  assert.match(PAGE, /function outcomeText\(outcome\)/, 'the page has a single outcome-label helper');
+
+  const sidebar = /\nfunction renderSidebar\(\)\{([\s\S]*?)\n\}/.exec(PAGE);
+  assert.ok(sidebar, 'the page still has renderSidebar');
+  // A list of 20 runs that all say "fail" cannot answer "which ones stalled?".
+  assert.match(sidebar[1], /outcomeText\(s\.outcome\)/, 'each card shows the named outcome');
+  // …and typing the slug must find them, so it rides the text filter too.
+  assert.match(sidebar[1], /\(s\.outcome\|\|''\)/, 'the sidebar filter matches on the outcome');
+  assert.match(PAGE, /\.scard \.meta \.oc \{/, 'the card outcome is styled');
+
+  const kpis = /\nfunction renderKpis\(\)\{([\s\S]*?)\n\}/.exec(PAGE);
+  assert.ok(kpis, 'the page still has renderKpis');
+  // The sentence is the point of the vocabulary — a hover tooltip is invisible
+  // on touch and to anyone scanning the KPI row.
+  assert.match(kpis[1], /class="why">'\+esc\(s\.outcome_reason\)/, 'the reason renders as text');
+  assert.doesNotMatch(kpis[1], /title="'\+esc\(s\.outcome_reason\)/, 'not hidden in a title attribute');
+  assert.match(PAGE, /\.kpi \.why \{/, 'the reason line is styled');
+});
+
+test('viewer: relative db paths pin to the project root, not later cwd', () => {
+  const root = mkdtempSync(join(tmpdir(), 'fia-viewer-root-'));
+  const paths = resolveViewerPaths({
+    projectRoot: root,
+    dbPath: 'imp/data/fia.db',
+    aiDocsDir: 'ai-docs',
+    configPath: 'imp/fia.config.yaml',
+  });
+  assert.equal(paths.projectRoot, realpathSync(root));
+  assert.equal(paths.dbPath, join(realpathSync(root), 'imp/data/fia.db'));
+  assert.equal(paths.aiDocsDir, join(realpathSync(root), 'ai-docs'));
+});
+
+test('viewer: reuse only the occupant that is this project', () => {
+  const ours = { projectRoot: '/proj/a', dbPath: '/proj/a/imp/data/fia.db' };
+  assert.equal(shouldReuseViewer({ projectRoot: '/proj/a', dbPath: ours.dbPath, db: true }, ours), true);
+  assert.equal(shouldReuseViewer({ projectRoot: '/proj/b', dbPath: '/proj/b/imp/data/fia.db', db: true }, ours), false);
+  // Leftover after a folder move: old servers advertised a relative path and
+  // often db:false. That is someone else's cwd — never a match.
+  assert.equal(shouldReuseViewer({ db: false, dbPath: 'imp/data/fia.db', sessions: [] }, ours), false);
+  assert.equal(shouldReuseViewer(null, ours), false);
+});
+
+test('viewer page: a missing db is a different empty state than "no runs yet"', async () => {
+  const { PAGE } = await import('../fia-templates/scripts/fia-viewer-page.mjs');
+  assert.match(PAGE, /Cannot see this project/, 'lost-db hero is distinct from the first-run empty state');
+  assert.match(PAGE, /press <code>v<\/code> in the TUI/, 'the recovery is the TUI key that opens a fresh viewer');
+  assert.match(PAGE, /renderEmptyMain\(data\.dbPath, data\.db\)/, 'the empty state sees whether the file opened');
+});
+
+function waitForViewerUrl(child, ms = 8000) {
+  return new Promise((resolveUrl, reject) => {
+    let out = '';
+    const timer = setTimeout(() => reject(new Error(`no viewer URL in time:\n${out}`)), ms);
+    const onData = (chunk) => {
+      out += chunk;
+      const m = out.match(/https?:\/\/127\.0\.0\.1:\d+\S*/);
+      if (m) {
+        clearTimeout(timer);
+        resolveUrl(m[0]);
+      }
+    };
+    child.stdout.on('data', onData);
+    child.stderr.on('data', onData);
+    child.once('exit', (code) => {
+      const m = out.match(/https?:\/\/127\.0\.0\.1:\d+\S*/);
+      if (m) {
+        clearTimeout(timer);
+        resolveUrl(m[0]);
+      } else {
+        clearTimeout(timer);
+        reject(new Error(`viewer exited ${code}:\n${out}`));
+      }
+    });
+  });
+}
+
+test('viewer CLI: a stale occupant (other folder / db:false) does not steal this project page', async () => {
+  const staleRoot = mkdtempSync(join(tmpdir(), 'fia-stale-'));
+  const stale = await startViewer({ dbPath: join(staleRoot, 'missing.db'), projectRoot: staleRoot, port: 0 });
+  const port = stale.address().port;
+  const root = mkdtempSync(join(tmpdir(), 'fia-live-'));
+  const dbPath = seedDb(root);
+  const script = fileURLToPath(new URL('../fia-templates/scripts/fia-viewer.mjs', import.meta.url));
+  const child = spawn(process.execPath, [script, '--port', String(port), '--db', dbPath, '--no-open'], {
+    cwd: root,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  try {
+    const url = await waitForViewerUrl(child);
+    const usedPort = Number(new URL(url).port);
+    assert.notEqual(usedPort, port, 'must not reuse the stale occupant');
+    const sessions = await (await fetch(`http://127.0.0.1:${usedPort}/api/sessions`)).json();
+    assert.equal(sessions.db, true);
+    assert.equal(sessions.sessions[0].fda_id, 'demo1');
+    assert.equal(sessions.projectRoot, realpathSync(root));
+  } finally {
+    child.kill('SIGKILL');
+    stale.close();
+  }
+});
+
+test('viewer CLI: the same project already on the port is reused, not stacked', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fia-reuse-'));
+  const dbPath = seedDb(root);
+  const first = await startViewer({ dbPath, projectRoot: root, port: 0 });
+  const port = first.address().port;
+  const script = fileURLToPath(new URL('../fia-templates/scripts/fia-viewer.mjs', import.meta.url));
+  const child = spawn(process.execPath, [script, '--port', String(port), '--db', dbPath, '--no-open'], {
+    cwd: root,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  try {
+    const url = await waitForViewerUrl(child);
+    assert.equal(Number(new URL(url).port), port);
+    const exitCode = await new Promise((resolveExit) => {
+      if (child.exitCode != null) return resolveExit(child.exitCode);
+      child.once('exit', (code) => resolveExit(code ?? 0));
+      setTimeout(() => resolveExit('still-running'), 2000).unref();
+    });
+    assert.notEqual(exitCode, 'still-running', 'the reuse path must exit instead of stacking a second server');
+  } finally {
+    child.kill('SIGKILL');
+    first.close();
+  }
 });

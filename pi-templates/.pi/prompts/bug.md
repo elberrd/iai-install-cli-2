@@ -18,5 +18,6 @@ Symptom: $@
    reproduction test must fail on a real assertion — a passing test means "bug
    not reproduced", and a module/syntax/env failure doesn't count as proof.
 5. exit 0 → report phases/tokens/commit and close with "How to test" the fix.
-   exit != 0 → stop and show me the evidence; to re-run, use
-   `--fda-id <id> --resume` (phases that passed don't run again).
+   exit != 0 → ONE automatic recovery first (re-run / repair once per the
+   cookbook). If that also fails, stop and show me the evidence; further
+   re-runs use `--fda-id <id> --resume` (phases that passed don't run again).

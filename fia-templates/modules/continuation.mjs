@@ -18,7 +18,21 @@ import { join } from 'node:path';
 
 export const ENGINE_ERROR_FILE = 'engine_error.json';
 
+/**
+ * The run-level verdict: what a human (or a reviewing agent) decided is still
+ * MISSING after a run closed without meeting its goal. It turns the blunt
+ * "run it again" into a BOUNDED continuation — `--resume` already replays the
+ * phases that succeeded, and a verdict additionally names the ones that must be
+ * re-done and hands the takeover agent the scope in writing.
+ *
+ * Sibling of the engine-error marker in every respect, including the contract
+ * that its IO is best-effort: an unreadable verdict reads as "no verdict" and a
+ * run continues exactly as it would have without one.
+ */
+export const RUN_VERDICT_FILE = 'run_verdict.json';
+
 const MESSAGE_CAP = 1000;
+const MISSING_CAP = 20; // a verdict is a scope, not a backlog
 
 /**
  * Failure kinds derived from the engine's own words. `missing` (binary gone /
@@ -92,6 +106,93 @@ export function readEngineError(agentDir) {
     /* no marker */
   }
   return null;
+}
+
+/**
+ * Record what is still missing after a run closed. `missing` is the scope in
+ * plain English (one item per line of work); `redo` names the phases whose saved
+ * result must NOT be replayed on the next resume. Returns the stored verdict.
+ */
+export function writeRunVerdict(sessionDir, { fda_id, outcome = null, missing = [], redo = [], note = '' } = {}) {
+  const verdict = {
+    fda_id,
+    outcome,
+    missing: (Array.isArray(missing) ? missing : [missing])
+      .map((item) => String(item ?? '').trim())
+      .filter(Boolean)
+      .slice(0, MISSING_CAP),
+    redo: [...new Set((Array.isArray(redo) ? redo : [redo]).map((name) => String(name ?? '').trim()).filter(Boolean))],
+    note: String(note || '').slice(0, MESSAGE_CAP),
+    at: new Date().toISOString(),
+  };
+  try {
+    writeFileSync(join(sessionDir, RUN_VERDICT_FILE), JSON.stringify(verdict, null, 2));
+  } catch {
+    /* best-effort: a verdict that cannot be stored simply does not narrow the next run */
+  }
+  return verdict;
+}
+
+/** The run's verdict, or null when absent/unreadable/malformed. */
+export function readRunVerdict(sessionDir) {
+  try {
+    const verdict = JSON.parse(readFileSync(join(sessionDir, RUN_VERDICT_FILE), 'utf8'));
+    if (verdict && Array.isArray(verdict.missing) && Array.isArray(verdict.redo)) return verdict;
+  } catch {
+    /* no verdict */
+  }
+  return null;
+}
+
+/**
+ * Consume the verdict: a bounded continuation is a ONE-SHOT instruction, so the
+ * file is removed once a run has been narrowed by it. Leaving it would re-narrow
+ * every later resume of the same run — including one meant to be unrestricted.
+ */
+export function clearRunVerdict(sessionDir) {
+  try {
+    unlinkSync(join(sessionDir, RUN_VERDICT_FILE));
+  } catch {
+    /* already gone, or never written */
+  }
+}
+
+/**
+ * The scope block prepended to the USER prompt (never the system prompt — that
+ * must stay byte-stable for caching) when a verdict narrowed this run. Same
+ * guards as the continuation preamble: the verdict is the scope, the workspace
+ * is the authority, and expanding beyond what is listed is the failure mode.
+ */
+export function buildScopeBlock(verdict) {
+  if (!verdict?.missing?.length) return '';
+  const lines = [
+    '## Bounded continuation — the scope of this run',
+    '',
+    'A previous attempt of this run closed without meeting its goal' +
+      (verdict.outcome ? ` (${verdict.outcome})` : '') +
+      '. It was reviewed, and this is the work that was found MISSING:',
+    '',
+    ...verdict.missing.map((item, i) => `${i + 1}. ${item}`),
+    '',
+  ];
+  if (verdict.note) lines.push(`Reviewer's note: ${verdict.note}`, '');
+  lines.push(
+    'Three rules, in order of importance:',
+    '',
+    '1. Do ONLY the work listed above. Everything else in this run was accepted —',
+    '   re-opening it wastes the plan and risks undoing something that already works.',
+    '2. The list is a description of the gap, not a design. Read the workspace and',
+    '   decide HOW; the workspace is the only authority on the current state.',
+    '3. If an item is already satisfied in the current tree, say so and move on.',
+    '   Do not manufacture a change to make the list look addressed.',
+    '',
+    '---',
+    '',
+    '',
+  );
+  // Ends in a blank run, exactly like buildContinuationPreamble: the rendered
+  // user prompt is concatenated straight after it.
+  return `${lines.join('\n')}\n`;
 }
 
 /** All markers of one run: { [agentName]: marker } keyed by agent dir name. */

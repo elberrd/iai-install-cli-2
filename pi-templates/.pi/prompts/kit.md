@@ -22,9 +22,13 @@ In this order:
 3. Page: `ui-component-page` — create/update `/ui-components` from the registry.
 4. Gap audit → `ai-docs/components/kit-report.md`, three lists vs core-kit.md:
    missing needs; below contract (audit the DataTable item by item — fuzzy
-   multi-word search, header menu on click AND right-click, per-column
-   type-adapted filters, chips + clear-all, visibility, pagination,
-   selection + bulk bar, row-click, skeleton/empty/no-results — with file/line
+   multi-word search with yellow highlights, header menu on click AND
+   right-click, per-column type-adapted filters, a single Filter control +
+   chips with an x — never a toolbar row of per-column filter buttons,
+   visibility, pagination, selection + bulk bar, row-click,
+   skeleton/empty/no-results; Combobox popover width = trigger; calendar
+   caption jumps month/year; pointer cursor; `/ui-components` one component
+   per card — design-system `references/interaction.md` — with file/line
    evidence); duplicates without default/alternative roles. Each finding gets
    a recommendation and a rough size. `--report-only` → present, close the log
    ("report only"), stop.

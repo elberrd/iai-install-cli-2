@@ -1,10 +1,17 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import * as fs from 'node:fs';
 import { createConsole } from './console.mjs';
 import { execute } from './agents.mjs';
-import { loadOrCreateBaseline } from './git-helper.mjs';
+import { loadOrCreateBaseline, runChangedPaths } from './git-helper.mjs';
 import { nowIso } from './utils.mjs';
+import { stopPolicyOf, StopCondition } from './stop.mjs';
+import { OUTCOMES, classifyFailure, isTerminalOutcome, outcomeIsSuccess } from './outcome.mjs';
+
+/** The fda_*.mjs that is running, for the recovery lines finish() prints. */
+function scriptName() {
+  return basename(process.argv[1] || 'fda.mjs');
+}
 
 export class PhaseHandle {
   constructor(run, phase) {
@@ -34,8 +41,10 @@ export class PhaseHandle {
   }
 }
 
-// One process-level handler: Ctrl+C / kill marks the session as failed in the
-// trace (no eternal 'running' orphans) and exits with the conventional code.
+// One process-level handler: Ctrl+C / kill closes the session with the named
+// `aborted` outcome in the trace (no eternal 'running' orphans) and exits with
+// the conventional code. Everything in here must stay SYNCHRONOUS — only sync
+// writes survive a signal handler.
 let activeRun = null;
 let signalsInstalled = false;
 function installSignalHandlers() {
@@ -44,7 +53,7 @@ function installSignalHandlers() {
   for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143]]) {
     process.on(signal, () => {
       try {
-        activeRun?.tracer.sessionFinish(activeRun.fdaId, false);
+        activeRun?.settle(OUTCOMES.ABORTED, 'the run was interrupted by a signal');
       } catch {
         /* best effort — the exit must not be blocked */
       }
@@ -84,8 +93,92 @@ export class Run {
     // session left behind — never gets swept into a FIA commit.
     this.baseline = loadOrCreateBaseline(this.sessionDir, this.repoRoot);
     this.replayed = 0;
+    // Set by ensure() when a resumed run carries a verdict (see continuation.mjs):
+    // the scope of a BOUNDED continuation, handed to every agent phase.
+    this.verdict = null;
+    // Deterministic stop conditions + the named terminal outcome. `settled`
+    // makes closing the run first-writer-wins: the precise reason (a stop
+    // condition, a gate, a signal) must never be overwritten by the vaguer
+    // one that follows it up the stack.
+    this.stop = stopPolicyOf(cfg);
+    this.startedAtMs = Date.now();
+    this.settled = false;
+    this.outcome = null;
+    this.outcomeReason = '';
+    for (const warning of this.stop.warnings) this.console.note(warning);
     activeRun = this;
     installSignalHandlers();
+  }
+
+  /**
+   * Close the run with a NAMED terminal outcome — FIRST WRITER WINS. Returns
+   * the stored outcome, so a later caller can still report what the run
+   * actually ended as. Trace writes are best-effort: a failed write must never
+   * mask the real failure that is on its way up the stack.
+   */
+  settle(outcome, reason = '') {
+    if (this.settled) return this.outcome;
+    this.settled = true;
+    this.outcome = outcome;
+    this.outcomeReason = String(reason || '');
+    const accepted = outcomeIsSuccess(outcome);
+    try {
+      this.tracer.event({
+        fda_id: this.fdaId,
+        phase_id: this.phases.at(-1)?.phase_id || '',
+        type: 'run_end',
+        name: outcome,
+        payload: {
+          outcome,
+          reason: this.outcomeReason,
+          accepted,
+          phases: this.phases.length,
+          replayed: this.replayed,
+          tokens: this.tokens,
+          cost: this.cost,
+        },
+      });
+    } catch {
+      /* trace unavailable — the session row below is what readers rely on */
+    }
+    try {
+      this.tracer.sessionFinish(this.fdaId, accepted, { outcome, reason: this.outcomeReason });
+    } catch {
+      /* trace unavailable — never mask the failure being reported */
+    }
+    return this.outcome;
+  }
+
+  /**
+   * The two RUN-level stop conditions, both free to evaluate. Checked before a
+   * phase is created so a stopped run never leaves a half-started phase in the
+   * trace; settled here because the throw happens outside runPhase's catch.
+   */
+  #enforceStopConditions() {
+    let stop = null;
+    if (this.stop.budget_minutes > 0) {
+      const elapsed = (Date.now() - this.startedAtMs) / 60000;
+      if (elapsed >= this.stop.budget_minutes) {
+        stop = new StopCondition(
+          OUTCOMES.BUDGET_EXHAUSTED,
+          `the time budget of ${this.stop.budget_minutes} minute(s) is used up (${elapsed.toFixed(1)} minutes elapsed) — ` +
+            'stopping instead of spending more of your plan',
+        );
+      }
+    }
+    if (!stop && this.stop.breadth_ceiling > 0) {
+      const changed = runChangedPaths(this.repoRoot, this.baseline).length;
+      if (changed > this.stop.breadth_ceiling) {
+        stop = new StopCondition(
+          OUTCOMES.BREADTH_EXCEEDED,
+          `this run has already changed ${changed} file(s), over the breadth ceiling of ${this.stop.breadth_ceiling} — ` +
+            'stopping before the change spreads any further',
+        );
+      }
+    }
+    if (!stop) return;
+    this.settle(stop.outcome, stop.message);
+    throw stop;
   }
 
   saveAgentMap(agent, entry) {
@@ -121,6 +214,9 @@ export class Run {
       this.replayed += 1;
       return saved.result;
     }
+    // A replayed phase costs nothing, so the run-level limits are only checked
+    // for phases that are about to actually execute (the branch above returns).
+    this.#enforceStopConditions();
     this._seq += 1;
     const phase = {
       phase_id: `${this.fdaId}_${String(this._seq).padStart(2, '0')}_${params.name}`,
@@ -176,14 +272,14 @@ export class Run {
         name: params.name,
         payload: { error: phase.error },
       });
-      this.tracer.sessionFinish(this.fdaId, false);
+      const outcome = this.settle(classifyFailure(error), phase.error);
       this.console.phaseEnded(phase, (Date.now() - t0) / 1000);
-      this.console.sessionFinished(false, this.tokens, this.cost, this.cfg.observability?.db);
+      this.console.sessionFinished(false, this.tokens, this.cost, this.cfg.observability?.db, outcome);
       throw error;
     }
   }
 
-  finish({ accepted = true, reason = '' } = {}) {
+  finish({ accepted = true, reason = '', outcome = null } = {}) {
     // Replayed phases count as successful work: a resumed run where everything
     // was reused (and nothing newly executed failed) is still a success.
     const phasesOk =
@@ -200,8 +296,27 @@ export class Run {
       });
       this.console.note(`not accepted: ${note}`);
     }
-    this.tracer.sessionFinish(this.fdaId, ok);
-    this.console.sessionFinished(ok, this.tokens, this.cost, this.cfg.observability?.db);
+    // The caller names the outcome when it knows it precisely (attempt cap, no
+    // progress…); otherwise it is derived. Settling is first-writer-wins, so a
+    // run already closed by a stop condition or a signal keeps that reason.
+    const resolved = isTerminalOutcome(outcome)
+      ? outcome
+      : ok
+        ? OUTCOMES.GOAL_MET
+        : OUTCOMES.VERIFICATION_FAILED;
+    // `reason` is BY CONSTRUCTION the not-accepted explanation — every caller
+    // writes it as the sentence for the failure branch (the block above only
+    // prints it when !accepted). Storing it on a green run made the trace, the
+    // viewer tooltip and the Slack ping all say "suite failed after 3 fix
+    // attempt(s)" next to `accepted: yes`.
+    const settled = this.settle(resolved, ok ? '' : reason);
+    this.console.sessionFinished(ok, this.tokens, this.cost, this.cfg.observability?.db, settled);
+    // A run that closed WITHOUT meeting its goal has to say what to do next.
+    // Only the exception paths used to (the generic catch and the StopCondition
+    // panel in fda-cli.mjs), so the three outcomes a red suite actually produces
+    // — verification_failed, attempt_cap, no_progress — ended the session with a
+    // bare banner and an fda_id that had scrolled off the top of the run.
+    if (!ok) this.console.recoveryRoutes(this.fdaId, settled, scriptName());
     return ok ? 0 : 1;
   }
 }

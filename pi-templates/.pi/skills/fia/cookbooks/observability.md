@@ -44,10 +44,36 @@ editor for each FDA agent's engine, model and reasoning, plus an optional
 backup is kept; saving is locked while an FDA runs). Details: cookbook
 `update_roster.md`.
 
+## How a run ENDED — the terminal outcome
+
+`sessions.status` is still the boolean (`running` | `success` | `fail`), but every
+run that closes also records ONE named outcome in `sessions.outcome`, with the
+human sentence in `sessions.outcome_reason` and a closing `run_end` event
+carrying both. Report the outcome, never just "failed" — the whole point is that
+the run says honestly how it ended:
+
+| outcome | what it means |
+|---|---|
+| `goal_met` | the only success: phases green AND the run's acceptance criterion met |
+| `verification_failed` | the work ran but the suite or the reviewer refused it |
+| `attempt_cap` | the fix loop spent its `stop.attempt_cap` rounds with the suite still red |
+| `no_progress` | a repair round changed nothing and the same checks kept failing — stopped early on purpose, before spending more of the plan |
+| `budget_exhausted` | `stop.budget_minutes` was reached |
+| `breadth_exceeded` | the run touched more files than `stop.breadth_ceiling` |
+| `blocked_by_gate` | a gate or the permission allowlist refused (spec coverage, C8 checklist, UI conformance, a write outside `writes:`) |
+| `engine_exhausted` | every engine in the fallback chain died |
+| `aborted` | Ctrl+C / SIGTERM — no longer an eternal `running` orphan |
+| `failed` | an unclassified throw |
+
+`attempt_cap`, `no_progress`, `budget_exhausted` and `breadth_exceeded` come from
+the `stop:` block in `imp/fia.config.yaml` (all optional, code defaults apply).
+A run with NO outcome is either still running, or predates the column — say
+"unknown", never guess. Do not read `phases.attempt`: it is always 0.
+
 ## npm scripts (merged into the project by the installer)
 
 ```bash
-npm run fda:sessions   # recent FDA sessions
+npm run fda:sessions   # recent FDA sessions (now with the outcome column)
 npm run fda:phases     # phases for an fda_id (pass as arg)
 npm run fda:tail       # latest events
 npm run fda:viewer     # web timeline (Gantt) at http://127.0.0.1:4600
@@ -55,14 +81,25 @@ npm run plan           # plan view (screens, tasks, design system) at #plan
 npm run agents         # agents tab (engines, models, fallbacks) at #agents
 npm run fda:demo       # smoke FDA (scout read-only)
 npm run fda:quality    # lint/typecheck/build/test without agents
+npm run loop:health    # five-dimension score of the project's agent work loop
+npm run fda:rewind     # list a run's checkpoints and undo it (restore-only)
+npm run wiki:check     # which ai-docs/wiki/ pages the code has outgrown
+npm run security:scan  # L1 security scan (deterministic patterns, zero tokens)
 ```
+
+`imp health`, `imp rewind`, `imp notify` and `imp settings` are the same
+reporters under the brand launcher.
 
 ## SQL (run against imp/data/fia.db)
 
-Recent sessions:
+These match the real schema in `imp/modules/tracer.mjs` — check there before
+inventing a column.
+
+Recent sessions, with how each one ended:
 
 ```sql
-SELECT fda_id, status, substr(request,1,60) AS request, total_tokens, total_cost, started_at
+SELECT fda_id, status, outcome, outcome_reason, substr(request,1,60) AS request,
+       total_tokens, total_cost, started_at
 FROM sessions ORDER BY started_at DESC LIMIT 10;
 ```
 
@@ -80,28 +117,37 @@ SELECT type, name, substr(payload_json,1,120) AS payload
 FROM events WHERE fda_id = ? ORDER BY rowid DESC LIMIT 30;
 ```
 
-Envelopes + gate results:
+Envelopes and gate results (they join on `phase_id`, not on each other):
 
 ```sql
-SELECT e.agent, e.output_type, e.status, g.gate_name, g.passed
-FROM envelopes e
-LEFT JOIN gate_results g ON g.envelope_id = e.id
-WHERE e.fda_id = ?
-ORDER BY e.id, g.id;
+SELECT agent, output_type, valid, attempt, created_at
+FROM envelopes WHERE fda_id = ? ORDER BY created_at;
+
+SELECT phase_id, gate, passed, attempt, violations_json
+FROM gate_results WHERE fda_id = ? ORDER BY id;
 ```
 
-Agent sessions (Pi / Claude CLI resume ids):
+Agent sessions (Pi session file / Claude CLI resume id):
 
 ```sql
-SELECT agent, coding_agent, session_file, updated_at
+SELECT agent, coding_agent, model, session_id, context_tokens, last_used_at
 FROM agent_sessions WHERE fda_id = ?;
 ```
 
-Failed runs only:
+Runs that did not meet their goal, newest first:
 
 ```sql
-SELECT fda_id, request, finished_at
-FROM sessions WHERE status = 'fail' ORDER BY finished_at DESC LIMIT 20;
+SELECT fda_id, outcome, outcome_reason, substr(request,1,60) AS request, ended_at
+FROM sessions
+WHERE status = 'fail' OR (outcome IS NOT NULL AND outcome <> 'goal_met')
+ORDER BY ended_at DESC LIMIT 20;
+```
+
+Which gate refuses most often across the project:
+
+```sql
+SELECT gate, COUNT(*) AS failures
+FROM gate_results WHERE passed = 0 GROUP BY gate ORDER BY failures DESC;
 ```
 
 Or use the helper: `node imp/scripts/fia-query.mjs sessions`.

@@ -19,9 +19,9 @@
  *                                   [--view plan] [--ai-docs ai-docs] [--detach]
  */
 import { createServer } from 'node:http';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, copyFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, writeFileSync, mkdirSync, renameSync, copyFileSync } from 'node:fs';
 import { spawn, execFile } from 'node:child_process';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import Database from 'better-sqlite3';
 import { parse as parseYaml, parseDocument } from 'yaml';
@@ -34,7 +34,62 @@ const DEFAULT_DB = process.env.FIA_DB || 'imp/data/fia.db';
 const DEFAULT_CONFIG = process.env.FIA_CONFIG || 'imp/fia.config.yaml';
 const DEFAULT_AI_DOCS = process.env.FIA_AI_DOCS || 'ai-docs';
 const DEFAULT_PORT = 4600;
+const PORT_WALK = 15;
 const SAFE_ID = /^[a-zA-Z0-9_-]+$/;
+
+/**
+ * Pin every path the viewer reads to an absolute location. A relative
+ * `imp/data/fia.db` follows `process.cwd()` — after a folder move, or when
+ * an old detached process is still bound to :4600, that silently becomes
+ * "No runs yet" while the TUI (started in the new folder) still shows them.
+ */
+function realPath(p) {
+  const abs = resolve(p);
+  try {
+    return existsSync(abs) ? realpathSync(abs) : abs;
+  } catch {
+    return abs;
+  }
+}
+
+export function resolveViewerPaths({
+  dbPath = DEFAULT_DB,
+  configPath = DEFAULT_CONFIG,
+  aiDocsDir = DEFAULT_AI_DOCS,
+  projectRoot = process.env.FIA_PROJECT_ROOT || process.cwd(),
+} = {}) {
+  const root = realPath(projectRoot);
+  return {
+    projectRoot: root,
+    dbPath: realPath(resolve(root, dbPath)),
+    configPath: realPath(resolve(root, configPath)),
+    aiDocsDir: realPath(resolve(root, aiDocsDir)),
+  };
+}
+
+/**
+ * Reuse the occupant only when it is THIS project. A relative dbPath from
+ * another process is that process's cwd, which we cannot see — never treat
+ * `imp/data/fia.db` as a match. The leftover after a folder move reports
+ * `db: false` and a relative path; walking to the next port is the fix.
+ */
+export function shouldReuseViewer(existing, ours) {
+  if (!existing || typeof existing !== 'object' || !ours) return false;
+  if (existing.projectRoot && existing.projectRoot === ours.projectRoot) return true;
+  if (existing.dbPath && isAbsolute(existing.dbPath) && existing.dbPath === ours.dbPath) return true;
+  return false;
+}
+
+export async function probeViewer(port, host = '127.0.0.1') {
+  try {
+    const res = await fetch(`http://${host}:${port}/api/sessions`, { signal: AbortSignal.timeout(500) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data && typeof data === 'object' ? data : null;
+  } catch {
+    return null;
+  }
+}
 
 export function startViewer({
   dbPath = DEFAULT_DB,
@@ -45,6 +100,12 @@ export function startViewer({
   aiDocsDir = DEFAULT_AI_DOCS,
   projectRoot = process.env.FIA_PROJECT_ROOT || process.cwd(),
 } = {}) {
+  ({ dbPath, configPath, aiDocsDir, projectRoot } = resolveViewerPaths({
+    dbPath,
+    configPath,
+    aiDocsDir,
+    projectRoot,
+  }));
   let db = null;
   const getDb = () => {
     if (db) return db;
@@ -292,11 +353,16 @@ export function startViewer({
         res.end(PAGE);
       } else if (url.pathname === '/api/sessions') {
         const d = getDb();
+        // `outcome`/`outcome_reason` are probed, not named blindly: the trace
+        // schema is create-only, so they exist only in a db a new Tracer has
+        // opened, and naming a missing column would 500 the whole list.
+        const outcomeCols =
+          d && d.pragma('table_info(sessions)').some((c) => c.name === 'outcome') ? ', outcome, outcome_reason' : '';
         const rows = d
           ? d
               .prepare(
                 `SELECT fda_id, fda_name, status, engineer, substr(request,1,120) AS request,
-                        started_at, ended_at, total_tokens, total_cost
+                        started_at, ended_at, total_tokens, total_cost${outcomeCols}
                  FROM sessions ORDER BY started_at DESC LIMIT 80`,
               )
               .all()
@@ -306,7 +372,7 @@ export function startViewer({
           const live = s.status === 'running' ? staleMap.get(s.fda_id) : null;
           return live ? { ...s, stale: live.stale, last_activity: live.last_activity } : s;
         });
-        json(res, { db: Boolean(d), dbPath, sessions });
+        json(res, { db: Boolean(d), dbPath, projectRoot, sessions });
       } else if (url.pathname === '/api/session') {
         const d = getDb();
         const id = url.searchParams.get('fda_id') || '';
@@ -451,7 +517,44 @@ function json(res, payload, status = 200) {
   res.end(JSON.stringify(payload));
 }
 
+/**
+ * Bind this project's viewer. Same project already on the port → reuse.
+ * A leftover from another folder (or a moved one) → walk forward so the
+ * browser never lands on someone else's empty "No runs yet".
+ */
+export async function bindViewer(opts) {
+  const requested = Number(opts.port) || DEFAULT_PORT;
+  const ours = resolveViewerPaths(opts);
+  try {
+    const server = await startViewer({ ...opts, port: requested });
+    return { server, port: server.address().port, reused: false };
+  } catch (err) {
+    if (err?.code !== 'EADDRINUSE') throw err;
+  }
+  const existing = await probeViewer(requested);
+  if (shouldReuseViewer(existing, ours)) {
+    return { server: null, port: requested, reused: true };
+  }
+  for (let p = requested + 1; p <= requested + PORT_WALK; p++) {
+    try {
+      const server = await startViewer({ ...opts, port: p });
+      return { server, port: server.address().port, reused: false };
+    } catch (err) {
+      if (err?.code !== 'EADDRINUSE') throw err;
+      const other = await probeViewer(p);
+      if (shouldReuseViewer(other, ours)) {
+        return { server: null, port: p, reused: true };
+      }
+    }
+  }
+  const err = new Error(`No free FIA viewer port in ${requested}–${requested + PORT_WALK}`);
+  err.code = 'EADDRINUSE';
+  throw err;
+}
+
 // ── CLI entry ────────────────────────────────────────────────────────────────
+
+const VIEWER_URL_RE = /https?:\/\/127\.0\.0\.1:\d+\S*/;
 
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
@@ -473,48 +576,66 @@ if (isMain) {
 
   if (args.includes('--detach')) {
     // Re-spawn without --detach: the server outlives the caller (e.g. /map
-    // inside pi) and this process returns immediately. The child opens the
-    // browser — and if the port already has a viewer, it just reopens the browser there.
+    // inside pi) and this process returns immediately. The child prints the
+    // URL it actually bound (which may have walked off :4600) — the parent
+    // relays that, never the requested port.
     const childArgs = [process.argv[1], ...args.filter((a) => a !== '--detach')];
-    const child = spawn(process.execPath, childArgs, { stdio: ['ignore', 'ignore', 'pipe'], detached: true });
+    const child = spawn(process.execPath, childArgs, { stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    let childOut = '';
     let childErr = '';
+    child.stdout.on('data', (chunk) => { childOut += chunk; });
     child.stderr.on('data', (chunk) => { childErr += chunk; });
-    // Give the child a moment to bind the port: a silent failure here used to
-    // print a success URL for a server that never started.
-    const exitCode = await new Promise((resolveWait) => {
-      const timer = setTimeout(() => resolveWait(null), 800);
-      child.once('exit', (code) => { clearTimeout(timer); resolveWait(code ?? 1); });
+    const outcome = await new Promise((resolveWait) => {
+      let done = false;
+      const finish = (result) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        resolveWait(result);
+      };
+      const timer = setTimeout(() => finish({ kind: 'timeout' }), 2000);
+      const consider = () => {
+        const m = childOut.match(VIEWER_URL_RE);
+        if (m) finish({ kind: 'url', url: m[0] });
+      };
+      child.stdout.on('data', consider);
+      child.once('exit', (code) => {
+        const m = childOut.match(VIEWER_URL_RE);
+        if (m) finish({ kind: 'url', url: m[0] });
+        else finish({ kind: 'exit', code: code ?? 1 });
+      });
+      consider();
     });
-    if (exitCode !== null && exitCode !== 0) {
+    if (outcome.kind === 'url') {
+      child.stdout.destroy();
+      child.stderr.destroy();
+      child.unref();
+      console.log(`FIA viewer in the background: ${outcome.url}`);
+    } else {
       console.error(childErr.trim() || 'The FIA viewer failed to start in the background.');
       console.error(`To see the full error, run it in the foreground: node imp/scripts/fia-viewer.mjs --port ${port}`);
       process.exit(1);
     }
-    child.stderr.destroy();
-    child.unref();
-    console.log(`FIA viewer in the background: http://127.0.0.1:${port}${hash}`);
   } else {
     try {
-      const server = await startViewer({ dbPath, port, aiDocsDir });
-      const url = `http://127.0.0.1:${server.address().port}${hash}`;
-      console.log(
-        hash === '#plan'
-          ? `Project plan: ${url}  (docs: ${aiDocsDir} — Ctrl+C to quit)`
-          : hash === '#agents'
-            ? `Agent roster: ${url}  (config: imp/fia.config.yaml — Ctrl+C to quit)`
-            : `FIA viewer: ${url}  (db: ${dbPath} — Ctrl+C to quit)`,
-      );
+      const bound = await bindViewer({ dbPath, port, aiDocsDir });
+      const url = `http://127.0.0.1:${bound.port}${hash}`;
+      if (bound.reused) {
+        console.log(`FIA viewer is already running: ${url}`);
+      } else {
+        const resolved = resolveViewerPaths({ dbPath, aiDocsDir });
+        console.log(
+          hash === '#plan'
+            ? `Project plan: ${url}  (docs: ${resolved.aiDocsDir} — Ctrl+C to quit)`
+            : hash === '#agents'
+              ? `Agent roster: ${url}  (config: imp/fia.config.yaml — Ctrl+C to quit)`
+              : `FIA viewer: ${url}  (db: ${resolved.dbPath} — Ctrl+C to quit)`,
+        );
+      }
       if (!args.includes('--no-open')) openBrowser(url);
     } catch (err) {
-      if (err?.code === 'EADDRINUSE') {
-        // A viewer is already on this port — do not stack servers, just open the browser.
-        const url = `http://127.0.0.1:${port}${hash}`;
-        console.log(`FIA viewer is already running: ${url}`);
-        if (!args.includes('--no-open')) openBrowser(url);
-      } else {
-        console.error(String(err?.message || err));
-        process.exit(1);
-      }
+      console.error(String(err?.message || err));
+      process.exit(1);
     }
   }
 }

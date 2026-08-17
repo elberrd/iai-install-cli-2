@@ -47,6 +47,29 @@ Steps, in this order:
      row per reusable UI component the code already has (between the
      `registry:start/end` markers, status `installed`). It's the registry the
      task briefs will start requiring — suggest `/component sync` to maintain it.
+   - `ai-docs/wiki/` — the **maintained** wiki: one page per subsystem
+     (`auth.md`, `billing.md`, `data-model.md`…), so future agents answer from a
+     page instead of re-reading the repo. Read `ai-docs/wiki/README.md` when it
+     is there for the page contract (a project stamped before the wiki landed
+     has no seed — the contract below is the whole rule, so carry on without
+     it) — every page opens with frontmatter naming the source paths it
+     describes:
+
+     ```markdown
+     ---
+     updated: <today>
+     sources: src/auth, src/lib/session.ts
+     digest:
+     ---
+     ```
+
+     `sources:` is what makes the page checkable; leave `digest:` empty and
+     close with `node imp/scripts/wiki-check.mjs --stamp` — it records the
+     content digest of those paths, and from then on
+     `npm run wiki:check` says which pages the code has outgrown. Scope the
+     wiki with `ai-docs/wiki/wiki-plan.yaml` when the repo is large. NEVER
+     touch text inside a `<!-- human:start -->` … `<!-- human:end -->` block:
+     that is a human's writing and it survives every regeneration.
    - **Project skill**: distill the conventions into short, actionable rules
      in `.pi/skills/project/SKILL.md` AND `.claude/skills/project/SKILL.md` —
      every future agent loads the house rules automatically.
@@ -55,7 +78,14 @@ Steps, in this order:
    product goal, what is untouchable, known debts, environment (dev database,
    seeds, test credentials), and one round of "what did I get wrong?"
    showing your summary. Record the answers back into the artifacts.
-5. **Wrap-up** — list what was generated (paths) and the next commands:
+5. **Stamp the wiki** — `node imp/scripts/wiki-check.mjs --stamp`, then
+   `npm run wiki:check` and show me the result. Every page must read `fresh`.
+   `unverifiable` has two different causes and the report names which: a page
+   that declares no `sources:` at all was never wired up — add the list and
+   re-stamp; a page whose every declared path is GONE from the repo describes
+   code that no longer exists — rewrite the page against the code that replaced
+   it (that one also fails `npm run launch:check`).
+6. **Wrap-up** — list what was generated (paths) and the next commands:
    /kit (design-system audit — RECOMMEND it explicitly when the registry came
    out empty or the code shows duplicated/ad-hoc components) · /feature "what
    you want" · /bug "the symptom" · /task · /goal.

@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, symlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { mergeSkips, ownedPathsToDiscard } from '../src/steps/harness.js';
+import { mergeAgentsMd, mergeSkips, ownedPathsToDiscard } from '../src/steps/harness.js';
 import { HARNESS } from '../src/config.js';
 
 const SKILLS = ['frontend-profissional', 'design-system', 'security', 'backend-profissional'];
@@ -117,4 +117,66 @@ test('injectable exists: decision is pure and follows the predicate', () => {
   const discard = ownedPathsToDiscard(HARNESS.templateOwnedPaths, '/virtual/project', exists);
   assert.deepEqual(discard, ['.cursor/skills/design-system']);
   assert.equal(seen.length, HARNESS.templateOwnedPaths.length);
+});
+
+// ── the AGENTS.md marker merge ────────────────────────────────────────────────
+// The block used to answer 'skipped' for every project that already had it,
+// which froze the harness house rules at whatever version first landed: the
+// `--agent-files replace` policy deliberately never MOVES AGENTS.md (it is
+// append-merged), so nothing in the CLI could ever refresh the block.
+
+test('mergeAgentsMd: creates, appends, and keeps the student text outside the markers', async () => {
+  const dest = tmpProject();
+  const file = join(dest, 'AGENTS.md');
+
+  assert.equal(await mergeAgentsMd(file, 'rule one'), 'created');
+  assert.match(readFileSync(file, 'utf8'), /rule one/);
+
+  // A project that already has its own AGENTS.md gets the block appended.
+  const other = join(tmpProject(), 'AGENTS.md');
+  writeFileSync(other, '# My rules\n\nDo not use tabs.\n');
+  assert.equal(await mergeAgentsMd(other, 'rule one'), 'appended');
+  const merged = readFileSync(other, 'utf8');
+  assert.match(merged, /Do not use tabs\./);
+  assert.match(merged, /rule one/);
+});
+
+test('mergeAgentsMd: an unchanged block is "current", a drifted one is "stale" and is NOT rewritten', async () => {
+  const dest = tmpProject();
+  const file = join(dest, 'AGENTS.md');
+  await mergeAgentsMd(file, 'rule one');
+
+  assert.equal(await mergeAgentsMd(file, 'rule one'), 'current', 'byte-identical is not drift');
+
+  // The harness grew a rule. Default is non-destructive: report, write nothing —
+  // that is what keeps `imp fix` restore-only.
+  const before = readFileSync(file, 'utf8');
+  assert.equal(await mergeAgentsMd(file, 'rule one\n\nrule two'), 'stale');
+  assert.equal(readFileSync(file, 'utf8'), before, 'stale must not write');
+});
+
+test('mergeAgentsMd: refresh replaces ONLY the block, keeping text on both sides', async () => {
+  const dest = tmpProject();
+  const file = join(dest, 'AGENTS.md');
+  writeFileSync(file, '# Mine\n\nAbove.\n');
+  await mergeAgentsMd(file, 'rule one');
+  writeFileSync(file, readFileSync(file, 'utf8') + '\n## After\n\nBelow.\n');
+
+  assert.equal(await mergeAgentsMd(file, 'rule one\n\nrule two', { refresh: true }), 'updated');
+  const out = readFileSync(file, 'utf8');
+  assert.match(out, /Above\./);
+  assert.match(out, /Below\./);
+  assert.match(out, /rule two/);
+  assert.equal(out.split(HARNESS.markerStart).length - 1, 1, 'exactly one block, never a second copy');
+  assert.equal(await mergeAgentsMd(file, 'rule one\n\nrule two', { refresh: true }), 'current', 'idempotent');
+});
+
+test('mergeAgentsMd: a block with no end marker is left untouched', async () => {
+  const dest = tmpProject();
+  const file = join(dest, 'AGENTS.md');
+  const text = `# Mine\n\n${HARNESS.markerStart}\n\nrule one\n\n(the end marker was deleted)\n`;
+  writeFileSync(file, text);
+  // The boundary is unknown — guessing it would swallow the student's own text.
+  assert.equal(await mergeAgentsMd(file, 'rule two', { refresh: true }), 'malformed');
+  assert.equal(readFileSync(file, 'utf8'), text);
 });

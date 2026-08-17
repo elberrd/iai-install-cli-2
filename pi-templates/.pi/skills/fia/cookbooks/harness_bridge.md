@@ -68,6 +68,14 @@ After the artifacts land, show them to the engineer: `npm run plan -- --detach` 
      `Kind: foundation` line into the brief: it makes the FDA's test phase run
      `npm run build` too, so a scaffold that only passes unit tests can never
      reach review with a broken build.
+   - **Impossible dependency (hidden cycle)**: the sequencer found that the
+     picked issue's spec needs a schema/feature a later, blocked-by-this-task
+     issue will introduce (Task 06 proving tag–task deletion, Task 07 creates
+     the tasks table and is blocked by 06). It applies ONE split itself
+     (narrow now, move leftover scenarios to the later issue, keep every
+     `S-n`). If it stopped to ask anyway, tell it to apply the recommended
+     split and re-delegate once — do not ask the engineer. Theme/env/stack
+     still pause. A second failure to write a brief is the only time you ask.
    - UI task ⇒ the brief MUST carry the "Design system components" section
      mapping every UI need to `ai-docs/components/registry.md` (cookbook
      `components.md`). A need with NO registry equivalent: interactive → ask
@@ -129,7 +137,7 @@ repeat:
   1. task-sequencer → next unblocked issue → brief
   2. run fda_sdlc with the brief
   3. exit 0? → report the phase summary, continue
-     exit != 0? → STOP and show the failing phase + trace (never retry blindly)
+     exit != 0? → ONE automatic recovery (see On failure), then continue or STOP
 until no unblocked issues remain
 ```
 
@@ -145,6 +153,9 @@ Rules for the loop:
   `node imp/scripts/env-preflight.mjs` passes — resolve missing keys with the
   engineer mid-goal (Step 2), never by scaffolding around them and letting the
   review discover the broken build.
+- A hidden cycle (picked issue needs a later blocked-by-this-task schema)
+  is NOT a human gate: apply the recommended split once and re-delegate.
+  Ask only if the second sequencer pass still cannot write a brief.
 - UI component missing from `ai-docs/components/registry.md` → follow the
   `components.md` cookbook protocol: register + install it yourself (the
   `/component` flow), continue the loop, and list every component added in
@@ -153,8 +164,25 @@ Rules for the loop:
   "Task finished" requires the brief's checkboxes fully ticked (the checklist
   gate guarantees it on exit 0) — a brief left with `- [ ]` is an unfinished
   task, whatever the announcement says.
-- On failure, stop and hand the engineer the evidence (`fda:phases`, gate violations, envelope). The engineer decides: fix, skip, or re-run.
+- On failure: apply ONE automatic recovery before asking the engineer.
+  The FDA itself already retries a fully-rolled-back allowlist breach
+  once (and treats Finder/Explorer junk like `.DS_Store` as benign). If
+  you would bring the engineer something to correct that an FDA can
+  apply — leftover UI violation, missing test, brief checkbox, or a
+  recommended `--resume` after a revert — dispatch that ONE repair
+  (`--fda-id … --resume`, with `verdict set --missing` when you can name
+  the gap). Do not ask first. If that second attempt also fails, OR the
+  outcome is `no_progress` / `attempt_cap` / `budget_exhausted` /
+  `engine_exhausted` (login/limit): STOP and hand the evidence
+  (`fda:phases`, gate violations, envelope). The engineer decides: fix,
+  skip, or re-run. Never a third attempt on your own. Never implement in
+  place of an FDA.
 - Suggest keeping `npm run fda:viewer` open — it live-updates every 2s.
+- When the **last task of a milestone** completes inside the loop (all tasks
+  listed under that milestone are now `done`), **suggest** `/qa M1` (or the
+  matching milestone id) — browser evidence before the engineer flips
+  `Status: done` in `ai-docs/milestones.md`. Do not run `/qa` automatically and
+  do not block the loop on it.
 
 ## Step 4 — Deliver it RUNNING (definition of done)
 

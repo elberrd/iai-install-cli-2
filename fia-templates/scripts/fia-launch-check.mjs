@@ -25,7 +25,10 @@ import { spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { readPlanTasks } from './plan-docs.mjs';
+import { readPlanTasks, readPlanSpecs } from './plan-docs.mjs';
+import { qaEvidenceGaps } from '../modules/qa-gate.mjs';
+import { hasSourcesGone, runWikiCheck } from './wiki-check.mjs';
+import { runSecurityScan } from './security-scan.mjs';
 
 const MAX_SRC_FILES = 400; // security greps stay cheap even on big projects
 
@@ -272,6 +275,23 @@ export function runLaunchChecks(root = process.cwd(), opts = {}) {
     const open = plan.counts.pending + plan.counts.inProgress + plan.counts.blocked;
     add('Work', 'tasks_done', 'warn', open === 0 ? 'pass' : 'fail', 'Plan tasks completed', open === 0 ? `${plan.counts.done}/${plan.counts.total} done` : `${open} open of ${plan.counts.total}`, open === 0 ? null : 'finish with /goal (or launch anyway, knowingly)');
   }
+  // Milestones marked done should carry browser QA evidence (ai-docs/qa/).
+  {
+    if (!existsSync(join(aiDocsDir, 'milestones.md'))) {
+      add('Work', 'qa_evidence', 'info', 'skip', 'QA reports for done milestones', 'no ai-docs/milestones.md', null);
+    } else {
+      const gaps = qaEvidenceGaps(root);
+      add(
+        'Work',
+        'qa_evidence',
+        'warn',
+        gaps.length === 0 ? 'pass' : 'fail',
+        'QA reports for done milestones',
+        gaps.length ? `missing for: ${gaps.join(', ')}` : 'every done milestone with UI has a passing report',
+        gaps.length ? `run /qa ${gaps[0]} — browser evidence before treating the milestone as truly done` : null,
+      );
+    }
+  }
   // Stack manifest: a "decide later" layer = launching without knowing what you
   // are launching — /launch treats it as a blocker and sends you to /stack.
   if (stackMd == null) {
@@ -345,6 +365,60 @@ export function runLaunchChecks(root = process.cwd(), opts = {}) {
       const newest = schemaish.reduce((a, e) => (e.ts > a.ts ? e : a));
       const stale = newest.ts > docsTs;
       add('Work', 'docs_sync', 'warn', stale ? 'fail' : 'pass', 'Docs in sync with schema/deps', stale ? `${newest.p} committed after ai-docs/stack.md and ai-docs/specs/` : null, stale ? 'update ai-docs/stack.md (and the affected spec) — stale docs mislead every future agent' : null);
+    }
+  }
+
+  // Repo wiki freshness. Warning-level: a stale wiki page is worse than no page
+  // at all, because every agent that trusts it wastes a round on outdated
+  // architecture — but a stale page never breaks a deploy. Zero tokens: the
+  // check is a content digest of each page's declared sources (wiki-check.mjs).
+  {
+    const wiki = runWikiCheck(root, { aiDocsDir });
+    // The directory alone proves nothing: the harness SHIPS ai-docs/wiki/ with
+    // its README explainer and a wiki-plan.yaml, so `available` is true on every
+    // installed project. A wiki with zero pages is "not built yet", not a pass.
+    if (!wiki.available || wiki.summary.total === 0) {
+      add('Work', 'wiki_fresh', 'info', 'skip', 'Repo wiki matches the code it describes', wiki.available ? 'ai-docs/wiki/ has no pages yet' : 'no ai-docs/wiki/ yet', 'run /absorb to build one — agents then answer from it instead of re-reading the repo');
+    } else {
+      // Three ways a wiki stops describing the code, and this row used to count
+      // only the first: STALE (a declared source changed), SOURCES GONE (every
+      // path the page declares was deleted or renamed — the page describes code
+      // that no longer exists and can never go stale again), and NOTHING
+      // CHECKABLE (no page declares `sources:` at all, so a clean report proves
+      // nothing was verified). Counting stale alone printed a green "matches the
+      // code it describes" over `0 fresh · 0 stale · 4 unverifiable`.
+      const stale = wiki.pages.filter((p) => p.status === 'stale').map((p) => p.file);
+      const gone = wiki.pages.filter(hasSourcesGone).map((p) => p.file);
+      const unverifiable = wiki.summary.unverifiable || 0;
+      const nothingCheckable = unverifiable === wiki.summary.total;
+      const named = [...stale, ...gone];
+      const detail = named.length
+        ? named.slice(0, 5).join(', ') + (named.length > 5 ? ` (+${named.length - 5})` : '')
+        : nothingCheckable
+          ? `${wiki.summary.total} page(s), none declaring sources: — nothing is being checked`
+          : unverifiable
+            ? `${wiki.summary.fresh} verified, ${unverifiable} page(s) declare no sources: and cannot be`
+            : null;
+      const fix = gone.length
+        ? 'those pages point only at paths that no longer exist — rewrite them with /absorb, then `node imp/scripts/wiki-check.mjs --stamp`'
+        : stale.length
+          ? 'run /absorb to refresh the stale pages (hand-written <!-- human --> blocks are preserved), then `node imp/scripts/wiki-check.mjs --stamp`'
+          : 'no page declares `sources:`, so freshness is never checked — re-run /absorb to wire each page to the files it describes';
+      const failing = stale.length > 0 || gone.length > 0 || nothingCheckable;
+      add('Work', 'wiki_fresh', 'warn', failing ? 'fail' : 'pass', 'Repo wiki matches the code it describes', detail, failing ? fix : null);
+    }
+  }
+
+  // Specs without a diagram. Warning-level: the prose is the contract, but a
+  // ```mermaid flow is what makes a spec readable at a glance — and /spec asks
+  // for one under `## Flow`, so a spec without it skipped a step.
+  {
+    const specs = readPlanSpecs(aiDocsDir);
+    if (!specs.available || specs.counts.total === 0) {
+      add('Work', 'spec_diagrams', 'info', 'skip', 'Every spec carries a flow diagram', 'no specs yet', null);
+    } else {
+      const missing = specs.specs.filter((s) => !s.hasDiagram).map((s) => s.id);
+      add('Work', 'spec_diagrams', 'warn', missing.length === 0 ? 'pass' : 'fail', 'Every spec carries a flow diagram', missing.length ? `no \`\`\`mermaid block in spec ${missing.slice(0, 6).join(', ')}${missing.length > 6 ? ` (+${missing.length - 6})` : ''}` : null, missing.length ? 'add a `## Flow` mermaid diagram to each — /spec writes one for new specs' : null);
     }
   }
 
@@ -427,9 +501,31 @@ export function runLaunchChecks(root = process.cwd(), opts = {}) {
     add('Security', 'raw_functions', 'info', 'skip', 'No raw query/mutation outside convex/lib', 'stack does not use Convex', null);
   }
 
-  const uiFiles = [...listFiles(join(root, 'app'), ['.tsx', '.ts']), ...listFiles(join(root, 'components'), ['.tsx'])];
-  const danger = uiFiles.filter((f) => /dangerouslySetInnerHTML/.test(readIf(f) || '')).map(rel);
-  add('Security', 'dangerous_html', 'warn', danger.length === 0 ? 'pass' : 'fail', 'No dangerouslySetInnerHTML', danger.slice(0, 5).join(', ') || null, danger.length ? 'never with user content — React escapes by default' : null);
+  // One L1 scan serves both checks below (security-scan.mjs owns the rule table
+  // and its own wider file walk — app/, components/, src/, lib/, pages/ — so a
+  // `src/`-layout project is no longer silently unscanned).
+  {
+    const scan = runSecurityScan(root);
+    const where = (hits) =>
+      hits
+        .slice(0, 5)
+        .map((f) => `${f.file}:${f.line}`)
+        .join(', ') + (hits.length > 5 ? ` (+${hits.length - 5})` : '');
+
+    const danger = scan.findings.filter((f) => f.ruleId === 'dangerous_html');
+    add('Security', 'dangerous_html', 'warn', danger.length === 0 ? 'pass' : 'fail', 'No dangerouslySetInnerHTML', danger.length ? where(danger) : null, danger.length ? 'never with user content — React escapes by default' : null);
+
+    // The rest of the L1 pack as one line. A TRUNCATED scan must never report
+    // 'pass': a partial scan that says clean is the worst failure mode there is.
+    const highs = scan.findings.filter((f) => f.severity === 'high');
+    if (!scan.available) {
+      add('Security', 'security_l1', 'info', 'skip', 'L1 security scan clean (deterministic patterns)', 'no source roots to scan', null);
+    } else if (scan.summary.truncated) {
+      add('Security', 'security_l1', 'warn', 'fail', 'L1 security scan clean (deterministic patterns)', `scan stopped at the ${scan.summary.filesScanned}-file cap — the result is partial`, 'rescan a subtree: node imp/scripts/security-scan.mjs --dir <subdir>');
+    } else {
+      add('Security', 'security_l1', 'warn', highs.length === 0 ? 'pass' : 'fail', 'L1 security scan clean (deterministic patterns)', highs.length ? where(highs) : `${scan.summary.filesScanned} file(s) scanned, ${scan.summary.medium} medium / ${scan.summary.low} low`, highs.length ? 'see every finding with: node imp/scripts/security-scan.mjs (the security skill is the full standard)' : null);
+    }
+  }
 
   const httpTs = readIf(join(root, 'convex', 'http.ts'));
   if (httpTs == null) add('Security', 'webhook_verify', 'info', 'skip', 'Webhooks verify their signature', usesConvex ? 'no convex/http.ts' : 'no convex/http.ts (stack does not use Convex)', null);

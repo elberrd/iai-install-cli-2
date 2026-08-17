@@ -184,7 +184,10 @@ test('plan viewer: overview merges map.yaml, screens, tasks and files', async ()
     assert.equal(o.workflow.steps.length, 6);
     assert.equal(o.workflow.steps[3].status, 'in_progress');
     // Unfilled {{placeholder}} must normalize to not_started, not leak through.
-    assert.equal(o.workflow.steps[5].status, 'not_started');
+    // The seed also writes app/ui-components/page.tsx — evidence promotes the
+    // displayed status to completed (the YAML stamp is what `declared` keeps).
+    assert.equal(o.workflow.steps[5].declared, 'not_started');
+    assert.equal(o.workflow.steps[5].status, 'completed');
     assert.equal(o.counts.tasks.total, 3);
     assert.equal(o.counts.screens.total, 4);
     assert.equal(o.next.num, '02');

@@ -3,7 +3,28 @@ import { createHash } from 'node:crypto';
 import { rmSync, readFileSync, existsSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 
-export class PermissionBreach extends Error {}
+export class PermissionBreach extends Error {
+  constructor(message, { violations = [], restored = [], unrecoverable = [] } = {}) {
+    super(message);
+    this.violations = violations;
+    this.restored = restored;
+    this.unrecoverable = unrecoverable;
+  }
+}
+
+/**
+ * A breach whose unauthorized writes were fully rolled back can be retried
+ * once in-phase: the tree is clean again, so a second attempt is meaningful.
+ * An unrecoverable path (pre-existing untracked file, no copy in git) is
+ * not — retrying would only risk more of the user's only copy.
+ */
+export function canAutoRetryBreach(error) {
+  return (
+    error instanceof PermissionBreach &&
+    error.unrecoverable.length === 0 &&
+    error.violations.length > 0
+  );
+}
 
 function git(args, cwd) {
   try {
@@ -96,6 +117,15 @@ const DEFAULT_BENIGN = [
   'node_modules/',
   'coverage/',
   '.eslintcache',
+  // OS junk Finder / Explorer drop while an agent is running. Not agent work
+  // — revert silently, never fail the phase (a reviewer that "wrote"
+  // nine .DS_Store files used to abort a green run).
+  '.DS_Store',
+  '**/.DS_Store',
+  'Thumbs.db',
+  '**/Thumbs.db',
+  'desktop.ini',
+  '**/desktop.ini',
 ];
 
 function benignPatterns(cfg) {
@@ -185,6 +215,7 @@ export function enforce(run, phase, agent, treeBefore) {
         (unrecoverable.length
           ? `\nNOT restorable (no copy exists in git — check these by hand):\n- ${unrecoverable.join('\n- ')}`
           : ''),
+      { violations, restored, unrecoverable },
     );
   }
   return touched;

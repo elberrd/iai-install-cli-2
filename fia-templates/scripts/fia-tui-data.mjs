@@ -17,12 +17,18 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { readPlanOverview, readPlanTasks, readPlanDoc, parseMdTables } from './plan-docs.mjs';
+import { docsStatus as manifestDocsStatus } from './docs-manifest.mjs';
+import { durSec } from '../modules/format.mjs';
 
 export { activeFdaLock } from './fda-lock.mjs';
 export { readPlanDoc as readDoc };
+export { docsStatus } from './docs-manifest.mjs';
 
 export const STALE_MS = 10 * 60_000;
 const SAFE_ID = /^[a-zA-Z0-9_-]+$/;
+// A pragma name cannot be a bound parameter, so the table name is interpolated —
+// it is always a literal here, and this keeps it that way.
+const SAFE_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /** Read-only handle, or null while the db does not exist yet. */
 export function openDb(dbPath) {
@@ -39,6 +45,22 @@ export function openDb(dbPath) {
  */
 export function dataVersion(db) {
   return db.pragma('data_version', { simple: true });
+}
+
+/**
+ * Does this table carry that column? The trace schema is create-only, so a
+ * column added later (sessions.outcome) exists ONLY in databases a new Tracer
+ * has opened. A read-only reader must probe instead of naming it in a SELECT:
+ * naming a missing column throws, and every reader here answers a throw with an
+ * empty shape — which would blank the whole dashboard on an older project.
+ */
+export function hasColumn(db, table, column) {
+  if (!SAFE_IDENT.test(String(table || ''))) return false;
+  try {
+    return db.pragma(`table_info(${table})`).some((c) => c.name === column);
+  } catch {
+    return false; /* schema-less db (see listSessions) */
+  }
 }
 
 function pidAlive(pid) {
@@ -90,11 +112,15 @@ export function runningSessions(db, now = Date.now()) {
 /** Newest-first session list, running ones tagged stale/last_activity. */
 export function listSessions(db, limit = 80) {
   let rows;
+  // `outcome`/`outcome_reason` only exist once a new Tracer has opened the db
+  // (create-only schema + guarded ALTER). Probe, never assume: naming a missing
+  // column would throw into the catch below and render "no runs yet".
+  const outcomeCols = hasColumn(db, 'sessions', 'outcome') ? ', outcome, outcome_reason' : '';
   try {
     rows = db
       .prepare(
         `SELECT fda_id, fda_name, status, engineer, substr(request,1,120) AS request,
-                started_at, ended_at, total_tokens, total_cost
+                started_at, ended_at, total_tokens, total_cost${outcomeCols}
          FROM sessions ORDER BY started_at DESC LIMIT ?`,
       )
       .all(limit);
@@ -375,5 +401,172 @@ export function defaultPaths(env = process.env) {
     dbPath: env.FIA_DB || join('imp', 'data', 'fia.db'),
     configPath: env.FIA_CONFIG || join('imp', 'fia.config.yaml'),
     aiDocsDir: env.FIA_AI_DOCS || 'ai-docs',
+    telemetryDir: env.FIA_TELEMETRY_DIR || join('imp', 'data', 'telemetry'),
   };
+}
+
+function telemetryPaths(root, telemetryDir) {
+  const base = join(root, telemetryDir);
+  return { base, ndjson: join(base, 'commands.ndjson'), live: join(base, 'live.json') };
+}
+
+function readJsonFile(path) {
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+/** Aggregate interactive Pi command telemetry from NDJSON + live snapshot. */
+export function readCommandTelemetry(root, telemetryDir = join('imp', 'data', 'telemetry')) {
+  const empty = { available: false, live: null, history: [], totals: null };
+  const { ndjson, live: livePath } = telemetryPaths(root, telemetryDir);
+  const live = readJsonFile(livePath);
+  const history = [];
+  const open = new Map();
+
+  if (!existsSync(ndjson) && !live) return { ...empty, available: Boolean(live), live };
+
+  if (existsSync(ndjson)) {
+    let text;
+    try {
+      text = readFileSync(ndjson, 'utf8');
+    } catch {
+      text = '';
+    }
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue;
+      let row;
+      try {
+        row = JSON.parse(line);
+      } catch {
+        continue; /* tolerate corrupt lines */
+      }
+      if (row.type === 'command_start') {
+        open.set(row.command_id, {
+          id: row.command_id,
+          command: row.command,
+          args: row.args || '',
+          session_id: row.session_id || '',
+          started_at: row.started_at,
+          ended_at: null,
+          settled_at: null,
+          status: 'running',
+          tokens_in: 0,
+          tokens_out: 0,
+          cache_read: 0,
+          cache_write: 0,
+          cost: 0,
+          docs_written: [],
+          phases: [],
+          current_activity: null,
+        });
+      } else if (row.type === 'usage' && open.has(row.command_id)) {
+        const rec = open.get(row.command_id);
+        rec.tokens_in += row.tokens_in || 0;
+        rec.tokens_out += row.tokens_out || 0;
+        rec.cache_read += row.cache_read || 0;
+        rec.cache_write += row.cache_write || 0;
+        rec.cost += row.cost || 0;
+      } else if (row.type === 'phase_start' && open.has(row.command_id)) {
+        const rec = open.get(row.command_id);
+        rec.phases.push({
+          id: row.phase_id,
+          label: row.label,
+          started_at: row.started_at,
+          ended_at: null,
+          tokens_in: 0,
+          tokens_out: 0,
+          cost: 0,
+        });
+        rec.current_activity = row.label;
+      } else if (row.type === 'phase_end' && open.has(row.command_id)) {
+        const rec = open.get(row.command_id);
+        const ph = rec.phases.find((p) => p.id === row.phase_id);
+        if (ph) {
+          ph.ended_at = row.ended_at;
+          ph.tokens_in += row.tokens_in || 0;
+          ph.tokens_out += row.tokens_out || 0;
+          ph.cost += row.cost || 0;
+        }
+      } else if (row.type === 'doc_written' && open.has(row.command_id)) {
+        const rec = open.get(row.command_id);
+        if (!rec.docs_written.includes(row.path)) rec.docs_written.push(row.path);
+      } else if (row.type === 'settled' && open.has(row.command_id)) {
+        open.get(row.command_id).settled_at = row.settled_at;
+      } else if (row.type === 'command_end') {
+        const rec = open.get(row.command_id) || {
+          id: row.command_id,
+          command: row.command,
+          args: '',
+          session_id: '',
+          started_at: row.ended_at,
+        };
+        history.push({
+          id: rec.id,
+          command: row.command || rec.command,
+          args: rec.args || '',
+          session_id: rec.session_id || '',
+          started_at: rec.started_at,
+          ended_at: row.ended_at,
+          settled_at: row.settled_at ?? rec.settled_at,
+          status: 'ended',
+          tokens_in: row.tokens_in ?? rec.tokens_in ?? 0,
+          tokens_out: row.tokens_out ?? rec.tokens_out ?? 0,
+          cache_read: row.cache_read ?? rec.cache_read ?? 0,
+          cache_write: row.cache_write ?? rec.cache_write ?? 0,
+          cost: row.cost ?? rec.cost ?? 0,
+          docs_written: row.docs_written || rec.docs_written || [],
+          phases: row.phases || rec.phases || [],
+          current_activity: null,
+        });
+        open.delete(row.command_id);
+      }
+    }
+  }
+
+  // Orphaned starts still open — prefer live.json when ids match.
+  for (const rec of open.values()) {
+    if (live?.id === rec.id) continue;
+    history.push({ ...rec, status: 'running' });
+  }
+
+  history.sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)));
+
+  const all = [...history];
+  if (live?.id) {
+    const idx = all.findIndex((r) => r.id === live.id);
+    const merged = {
+      ...(idx >= 0 ? all[idx] : {}),
+      ...live,
+      status: live.status || 'running',
+    };
+    if (idx >= 0) all[idx] = merged;
+    else all.unshift(merged);
+  }
+
+  const finished = all.filter((r) => r.ended_at);
+  const totals = finished.length
+    ? {
+        commands: finished.length,
+        tokens_in: finished.reduce((n, r) => n + (r.tokens_in || 0), 0),
+        tokens_out: finished.reduce((n, r) => n + (r.tokens_out || 0), 0),
+        cost: finished.reduce((n, r) => n + (r.cost || 0), 0),
+        seconds: finished.reduce((n, r) => n + durSec(r.started_at, r.ended_at), 0),
+      }
+    : null;
+
+  return {
+    available: Boolean(live) || history.length > 0 || existsSync(ndjson),
+    live: live || all.find((r) => r.status === 'running') || null,
+    history: all.filter((r) => r.status !== 'running' || r.id !== live?.id),
+    totals,
+  };
+}
+
+/** Project documentation checklist (re-export wrapper with root). */
+export function loadDocsStatus(root) {
+  return manifestDocsStatus(root);
 }

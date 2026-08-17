@@ -30,6 +30,7 @@ import { cp, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/pro
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ADDONS_CONFIG_FILE, FIA, HARNESS, LEGACY_ADDONS_CONFIG_FILE } from '../config.js';
+import { isRuntimeCode } from '../lib/runtime-health.js';
 import { installPiPackages } from '../lib/pi-auth.js';
 import { prunePiSkillCopies } from '../lib/skills.js';
 import { run } from '../lib/proc.js';
@@ -185,7 +186,7 @@ export async function planRuntimeUpdate({
  * by the manifest rewrite).
  */
 export async function applyRuntimePlan({ dir, plan, overwriteModified = async () => false, now = new Date() }) {
-  const result = { added: [], updated: [], skippedModified: [], unchanged: [], backupDir: null };
+  const result = { added: [], updated: [], skippedModified: [], forcedRuntime: [], unchanged: [], backupDir: null };
   const backupRel = backupDirName(now);
   for (const entry of plan) {
     if (entry.action === 'preserved') continue;
@@ -200,11 +201,19 @@ export async function applyRuntimePlan({ dir, plan, overwriteModified = async ()
       result.added.push(entry.rel);
       continue;
     }
-    // 'update' | 'modified' — both replace an existing file; modified needs consent.
-    if (entry.action === 'modified' && !(await overwriteModified(entry))) {
+    // 'update' | 'modified' — both replace an existing file; modified needs
+    // consent, EXCEPT for runtime code. imp/modules/, imp/scripts/ and
+    // imp/fda_*.mjs import each other by relative path, so keeping ONE of them
+    // at the old version while its siblings move forward does not preserve a
+    // student's edit — it produces `SyntaxError: does not provide an export
+    // named …` on every FDA, under a "Runtime updated ✅" banner. Those files
+    // are never student material (src/steps/fix.js makes the same argument),
+    // and the pre-overwrite backup below still keeps their bytes.
+    if (entry.action === 'modified' && !isRuntimeCode(entry.rel) && !(await overwriteModified(entry))) {
       result.skippedModified.push(entry.rel);
       continue;
     }
+    if (entry.action === 'modified' && isRuntimeCode(entry.rel)) result.forcedRuntime.push(entry.rel);
     const backupPath = join(dir, backupRel, entry.rel);
     await mkdir(dirname(backupPath), { recursive: true });
     await cp(entry.dest, backupPath);
@@ -226,21 +235,45 @@ export function manifestFilesAfter(plan) {
   return files;
 }
 
+/** The one section header the runtime owns inside the student's .gitignore. */
+export const GITIGNORE_HEADER = '# imp runtime';
+
 /**
  * Add the FIA runtime ignores (runtime data, node_modules, update backups)
  * once. Shared by setupFia and the update (projects stamped by older versions
  * predate the backup entry).
+ *
+ * Exactly ONE `# imp runtime` section ever exists: a project stamped by an
+ * older release already carries the header, so a newly shipped entry is
+ * inserted INSIDE that block. Emitting the header again would leave the
+ * student's file with one stanza per release, each holding whatever that
+ * release added — the same ignores, but a diff nobody can read.
  */
 export async function ensureFiaGitignore(dir) {
   const gitignore = join(dir, '.gitignore');
-  const existing = existsSync(gitignore) ? (await readFile(gitignore, 'utf8')).split('\n') : [];
-  const missing = FIA.gitignoreEntries.filter((e) => !existing.includes(e));
+  const raw = existsSync(gitignore) ? await readFile(gitignore, 'utf8') : '';
+  const lines = raw ? raw.split('\n') : [];
+  const missing = FIA.gitignoreEntries.filter((e) => !lines.includes(e));
   if (!missing.length) return;
-  await writeFile(
-    gitignore,
-    (existing.length ? existing.join('\n') + '\n' : '') + '# imp runtime\n' + missing.join('\n') + '\n',
-    'utf8',
-  );
+
+  const headerIx = lines.findIndex((l) => l.trim() === GITIGNORE_HEADER);
+  if (headerIx === -1) {
+    await writeFile(
+      gitignore,
+      (lines.length ? lines.join('\n') + '\n' : '') + `${GITIGNORE_HEADER}\n` + missing.join('\n') + '\n',
+      'utf8',
+    );
+    return;
+  }
+  // Our block ends at the first blank line or at the next `# …` section header,
+  // so entries the student added under ours are kept above the new ones.
+  let insertAt = headerIx + 1;
+  while (insertAt < lines.length && lines[insertAt].trim() && !lines[insertAt].trimStart().startsWith('#')) {
+    insertAt += 1;
+  }
+  lines.splice(insertAt, 0, ...missing);
+  const out = lines.join('\n');
+  await writeFile(gitignore, out.endsWith('\n') ? out : `${out}\n`, 'utf8');
 }
 
 // ── Legacy layout migration (fia/ → imp/) ────────────────────────────────────
@@ -686,6 +719,14 @@ export async function runUpdateRuntime(flags = {}) {
   if (result.backupDir) ui.info(`Every overwritten file was backed up to ${result.backupDir}/.`);
   if (result.skippedModified.length && !flags.force) {
     ui.info('Locally modified files were kept. Re-run with --force to overwrite them too (backups are always taken).');
+  }
+  if (result.forcedRuntime?.length) {
+    // Not a silent overwrite: the student edited runtime code, and keeping it
+    // would have produced an unloadable tree. Say so and name the backup.
+    ui.info(
+      `${result.forcedRuntime.length} edited runtime file(s) were updated anyway — the runtime imports itself, so a mixed-version imp/ cannot load. ` +
+        `Your versions are in ${result.backupDir || FIA.runtimeBackupPrefix + '<timestamp>'}/: ${result.forcedRuntime.slice(0, 3).join(', ')}${result.forcedRuntime.length > 3 ? ', …' : ''}`,
+    );
   }
   ui.outro(ok ? 'Runtime updated. ✅' : ui.color.red('Runtime update finished with errors — see above.'));
   return ok;

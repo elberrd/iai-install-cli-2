@@ -27,9 +27,12 @@ Request: $@
    NOTES.md before shaping it, and tell me which shape you're borrowing.
 2. **Delta spec** in `ai-docs/specs/NNNN-<slug>.md` (numbering continues;
    format pinned in the cookbook `.pi/skills/fia/cookbooks/specs.md`):
-   `FR-n` requirements + BDD `S-n` scenarios + Traceability + Gate log. It
-   replaces the old mini-PRD — the main PRD stays untouched. Definition Gate
-   passed → `Status: defined`; tick the promoted inbox items `→ spec NNNN`.
+   **Flow** (ONE ```mermaid diagram of the delta — what changes and where it
+   can refuse) + `FR-n` requirements + BDD `S-n` scenarios + Traceability +
+   Gate log. It replaces the old mini-PRD — the main PRD stays untouched.
+   Requirements + scenarios + the Flow diagram in place and no open P1 →
+   `Status: defined`; tick the promoted inbox items `→ spec NNNN`.
+   (`npm run launch:check` warns for any spec without a diagram.)
 3. Delegate to the `task-master-generator` in DELTA mode: generate ONLY the new
    issues in `ai-docs/todos/issues/` (vertical slices; numbering continues from
    the existing one; `Blocked by:` points to real tasks; inventory — what the
@@ -39,3 +42,5 @@ Request: $@
    granularity and dependencies are mine to decide.
 5. Approved → suggest /task (one) or /goal (all the new ones). Step 4 of the
    cookbook applies: when done, deliver it RUNNING + a "How to test" section.
+   When the new spec's tasks are all done, suggest `/qa NNNN` once (cookbook
+   `qa.md`) — do not auto-run it and never suggest QA after `/quick`.

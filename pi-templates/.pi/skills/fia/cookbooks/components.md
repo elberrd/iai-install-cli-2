@@ -49,6 +49,18 @@ Briefs map field → semantic type → registry component in the "Semantic
 fields" table, and the brief's Quality Checklist carries the gate line — the
 checklist gate refuses to close a run that ignored it.
 
+## Interaction contracts (the third hard rule)
+
+Search, overlays, calendars, table chrome, and the `/ui-components` page
+follow `.claude/skills/design-system/references/interaction.md`: pointer
+cursor on every clickable control; typed queries highlight matches in
+yellow (`<mark>`); Combobox/MultiSelect popovers are at least as wide as
+their trigger; calendars jump month and year from the caption; DataTable
+filters open from the header / a single Filter control and render as chips
+with an x — never a toolbar row of per-column buttons; each design-system
+card isolates ONE registry component. The UI gate and `/qa` audit this
+file; do not restate a parallel version here.
+
 ## /component — add with minimum friction
 
 Minimum input: **name** + **exact component URL** and/or **install

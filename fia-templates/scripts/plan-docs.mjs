@@ -585,6 +585,33 @@ export function normSpecStatus(s) {
 }
 
 /**
+ * Does the spec carry a mermaid diagram? Only a fence OPENED at line start with
+ * ```mermaid counts: a ```mermaid line inside an already-open ~~~ or ````
+ * block is quoted content (specs do quote the rule), and an indented fence is
+ * not at line start. Implemented locally on purpose — scripts/ imports only its
+ * siblings — so this is the TWIN of `specHasDiagram` in
+ * `fia-templates/modules/gates.mjs` (that one gates, this one only reports) and
+ * the two must agree.
+ * Caveat: `cached()` truncates a document at MAX_DOC_BYTES, so a diagram past
+ * 512KB reads as absent here — detection only, never a refusal.
+ */
+function hasMermaidFence(md) {
+  let fence = null;
+  for (const line of String(md || '').split(/\r?\n/)) {
+    const f = /^(\s*)(`{3,}|~{3,})\s*(.*)$/.exec(line);
+    if (!f) continue;
+    const ch = f[2][0];
+    if (fence) {
+      if (ch === fence) fence = null;
+      continue;
+    }
+    fence = ch;
+    if (!f[1] && ch === '`' && /^mermaid\b/i.test(f[3].trim())) return true;
+  }
+  return false;
+}
+
+/**
  * One spec file (ai-docs/specs/NNNN-slug.md): id + title from the
  * `# Spec 0003 — <Title>` H1, header Status/Created/Updated/Tasks lines and
  * the append-only `## Gate log` lines. Anything absent → null/[], never throws.
@@ -613,12 +640,19 @@ export function parseSpec(md) {
     updated: (/updated\s*:\s*(\d{4}-\d{2}-\d{2})/i.exec(md) || [])[1] || null,
     tasks: parseBlockers(clean(metaLine(md, 'tasks|tarefas').replace(/\([^)]*\)\s*$/, '')) || ''),
     gateLog,
+    hasDiagram: hasMermaidFence(md),
   };
 }
 
 export function readPlanSpecs(aiDocsDir) {
   const specsDir = join(aiDocsDir, 'specs');
-  const empty = { available: false, dir: 'specs', updatedAt: null, specs: [], counts: { total: 0, draft: 0, defined: 0, inProgress: 0, done: 0 } };
+  const empty = {
+    available: false,
+    dir: 'specs',
+    updatedAt: null,
+    specs: [],
+    counts: { total: 0, draft: 0, defined: 0, inProgress: 0, done: 0, withoutDiagram: 0 },
+  };
   let names;
   try {
     // `0000-example.md` is the shipped reference example — it documents the
@@ -646,14 +680,16 @@ export function readPlanSpecs(aiDocsDir) {
       updated: parsed.updated,
       tasks: parsed.tasks,
       gateLog: parsed.gateLog,
+      hasDiagram: Boolean(parsed.hasDiagram),
     });
   }
-  const counts = { total: specs.length, draft: 0, defined: 0, inProgress: 0, done: 0 };
+  const counts = { total: specs.length, draft: 0, defined: 0, inProgress: 0, done: 0, withoutDiagram: 0 };
   for (const s of specs) {
     if (s.status === 'done') counts.done++;
     else if (s.status === 'in-progress') counts.inProgress++;
     else if (s.status === 'defined') counts.defined++;
     else counts.draft++;
+    if (!s.hasDiagram) counts.withoutDiagram++;
   }
   return { available: true, dir: 'specs', updatedAt, specs, counts };
 }
@@ -1022,6 +1058,34 @@ function normWfStatus(s) {
   return 'not_started';
 }
 
+/** Does this /start step have its artifact on disk? YAML is often left stale. */
+function workflowStepEvidence(key, aiDocsDir, uiPageExists) {
+  if (!aiDocsDir) return false;
+  const k = String(key || '');
+  const has = (...rels) => rels.some((rel) => existsSync(join(aiDocsDir, rel)));
+  if (/prd/i.test(k)) return has('PRD.md', 'PRD-as-built.md');
+  if (/screens/i.test(k)) return has('screens-routes.md');
+  if (/task_master|task-master/i.test(k)) return has('todos/task-master.md');
+  if (/mapper|start_mapper/i.test(k)) return has('map.yaml');
+  if (/component_architect|component-architect/i.test(k)) {
+    return has('components/registry.md', 'components/ideal-components.md');
+  }
+  if (/ui_component|ui-component/i.test(k)) return Boolean(uiPageExists);
+  return false;
+}
+
+/**
+ * Trust the YAML when it already recorded a real outcome. Promote only
+ * `not_started` (or a blank) when the artifact is sitting on disk — that is
+ * the /map path, which writes the files and often never stamps workflow_progress.
+ */
+function reconcileWfStatus(declared, hasEvidence) {
+  if (declared === 'skipped' || declared === 'failed' || declared === 'completed' || declared === 'in_progress') {
+    return declared;
+  }
+  return hasEvidence ? 'completed' : declared;
+}
+
 function detailLines(result) {
   const out = [];
   if (!result || typeof result !== 'object') return out;
@@ -1041,20 +1105,31 @@ function detailLines(result) {
   return out;
 }
 
-export function readPlanWorkflow(map) {
+export function readPlanWorkflow(map, aiDocsDir = null, { uiPageExists = false } = {}) {
   const wp = map?.workflow_progress || {};
   const steps = Object.entries(wp.steps || {})
-    .map(([key, v]) => ({
-      key,
-      order: Number((/^step_(\d+)/.exec(key) || [])[1] || 99),
-      name: clean(v?.name) || key.replace(/^step_\d+_/, '').replace(/_/g, ' '),
-      status: normWfStatus(v?.status),
-      completedAt: clean(v?.completed_at),
-      details: detailLines(v?.result),
-    }))
+    .map(([key, v]) => {
+      const declared = normWfStatus(v?.status);
+      const hasEvidence = workflowStepEvidence(key, aiDocsDir, uiPageExists);
+      return {
+        key,
+        order: Number((/^step_(\d+)/.exec(key) || [])[1] || 99),
+        name: clean(v?.name) || key.replace(/^step_\d+_/, '').replace(/_/g, ' '),
+        status: reconcileWfStatus(declared, hasEvidence),
+        declared,
+        evidenced: hasEvidence,
+        completedAt: clean(v?.completed_at),
+        details: detailLines(v?.result),
+      };
+    })
     .sort((a, b) => a.order - b.order);
+  const done = steps.filter((s) => s.status === 'completed' || s.status === 'skipped').length;
+  let status = normWfStatus(wp.workflow_status);
+  if (steps.length && done === steps.length) status = 'completed';
+  else if (steps.some((s) => s.status === 'in_progress')) status = 'in_progress';
+  else if (steps.some((s) => s.status === 'completed') && status === 'not_started') status = 'in_progress';
   return {
-    status: normWfStatus(wp.workflow_status),
+    status,
     startedAt: clean(wp.started_at),
     lastUpdated: clean(wp.last_updated),
     steps,
@@ -1151,7 +1226,7 @@ export function readPlanOverview(aiDocsDir, projectRoot = process.cwd()) {
       auth: clean(st.backend?.authentication?.name),
       hosting: clean(st.backend?.hosting?.name),
     },
-    workflow: readPlanWorkflow(map),
+    workflow: readPlanWorkflow(map, aiDocsDir, { uiPageExists: Boolean(design.uiPage?.exists) }),
     milestones,
     specs,
     inbox,

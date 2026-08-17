@@ -59,10 +59,14 @@ a secret that ever hit git history is burned).
 ## Step 1 — Gate: ready (work, git, CI)
 
 1. `node imp/fda_quality.mjs "launch gate"` must exit 0.
-2. Dirty tree → conventional commit. No remote → offer
+2. Done milestones with UI should have a passing report in `ai-docs/qa/`
+   (`launch:check` → `qa_evidence`). Missing → suggest `/qa M1` (or the
+   relevant scope) before treating the milestone as truly done — warn only,
+   not a blocker.
+3. Dirty tree → conventional commit. No remote → offer
    `gh repo create <slug> --private --source . --push` (confirm name and
    visibility first — creating a public repo exposes the code).
-3. Push, then CI: `gh run watch` until green. **Never publish on a red CI** —
+4. Push, then CI: `gh run watch` until green. **Never publish on a red CI** —
    dispatch an FDA to fix instead.
 
 ## Step 2 — Gate: safe (the go-live checklist)

@@ -4,7 +4,7 @@ import { Tracer } from './tracer.mjs';
 import { Run } from './runner.mjs';
 import { engineerName, newId, nowIso } from './utils.mjs';
 import { resolveEngines } from './engines.mjs';
-import { readEngineErrors, relayModeOf, shouldArmFallback } from './continuation.mjs';
+import { clearRunVerdict, readEngineErrors, readRunVerdict, relayModeOf, shouldArmFallback } from './continuation.mjs';
 
 function pidAlive(pid) {
   try {
@@ -162,6 +162,59 @@ export function ensure(cfg, fdaId = null, { resume = false } = {}) {
   const run = new Run(cfg, id, tracer, engineerName(), { resume });
   const scriptPath = process.argv[1] || '';
   tracer.sessionStart(id, run.engineer, basename(scriptPath, '.mjs'));
+
+  // BOUNDED CONTINUATION. A verdict recorded after the previous attempt says what
+  // is still MISSING; this run is narrowed to exactly that. The phases it names
+  // have their saved results removed, so the ordinary resume rule ("no saved
+  // result → execute") re-runs them — no special case in the replay predicate,
+  // which is the part of the runner least safe to complicate. The verdict is
+  // then consumed: a scope is a one-shot instruction, and leaving it would
+  // re-narrow every later resume, including one meant to be unrestricted.
+  if (resume) {
+    const sessionDir = join(dataDir, 'sessions', id);
+    const verdict = readRunVerdict(sessionDir);
+    if (verdict) {
+      run.verdict = verdict;
+      // REQUESTED is not APPLIED. `verdict.mjs set` refuses a phase this run never
+      // saved, but a verdict written straight through writeRunVerdict has no such
+      // guard — and dropping nothing means the phase REPLAYS from disk while the
+      // log says it was re-run. Record the two lists separately so the ledger
+      // never claims work that did not happen.
+      const redone = [];
+      const skipped = [];
+      for (const phase of verdict.redo) {
+        if (!/^[A-Za-z0-9_-]+$/.test(phase)) {
+          skipped.push(phase); // never let a verdict name a path
+          continue;
+        }
+        try {
+          rmSync(join(sessionDir, 'phase_results', `${phase}.json`));
+          redone.push(phase);
+        } catch {
+          skipped.push(phase); // nothing saved for it — the phase replays as it was
+        }
+      }
+      run.console.note(
+        `bounded continuation: ${verdict.missing.length} item(s) of missing work` +
+          (redone.length ? `, re-running ${redone.join(', ')}` : '') +
+          (skipped.length ? `, ${skipped.join(', ')} had no saved result (nothing dropped)` : ''),
+      );
+      tracer.event({
+        fda_id: id,
+        phase_id: '',
+        type: 'log',
+        name: 'bounded_continuation',
+        payload: {
+          missing: verdict.missing,
+          redo: redone,
+          redo_requested: verdict.redo,
+          redo_skipped: skipped,
+          outcome: verdict.outcome ?? null,
+        },
+      });
+      clearRunVerdict(sessionDir);
+    }
+  }
   tracer.processStart(id, 'fda', '', process.pid, process.argv.join(' '));
   run.console.sessionStarted(id, run.engineer);
   for (const d of decisions) {

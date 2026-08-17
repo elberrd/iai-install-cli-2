@@ -23,12 +23,13 @@ const UI_RUBRIC = [
   'Lists of records render through the registry\'s default table component (the shared DataTable) when the registry has one — a hand-rolled <table>, a bare primitive-Table composition, or a second per-screen table implementation is a violation.',
   'Fields whose data has a known domain (state/UF, country, timezone, language, fixed categories) or a normalizable format (CEP, phone, CPF/CNPJ, money, civil dates) use their semantic component — a picker fed by the canonical source, or a masked+validated input (a CEP field with its address lookup) — storing the canonical code, never the typed label. A free-text input for such data is a violation.',
   'Submit buttons disable while submitting; async views have explicit loading and empty states.',
+  'Interactive surfaces follow `.claude/skills/design-system/references/interaction.md`: pointer cursor on every clickable control; any typed search/filter highlights matching text in yellow (`<mark>`); Combobox/MultiSelect/Select popovers are at least as wide as their trigger; Calendar caption lets the user jump month and year (not arrows-only); DataTable filters open from the column header / a single Filter control and render as removable chips — never a toolbar row of per-column filter buttons; `/ui-components` cards isolate ONE registry component (no kitchen-sink form reused across DateInput/Calendar/Combobox sections).',
 ];
 
 function checkPrompt(files) {
   return [
     'Audit ONLY the UI conformance of the frontend files listed below — the functional review happens elsewhere; do not re-review the task.',
-    'Read `ai-docs/ui/patterns.md` and `ai-docs/components/registry.md` first when they exist: patterns.md is the project\'s interaction-pattern contract and OVERRIDES the rubric defaults below. `.claude/skills/design-system/references/semantic-fields.md`, when the project ships it, is the catalog behind the semantic-field item.',
+    'Read `ai-docs/ui/patterns.md` and `ai-docs/components/registry.md` first when they exist: patterns.md is the project\'s interaction-pattern contract and OVERRIDES the rubric defaults below. `.claude/skills/design-system/references/semantic-fields.md`, when the project ships it, is the catalog behind the semantic-field item. `.claude/skills/design-system/references/interaction.md` is the catalog behind the pointer / yellow-highlight / overlay-width / calendar-caption / table-chrome / showcase-isolation item.',
     '',
     'Frontend files this run changed:',
     ...files.map((f) => `- ${f}`),

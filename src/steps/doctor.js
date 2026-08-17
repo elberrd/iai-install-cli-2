@@ -16,8 +16,9 @@
 //   3. Pi & imp — Pi installed + the three pinned extension packages, plus
 //      the same update probe `imp` prints after a session.
 //   4. Project — only when the folder looks like an IAI project: FIA runtime
-//      present, .mcp.json hygiene (npx without -y dies on a cold cache — the
-//      "Connection closed" lesson) and a summary of the full --verify audit.
+//      complete, the stamped runtime still current with the templates this
+//      impactus ships, .mcp.json hygiene (npx without -y dies on a cold cache
+//      — the "Connection closed" lesson) and a summary of the --verify audit.
 //
 // `--json` swaps the report for `{ ok, sections }` on stdout. Exit code:
 // 0 = no error-level finding (warnings included), 1 otherwise.
@@ -40,6 +41,8 @@ import {
 import { CLAUDE_INSTALL_HINT } from './preflight.js';
 import { collectFindings } from './verify.js';
 import { classifyHarnessState, readHarnessManifest } from '../lib/harness-manifest.js';
+import { isRuntimeCode, missingRuntimeCode, runtimeHint } from '../lib/runtime-health.js';
+import { planRuntimeUpdate, readRuntimeManifest } from './update-runtime.js';
 
 const NODE_FLOOR = [22, 12];
 
@@ -169,7 +172,66 @@ async function piSection(impactusVersion) {
   return { title: 'Pi & imp', rows };
 }
 
-async function projectSection(cwd) {
+/**
+ * Is the stamped runtime still the one this impactus ships? The answer comes
+ * from `planRuntimeUpdate` — the very planner `--update-runtime` uses — so
+ * doctor and the updater can never disagree about what is behind. The plan is
+ * pure: it reads the templates and the disk and returns entries, nothing here
+ * writes. A failure degrades to one warn row (a reporter never throws).
+ * @returns {Promise<{level:string,msg:string}[]>}
+ */
+async function runtimeStalenessRows(cwd, impactusVersion) {
+  let manifest = null;
+  let plan = [];
+  try {
+    manifest = await readRuntimeManifest(cwd);
+    plan = await planRuntimeUpdate({ dir: cwd, manifest });
+  } catch (err) {
+    return [warn(`Runtime version check could not run here: ${err?.message || err}`)];
+  }
+  // 'update' = ours and untouched since the stamp; 'modified' = differs with no
+  // stamp proving it was ours. Both mean the file on disk is not the one this
+  // impactus ships. ('add' is absence, not skew — for runtime code the
+  // completeness probe above already reports it.)
+  const behind = plan.filter((e) => e.action === 'update' || e.action === 'modified');
+  const code = behind.filter((e) => isRuntimeCode(e.rel));
+  const prose = behind.filter((e) => !isRuntimeCode(e.rel));
+  const names = (entries) =>
+    `${entries.slice(0, 4).map((e) => e.rel).join(', ')}${entries.length > 4 ? ` (+${entries.length - 4})` : ''}`;
+
+  const rows = [];
+  if (code.length) {
+    // An error, not a note: runtime code imports itself by relative path, so a
+    // project holding old modules next to new ones fails at module resolution
+    // (`does not provide an export named …`) on every FDA.
+    rows.push(
+      error(
+        `${code.length} runtime code file(s) differ from the impactus ${impactusVersion} templates — the runtime imports ` +
+          'itself, so a mixed-version imp/ dies on module resolution. Bring it current with `npx impactus --update-runtime`.' +
+          `\n   behind: ${names(code)}`,
+      ),
+    );
+  }
+  if (prose.length) {
+    rows.push(
+      warn(
+        `${prose.length} prompt/skill file(s) differ from the impactus ${impactusVersion} templates — newer prose, or your ` +
+          'own edits. `npx impactus --update-runtime` brings them current and asks before replacing anything you changed.',
+      ),
+    );
+  }
+  if (!behind.length) rows.push(ok(`Runtime matches the impactus ${impactusVersion} templates.`));
+  if (manifest?.impactus && manifest.impactus !== impactusVersion) {
+    rows.push(
+      info(
+        `Runtime stamped by impactus ${manifest.impactus}; this CLI is ${impactusVersion} — \`npx impactus --update-runtime\` re-stamps it.`,
+      ),
+    );
+  }
+  return rows;
+}
+
+async function projectSection(cwd, impactusVersion) {
   const rows = [];
   const inProject =
     existsSync(join(cwd, 'imp')) || existsSync(join(cwd, 'ai-docs')) || existsSync(join(cwd, '.agents'));
@@ -181,11 +243,25 @@ async function projectSection(cwd) {
   if (existsSync(join(cwd, 'imp'))) {
     const runtimeOk = existsSync(join(cwd, 'imp', 'scripts', 'fia-tui.mjs'));
     const rosterOk = existsSync(join(cwd, 'imp', 'fia.config.yaml'));
+    // Presence of two paths is not completeness. The runtime imports itself, so
+    // a project missing part of imp/modules/ or imp/scripts/ dies on module
+    // resolution while these two probes still say "present" — the exact green
+    // light that used to send students in circles.
+    const missingRuntime = await missingRuntimeCode(cwd);
+    if (missingRuntime.length) {
+      rows.push(error(`${runtimeHint(missingRuntime)}\n   missing: ${missingRuntime.slice(0, 4).join(', ')}${missingRuntime.length > 4 ? ` (+${missingRuntime.length - 4})` : ''}`));
+    }
     rows.push(
-      runtimeOk && rosterOk
+      // Not "present" while it is incomplete: printing the green row under the
+      // ✖ was the contradiction students had to resolve for themselves.
+      runtimeOk && rosterOk && !missingRuntime.length
         ? ok('FIA runtime present (imp/scripts + imp/fia.config.yaml).')
         : warn('FIA runtime incomplete (imp/ exists but scripts or fia.config.yaml are missing) — run `npx impactus --update-runtime`.'),
     );
+    // Complete is not the same as current: nothing else in the CLI ever tells a
+    // student their runtime is behind, so a project stays on the release it was
+    // stamped with until someone happens to run `--update-runtime`.
+    rows.push(...(await runtimeStalenessRows(cwd, impactusVersion)));
   } else {
     rows.push(info('FIA not installed here (harness-only install) — `imp init` adds it.'));
   }
@@ -255,7 +331,7 @@ export async function collectDoctorReport({ cwd = process.cwd(), impactusVersion
     await enginesSection(),
     await clisSection(),
     await piSection(impactusVersion),
-    await projectSection(resolve(cwd)),
+    await projectSection(resolve(cwd), impactusVersion),
   ];
   return { ok: !sections.some((s) => s.rows.some((r) => r.level === 'error')), sections };
 }
