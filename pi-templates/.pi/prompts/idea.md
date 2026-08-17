@@ -15,7 +15,8 @@ full of `{{placeholders}}` do NOT make a project brownfield; it already knows):
   full interview and rewrite the PRD (git + decision logs keep the old version).
 - `brownfield` → **Module mode** (below).
 - In greenfield/ideation, if the code holds a real application that `ai-docs/`
-  never absorbed (not the installer's starter), stop and suggest `/absorb` first.
+  never absorbed (not the installer's starter), stop and suggest `/onboarding`
+  first (the guided `/absorb` → `/stack` → `/kit` pass).
 
 Interview rules (follow them to the letter):
 

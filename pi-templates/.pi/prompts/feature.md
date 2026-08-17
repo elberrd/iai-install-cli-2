@@ -4,7 +4,7 @@ argument-hint: "\"what you want to build\""
 ---
 Read `.pi/skills/fia/SKILL.md`. Prerequisite: `ai-docs/map.yaml` — if it doesn't
 exist (existing system not yet absorbed), stop and ask me to run
-/absorb first.
+/onboarding first (or /absorb alone for just the map).
 
 Request: $@
 

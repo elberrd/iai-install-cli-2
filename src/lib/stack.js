@@ -163,7 +163,7 @@ const SOURCE_LABEL = {
   template: 'ready-made template (IAI recommended stack)',
   custom: 'stack assembled in the installer',
   discover: 'to be decided — talk to Pi (/idea extracts PRD + stack)',
-  brownfield: 'existing project — run /absorb so the system maps the real stack',
+  brownfield: 'existing project — run /onboarding (or /absorb) so the system maps the real stack',
 };
 
 /**
