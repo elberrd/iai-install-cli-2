@@ -14,6 +14,8 @@
     "test": "node test/run.mjs",
     "sync:skills": "node scripts/sync-skills.mjs",
     "sync:skills:check": "node scripts/sync-skills.mjs --check",
+    "sync:commands": "node scripts/sync-commands.mjs",
+    "sync:commands:check": "node scripts/sync-commands.mjs --check",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write ."

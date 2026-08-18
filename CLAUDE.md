@@ -36,6 +36,7 @@ keys or extra usage).
 npm test          # full suite (node test/run.mjs)
 npm run lint      # eslint
 npm run sync:skills   # regenerates .cursor/skills mirrors (never edit those by hand)
+npm run sync:commands # regenerates .cursor/commands from .claude + overlays
 ```
 
 ## Hard rules

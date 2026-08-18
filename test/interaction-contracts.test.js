@@ -68,12 +68,17 @@ test('the Pi cookbook and wrappers carry the interaction hard rule', () => {
   assert.ok(cookbook.includes('interaction.md'), 'cookbook lost the pointer to the interaction catalog');
   assert.ok(cookbook.includes('yellow'), 'cookbook lost the yellow-highlight contract');
   const page = readFileSync(join(ROOT, 'pi-templates', '.pi', 'agents', 'ui-component-page.md'), 'utf8');
-  assert.ok(page.includes('interaction.md'), 'Pi ui-component-page wrapper lost the isolation pointer');
-  assert.ok(page.includes('kitchen-sink'), 'Pi ui-component-page wrapper lost the kitchen-sink ban');
+  assert.ok(
+    page.includes('`.claude/agents/ui-component-page.md`'),
+    'Pi ui-component-page wrapper must point at the harness agent (isolation contract lives there)',
+  );
   const kit = readFileSync(join(ROOT, 'pi-templates', '.pi', 'prompts', 'kit.md'), 'utf8');
   assert.ok(kit.includes('interaction.md'), '/kit prompt lost the interaction audit');
   const architect = readFileSync(join(ROOT, 'pi-templates', '.pi', 'agents', 'component-architect.md'), 'utf8');
-  assert.ok(architect.includes('interaction.md'), 'Pi component-architect wrapper lost the interaction pointer');
+  assert.ok(
+    architect.includes('`.claude/agents/component-architect.md`'),
+    'Pi component-architect wrapper must point at the harness agent',
+  );
 });
 
 test('the UI-conformance rubric carries the interaction item', () => {

@@ -1,0 +1,127 @@
+# Cursor overlays for harness slash commands.
+#
+# Canonical body: harness/.claude/commands/<name>.md (human/agent edits ONLY here).
+# Generated twin: harness/.cursor/commands/<name>.md via `npm run sync:commands`.
+# `.agents/commands/` symlinks at the Cursor copy — that is what Cursor/Pi open.
+#
+# `description` is required for every command (consistency.test.js frontmatter check).
+# `mergeFrontmatter: true` keeps Claude-only keys (argument-hint, allowed-tools) and
+# overlays `name` + `description`. `replace` / `append` patch the body after globals.
+
+globalReplace:
+  - from: ".claude/skills/"
+    to: ".cursor/skills/"
+  - from: ".claude/commands/"
+    to: ".cursor/commands/"
+  - from: AskUserQuestion
+    to: AskQuestion
+
+commands:
+  absorb:
+    description: Workflow command /absorb — onboard an existing system (as-built PRD, map, conventions)
+    replace:
+      - from: (and mirror to `.pi/skills/project/SKILL.md` when `.pi/` exists)
+        to: (and mirror to `.claude/skills/project/SKILL.md` and `.pi/skills/project/SKILL.md` when they exist)
+
+  bug:
+    description: Workflow command /bug — fix a defect, reproduction first
+
+  component:
+    description: Workflow command /component — see AGENTS.md
+
+  create-command:
+    description: Create a new slash command with professional structure and best practices
+    mergeFrontmatter: true
+    replace:
+      - from: "Check: `ls .claude/commands/`"
+        to: "Check: `ls .cursor/commands/` (and `ls .claude/commands/`)"
+
+  design:
+    description: Workflow command /design — see AGENTS.md
+
+  dev:
+    description: Workflow command /dev — see AGENTS.md
+    replace:
+      - from: >-
+          present them with their recommended defaults (so the user can answer "yes to all")
+          and **WAIT for the answers before writing any code**.
+        to: >-
+          present them with their recommended defaults via `AskQuestion` (so the user can
+          answer "yes to all") and **WAIT for the answers before writing any code**.
+    append: |
+
+
+      In Cursor you can additionally launch the `bugbot` subagent for an independent review of the branch changes when the task is large or risky.
+
+  example:
+    description: Workflow command /example — register an external reference (repo, code, docs, design) in ai-docs/examples/
+    replace:
+      - from: |
+          Ask (ONE question at a time, with a recommendation):
+        to: |
+          Ask (ONE question at a time, with a recommendation, via `AskQuestion` when the
+          options are enumerable):
+
+  feature:
+    description: Workflow command /feature — new functionality on an existing system (delta interview → delta spec → integrated tasks)
+
+  grill:
+    description: Workflow command /grill — stress-test a plan, PRD, or decision one question at a time
+    replace:
+      - from: >-
+          1. **One question at a time.** Ask, wait for the answer, then continue. Multiple
+          questions at once are bewildering.
+        to: >-
+          1. **One question at a time.** Ask, wait for the answer, then continue. Multiple
+          questions at once are bewildering. Use the AskQuestion tool when the options are
+          enumerable; free text otherwise.
+      - from: >-
+          2. **Recommend an answer with every question.** "My recommendation: X, because Y"
+          — the user can accept in two words or push back.
+        to: >-
+          2. **Recommend an answer with every question.** "My recommendation: X, because Y"
+          — the user can accept in two words or push back. When using AskQuestion, put the
+          recommended option first with "(Recommended)".
+
+  kit:
+    description: Workflow command /kit — design-system onboarding & audit of existing code (as-built registry, /ui-components, gap report, approved design-only tasks)
+
+  launch:
+    description: Workflow command /launch — see AGENTS.md
+
+  note:
+    description: Workflow command /note — capture an idea in ai-docs/inbox.md with zero questions
+
+  onboarding:
+    description: "Workflow command /onboarding — first run on an existing system: /absorb → /stack → /kit in one guided pass"
+
+  quick:
+    description: Workflow command /quick — small change without ceremony (triage → guarded implementation → quick-log entry)
+
+  restore:
+    description: Workflow command /restore — see AGENTS.md
+
+  spec:
+    description: Workflow command /spec — create or update a durable spec in ai-docs/specs/ (requirements + BDD scenarios + traceability)
+    replace:
+      - from: "always with a recommended answer; facts the codebase answers are research, not questions): observable problem"
+        to: "always with a recommended answer, via `AskQuestion` when the options are enumerable; facts the codebase answers are research, not questions): observable problem"
+
+  stack:
+    description: Workflow command /stack — see AGENTS.md
+
+  start:
+    description: Workflow command /start — see AGENTS.md
+
+  sv:
+    description: Workflow command /sv — see AGENTS.md
+
+  team:
+    description: Workflow command /team — see AGENTS.md
+
+  test-ui:
+    description: Test UI functionality in a real browser with automated sign-in and issue detection
+    mergeFrontmatter: true
+
+  theme:
+    description: Workflow command /theme — see AGENTS.md

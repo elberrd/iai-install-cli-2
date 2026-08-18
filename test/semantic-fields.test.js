@@ -75,7 +75,10 @@ test('the Pi cookbook carries the semantic-fields hard rule', () => {
   const idea = readFileSync(join(ROOT, 'pi-templates', '.pi', 'prompts', 'idea.md'), 'utf8');
   assert.ok(idea.includes('semantic type'), '/idea wrap-up no longer asks for semantic types in the data model');
   const wrapper = readFileSync(join(ROOT, 'pi-templates', '.pi', 'agents', 'task-sequencer.md'), 'utf8');
-  assert.ok(wrapper.includes('semantic-fields'), 'Pi task-sequencer wrapper lost the Semantic fields mandate');
+  assert.ok(
+    wrapper.includes('`.claude/agents/task-sequencer.md`'),
+    'Pi task-sequencer wrapper must point at the harness agent (Semantic fields mandate lives there)',
+  );
 });
 
 // The deterministic UI gate must audit the semantic-fields rule too — this
