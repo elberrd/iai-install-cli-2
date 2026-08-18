@@ -45,8 +45,17 @@ test('orchestrator surfaces share the one-shot recovery policy', () => {
 });
 
 test('sequencer surfaces auto-split a hidden cycle instead of asking first', () => {
+  const harnessAgents = new Set(['agents/task-sequencer.md', 'agents/task-master-generator.md']);
   for (const [rel, needle] of HIDDEN_CYCLE) {
     const text = readFileSync(join(PI, rel), 'utf8');
+    if (harnessAgents.has(rel)) {
+      const name = rel.replace('agents/', '').replace('.md', '');
+      assert.ok(
+        text.includes('`.claude/agents/' + name + '.md`'),
+        `${rel} must point at the harness agent (canonical auto-split lives there)`,
+      );
+      continue;
+    }
     assert.ok(text.includes(needle), `${rel} lost its "${needle}" clause`);
   }
 });
