@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPiArgs } from '../fia-templates/modules/agent-pi.mjs';
+import { buildPiArgs, piUsageOf } from '../fia-templates/modules/agent-pi.mjs';
 import { buildCursorArgs } from '../fia-templates/modules/agent-cursor.mjs';
 
 // Per-engine system prompt delivery is the contract audited in Aug/2026:
@@ -42,4 +42,12 @@ test('buildCursorArgs: system prepended only to the first prompt of the session'
 
   const none = buildCursorArgs({ prompt: 'y' });
   assert.equal(none.at(-1), 'y');
+});
+
+test('piUsageOf: reported total and individual components remain available', () => {
+  assert.deepEqual(
+    piUsageOf({ totalTokens: 100, input: 30, output: 20, cacheRead: 40, cacheWrite: 10 }),
+    { input: 30, output: 20, cacheRead: 40, cacheWrite: 10, total: 100 },
+  );
+  assert.equal(piUsageOf({ input: 3, output: 2, cacheRead: 4, cacheWrite: 1 }).total, 10);
 });

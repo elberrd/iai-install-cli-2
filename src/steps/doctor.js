@@ -323,16 +323,80 @@ async function projectSection(cwd, impactusVersion) {
 }
 
 /**
+ * `--gates`: run the stamped gate probes (imp/scripts/gate-probes.mjs) — the
+ * only check that measures the HARNESS rather than the machine or the code.
+ * Each probe injects a deliberate defect against a throwaway fixture in OS
+ * temp and asserts the matching gate goes red; a MISSED probe means a class
+ * of defect can currently slip through this project's gates unseen. Spawned
+ * (not imported) so the probes run the PROJECT's stamped runtime, not this
+ * package's templates — version drift is exactly what this section detects.
+ */
+async function gatesSection(cwd) {
+  const rows = [];
+  const script = join(cwd, 'imp', 'scripts', 'gate-probes.mjs');
+  if (!existsSync(script)) {
+    // Two different situations, two different repairs: a folder with no FIA
+    // runtime at all needs an install, not an update — pointing everyone at
+    // `--update-runtime` sends people to a command that refuses to run there.
+    rows.push(
+      existsSync(join(cwd, 'imp'))
+        ? warn('No gate probes in this project (imp/scripts/gate-probes.mjs missing) — stamp them:  npx impactus --update-runtime')
+        : info('No FIA runtime in this folder, so there are no gates to self-test. Install one with `imp init` (or `npx impactus`).'),
+    );
+    return { title: 'Gates (self-test)', rows };
+  }
+  let child = null;
+  try {
+    const { run } = await import('../lib/proc.js');
+    child = await run(process.execPath, [script, '--json'], { cwd });
+    const report = JSON.parse(child.stdout || 'null');
+    if (!report || typeof report.healthy !== 'boolean') throw new Error('unreadable probe report');
+    if (report.healthy) {
+      rows.push(ok(`Gate probes: ${report.caught}/${report.red} defects caught, ${report.controls_ok}/${report.controls} clean controls pass.`));
+    } else {
+      for (const p of report.results.filter((x) => !x.ok)) {
+        rows.push(
+          error(
+            `Gate probe ${p.kind === 'red' ? 'MISSED' : 'control BROKEN'}: ${p.id} — ${p.what}` +
+              (p.error ? `\nProbe error: ${p.error}` : '') +
+              '\nRestore the runtime:  npx impactus --update-runtime',
+          ),
+        );
+      }
+    }
+  } catch (err) {
+    // An unrunnable self-test is a finding, never a silent skip — a check
+    // that cannot run has to be loud, not absent. The child's own stderr is
+    // what actually names the cause (a missing imp/node_modules is the common
+    // one), so it must reach the student instead of a generic parse error.
+    const detail = String(child?.stderr || '')
+      .split('\n')
+      .filter((l) => l.trim())
+      .slice(-3)
+      .join('\n');
+    rows.push(
+      error(
+        `Gate probes could not run${child ? ` (exit ${child.exitCode})` : ''}: ${err?.message || err}` +
+          (detail ? `\n${detail}` : '') +
+          '\nTry them directly:  npm run gates:probe',
+      ),
+    );
+  }
+  return { title: 'Gates (self-test)', rows };
+}
+
+/**
  * Probe everything and return the report (no printing — unit-testable).
  * @returns {Promise<{ok: boolean, sections: {title: string, rows: {level:string,msg:string}[]}[]}>}
  */
-export async function collectDoctorReport({ cwd = process.cwd(), impactusVersion = '0.0.0' } = {}) {
+export async function collectDoctorReport({ cwd = process.cwd(), impactusVersion = '0.0.0', gates = false } = {}) {
   const sections = [
     await enginesSection(),
     await clisSection(),
     await piSection(impactusVersion),
     await projectSection(resolve(cwd), impactusVersion),
   ];
+  if (gates) sections.push(await gatesSection(resolve(cwd)));
   return { ok: !sections.some((s) => s.rows.some((r) => r.level === 'error')), sections };
 }
 
@@ -341,7 +405,7 @@ const PAINT = { ok: (s) => s, info: pc.dim, warn: pc.yellow, error: pc.red };
 
 /** Entry point of `imp doctor`. @returns {Promise<boolean>} true = no errors. */
 export async function runDoctor(flags = {}, impactusVersion = '0.0.0') {
-  const report = await collectDoctorReport({ impactusVersion });
+  const report = await collectDoctorReport({ impactusVersion, gates: Boolean(flags.gates) });
   if (flags.json) {
     console.log(JSON.stringify(report, null, 2));
     return report.ok;

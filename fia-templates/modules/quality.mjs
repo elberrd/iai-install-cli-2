@@ -1,7 +1,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { isFoundationBrief } from './gates.mjs';
+import { enforceFloor } from './floor.mjs';
 import { nowIso } from './utils.mjs';
 
 const TAIL_CHARS = 4000;
@@ -77,6 +78,14 @@ async function runSpec(spec, run) {
     duration_seconds: duration,
     output_artifact: outputArtifact,
     output_tail: (stdout + stderr).slice(-TAIL_CHARS),
+    // The regression floor parses the runner's SUMMARY, which every supported
+    // runner prints at the end of STDOUT. `output_tail` tails stdout and
+    // stderr concatenated, so a noisy suite (a few dozen React
+    // act()/console warnings on stderr is already >4KB) evicts the summary
+    // entirely — and a floor that reads "no count" on noisy runs and a real
+    // count on quiet ones is a gate that gives opposite verdicts for the same
+    // tree. Keep stdout's own tail for it.
+    stdout_tail: stdout.slice(-TAIL_CHARS),
   };
 }
 
@@ -117,16 +126,75 @@ export async function runFocalTests(run, files) {
 }
 
 /**
+ * Regression-floor pass over a GREEN full-suite result (modules/floor.mjs):
+ * the tree must carry at least as many test files (and, when the summary is
+ * parseable, passing tests) as the last green run stamped. A violation turns
+ * the green result RED with a synthetic `floor` check, so the ordinary repair
+ * loop asks the builder to RESTORE the missing tests — deleting or skipping
+ * tests is never a way to go green. When everything holds, the ratchet rises
+ * in the same call (code stamps it; agents cannot — the file is protected).
+ */
+function withRegressionFloor(run, result) {
+  if (!result.passed) return result;
+  const testCheck = result.checks.find((c) => c.name === 'test') || result.checks[0];
+  const report = enforceFloor({
+    // Resolved against the RUN's repo, never the process cwd: `data_dir` is a
+    // repo-relative path, and a run driven from elsewhere would otherwise
+    // stamp its floor into whatever directory the process happens to be in.
+    dataDir: resolve(run.repoRoot, run.cfg?.defaults?.data_dir || 'imp/data'),
+    repoRoot: run.repoRoot,
+    testOutput: testCheck?.stdout_tail ?? testCheck?.output_tail,
+  });
+  try {
+    run.tracer.event({
+      fda_id: run.fdaId,
+      phase_id: run.phases.at(-1)?.phase_id || '',
+      type: 'log',
+      name: 'regression_floor',
+      payload: { ok: report.ok, raised: report.raised, observed: report.observed, floor: report.floor },
+    });
+  } catch {
+    /* trace unavailable — the floor verdict below still stands */
+  }
+  if (report.ok) {
+    if (report.raised) {
+      run.console.note(
+        `regression floor raised: ${report.floor.test_files} test file(s)` +
+          (report.floor.tests_passed !== undefined ? `, ${report.floor.tests_passed} passing test(s)` : ''),
+      );
+    }
+    return result;
+  }
+  const failures = report.violations.map((v) => `floor: ${v}`);
+  const floorCheck = {
+    name: 'floor',
+    command: 'regression floor (imp/modules/floor.mjs)',
+    returncode: 1,
+    passed: false,
+    duration_seconds: 0,
+    output_artifact: '',
+    output_tail: failures.join('\n'),
+  };
+  return {
+    ...result,
+    passed: false,
+    checks: [...result.checks, floorCheck],
+    failures: [...result.failures, ...failures],
+  };
+}
+
+/**
  * Test phase for a brief: foundation briefs (`Kind: foundation` meta line,
  * copied from the issue by the task-sequencer) ALSO run `npm run build` —
  * the scaffold's unit tests pass without env vars, but the production build
  * reads them at prerender, and that failure must surface HERE, in code,
  * deterministically — never depend on the reviewer choosing to build.
+ * Every green result then clears the regression floor (see above).
  */
 export async function runTestsForBrief(run, prompt) {
-  if (!isFoundationBrief(prompt)) return runTests(run);
+  if (!isFoundationBrief(prompt)) return withRegressionFloor(run, await runTests(run));
   const specs = defaultSpecs(run.repoRoot).filter((s) => s.name === 'test' || s.name === 'build');
-  return runQuality(run, specs);
+  return withRegressionFloor(run, await runQuality(run, specs));
 }
 
 export async function runTests(run, specs = defaultSpecs()) {

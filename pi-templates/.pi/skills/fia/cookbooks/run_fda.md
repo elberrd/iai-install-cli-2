@@ -6,8 +6,14 @@ Never implement in place of an FDA. Launch and observe.
 node imp/fda_scout.mjs "map auth flow"
 node imp/fda_plan.mjs "add /health endpoint"
 node imp/fda_plan_build_test.mjs "implement the plan" --fda-id <id from plan run>
+node imp/fda_build_test.mjs "brief is already autocontained — skip planner"
 node imp/fda_sdlc.mjs "full feature from ai-docs issue"
+node imp/fda_prototype.mjs ai-docs/actual-todo/<brief-with-Mode-prototype>.md
 ```
+
+`fda_prototype` refuses prompts without an exact top-level `Mode: prototype`
+line. That marker is the deliberate authorization to skip tests and review;
+`/task` and `/goal` select the runner from it automatically.
 
 Watch:
 
@@ -21,7 +27,7 @@ npm run fda:tail -- <fda_id>
 
 Every run closes with ONE named outcome (`goal_met`, `verification_failed`,
 `attempt_cap`, `no_progress`, `budget_exhausted`, `breadth_exceeded`,
-`blocked_by_gate`, `engine_exhausted`, `aborted`, `failed`) — printed in the end
+`blocked_by_gate`, `engine_exhausted`, `stopped_by_request`, `aborted`, `failed`) — printed in the end
 banner, stored on the session and shown by `npm run fda:sessions`. Report it to
 the engineer verbatim; only `goal_met` is success. Full table: cookbook
 `observability.md`.
@@ -62,6 +68,19 @@ or a recommended `--resume` after a revert — dispatch that ONE repair first
 gap). If that also fails, or the outcome is `no_progress` / `attempt_cap` /
 `budget_exhausted` / `engine_exhausted`: hand the decision back. Never a
 third attempt on your own. Never implement in place of an FDA.
+
+`stopped_by_request` is not a failure and never gets a repair round: the
+engineer pressed the stop button. No run starts while it is armed — disarm
+with `imp stop --clear`, then resume the interrupted run as below. `imp stop`
+arms it (`--reason "…"` attaches a note, `--status` reports), and the reader
+fails CLOSED: even a stop file that cannot be read keeps runs stopped.
+
+`holdout` is the one gate with NO repair round. `imp/data/holdout/` holds
+acceptance probes sealed when the brief was written, in a directory agents
+cannot write; a violation ends the run for a human to read. Run them on
+demand with `npm run holdout` (`--list`, `--require`); a green run prints
+`HOLDOUT_PASSED scenarios=N`. Never "fix" a probe — bring the violation to
+the engineer.
 
 ## Re-running a failed FDA (resume)
 

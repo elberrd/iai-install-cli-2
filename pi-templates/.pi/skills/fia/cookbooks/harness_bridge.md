@@ -13,10 +13,18 @@ the plan will touch → resolve it FIRST with the engineer (cookbook
 `stack.md`, same flow as `/stack`) — planning against an undefined stack
 produces tasks that get rewritten.
 
+Second precondition for any product with UI: require and validate
+`ai-docs/ui/contract.json` with
+`node .agents/scripts/ui-contract.mjs check --json`. Missing/invalid means run the
+`ui-contract.md` cookbook and wait for the engineer's one confirmed profile
+choice. This artifact deterministically selects shell, breadcrumb, theme,
+DataTable/advanced controls, Kanban and reasoned skips; quality invariants are
+non-waivable. No planning agent guesses applicability.
+
 Either path produces the same files:
 
 - **Harness path**: the engineer runs `/start` in Claude Code.
-- **Pi path**: delegate in order — `start-mapper` (→ `ai-docs/map.yaml`), `screen-routes-generator` (→ `ai-docs/screens-routes.md`), `task-master-generator` (→ `ai-docs/todos/issues/NN-<slug>.md` + `ai-docs/todos/task-master.md` + one spec per major capability in `ai-docs/specs/`, with `Spec:` lines on the issues that prove scenarios), then `component-architect` (→ `ideal-components.md` + SEEDS `ai-docs/components/registry.md` — the briefs' reuse lock depends on a seeded registry) and `ui-component-page` (→ the live `/ui-components` page). The two component steps are the default; skip only if the engineer says "no components". Greenfield (no app scaffold yet): skip `ui-component-page` without trying — the foundation Task 01 creates the page from the seeded registry.
+- **Pi path**: delegate in order — `start-mapper` (→ `ai-docs/map.yaml`), `screen-routes-generator` (→ `ai-docs/screens-routes.md`), `task-master-generator` (→ `ai-docs/todos/issues/NN-<slug>.md` + `ai-docs/todos/task-master.md` + one spec per major capability in `ai-docs/specs/`, with `Spec:` lines on the issues that prove scenarios), then `component-architect` (→ `ideal-components.md` + SEEDS only the contract-applicable rows in `ai-docs/components/registry.md`) and `ui-component-page` (→ the live `/ui-components` page). The component steps follow the contract; `not_applicable`/`waived` become `SKIP <rule-id> — <reason>`, never fake work. Greenfield (no app scaffold yet): skip `ui-component-page` without trying — the foundation Task 01 creates the page from the applicable registry.
 
 After the tasks land, draft `ai-docs/milestones.md` yourself (3–6 milestones, first = the MVP, its `Done when:` list coming from the PRD's `## Launch criteria`) and confirm with the engineer. Greenfield (Task 01 is the foundation task, `Kind: foundation` in its issue): the first milestone's `Done when:` also lists the theme checkpoint — "visual identity approved: closed `theme` decision log in `ai-docs/decisions/`". Write each one in EXACTLY this shape — the viewer's Plan tab and `/status` parse the H2 heading and the `Status:` line, so a creative variant is invisible to both:
 
@@ -56,6 +64,10 @@ After the artifacts land, show them to the engineer: `npm run plan -- --detach` 
      decision (`open theme --topic "accept default theme"` + `close <id>
      --outcome "engineer accepted the stack default theme"`), never a silent
      skip. Then re-delegate to the sequencer.
+   - **UI contract gate**: every UI/foundation/kit brief requires a validated
+     `ai-docs/ui/contract.json`, copies relevant named rules and preserves
+     reasoned SKIPs. A task contradicting a skip pauses and returns to
+     `/ui-contract`; no feature FDA edits applicability.
    - **Env gate (foundation preflight)**: before the foundation brief
      (`Kind: foundation`), the sequencer runs
      `node imp/scripts/env-preflight.mjs --json` (alias `npm run env:check`) —
@@ -95,12 +107,19 @@ After the artifacts land, show them to the engineer: `npm run plan -- --detach` 
      "report … and commit"). Committing is the FDA's own deterministic phase —
      after review, pathspec-limited to the run's work. A brief that asks the
      builder to commit produces a contaminated commit and a rejected review.
+   - Exact `Mode: prototype` is an explicit, per-task opt-in copied from the
+     issue into the brief. It selects `fda_prototype`; no marker means a normal
+     tested FDA. Never infer prototype mode from task size or wording.
 2. Run the FDA with the brief file path as the prompt (plain path — `resolvePrompt` inlines file contents):
 
 ```bash
 node imp/fda_plan_build_test.mjs ai-docs/actual-todo/<brief>.md
+# brief already autocontained (skip planner, save ~1-2.5M tokens):
+node imp/fda_build_test.mjs ai-docs/actual-todo/<brief>.md
 # bigger/riskier: plan → build → test → review → document + commits
 node imp/fda_sdlc.mjs ai-docs/actual-todo/<brief>.md
+# fast prototype (build + lint only, no tests/review; brief MUST carry Mode: prototype):
+node imp/fda_prototype.mjs ai-docs/actual-todo/<brief>.md
 # defect: RED reproduction test (gated as a real assertion failure) → fix → green
 node imp/fda_bug.mjs ai-docs/actual-todo/<brief>.md
 ```
@@ -110,6 +129,13 @@ runs `node imp/fda_quick.mjs "<description>"`: no issue, no brief, audit entry
 appended to `ai-docs/todos/quick-log.md`.
 
 3. Check the outcome (`npm run fda:sessions`, or the timeline at `npm run fda:viewer`). Exit 0 = accepted.
+   - For tested briefs carrying `Spec: NNNN (…)`, the FDA's deterministic
+     `spec_close` phase closes the spec when this is its final linked task:
+     every other task on the spec's `Tasks:` line must already be `done`.
+     It appends the Delivery Gate evidence and sets `Status: done` before the
+     implementation commit. Incomplete or missing planning metadata leaves it
+     open and writes the exact reason to the trace — never rely on the agent to
+     remember this transition after the run.
    - The FDA's **checklist gate** ticks-or-fails the brief's checkboxes: the
      builder reconciles them (verified → `[x]`, inapplicable → `[x] … — N/A`)
      and the run refuses to close while any `- [ ]` remains. Before announcing
@@ -117,8 +143,9 @@ appended to `ai-docs/todos/quick-log.md`.
      boxes mean the task is NOT done (a legacy runner without the gate, or a
      failed run), so never announce it as finished; reconcile via the issue
      protocol or resume the run instead.
-   - The FDA's **UI-conformance gate** audits every frontend component file
-     the run changed against `ai-docs/ui/patterns.md` and its defaults (field
+   - The FDA's **UI-conformance gate** loads the validated contract, resolves
+     named APPLY/SKIP decisions, then audits every frontend component file the run
+     changed against `ai-docs/ui/patterns.md` and its applicable defaults (field
      errors inline under each field — never only a banner or toast —,
      success/failure toasts after mutations, create/edit in a `Dialog`,
      `AlertDialog` for destructive actions, components from the registry):
@@ -135,7 +162,8 @@ When the engineer says "go all the way" / "run every task":
 ```
 repeat:
   1. task-sequencer → next unblocked issue → brief
-  2. run fda_sdlc with the brief
+  2. brief has exact `Mode: prototype`? run fda_prototype
+     otherwise run fda_sdlc (or fda_plan_build_test when /goal --light)
   3. exit 0? → report the phase summary, continue
      exit != 0? → ONE automatic recovery (see On failure), then continue or STOP
 until no unblocked issues remain
@@ -179,10 +207,11 @@ Rules for the loop:
   place of an FDA.
 - Suggest keeping `npm run fda:viewer` open — it live-updates every 2s.
 - When the **last task of a milestone** completes inside the loop (all tasks
-  listed under that milestone are now `done`), **suggest** `/qa M1` (or the
-  matching milestone id) — browser evidence before the engineer flips
-  `Status: done` in `ai-docs/milestones.md`. Do not run `/qa` automatically and
-  do not block the loop on it.
+  listed under that milestone are now `done`), run
+  `node imp/fda_qa.mjs "<milestone-id>"` before selecting work from a later
+  milestone. UI scope requires the validated contract plus Playwright/design
+  evidence; API-only writes a reasoned skipped report. Any non-zero QA result
+  STOPS the loop. Never silently defer this boundary.
 
 ## Step 4 — Deliver it RUNNING (definition of done)
 

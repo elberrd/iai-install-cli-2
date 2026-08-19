@@ -1,7 +1,8 @@
 ---
 description: Execute ALL tasks in order until done (goal mode)
-argument-hint: "[optional limit, e.g.: 3 tasks]"
+argument-hint: '[optional limit, e.g.: 3 tasks] [--light]'
 ---
+
 Read `.pi/skills/fia/SKILL.md` and the cookbook `.pi/skills/fia/cookbooks/harness_bridge.md`, and follow Step 3 (goal mode) to the letter.
 
 Before any task: read `ai-docs/stack.md`. A "decide later" layer that any task
@@ -9,6 +10,12 @@ will touch = STOP and resolve it with me first (cookbook `stack.md`, same flow
 as /stack) — implementing with an undecided stack is guaranteed rework.
 
 Limit/instructions from the engineer: $@
+
+**FDA selection (evaluate after each brief is written):** an exact
+`Mode: prototype` line selects `fda_prototype.mjs` for that brief. Otherwise,
+if the engineer's instructions contain `--light`, use
+`fda_plan_build_test.mjs`; the default is `fda_sdlc.mjs`. Prototype takes
+precedence over `--light` because it is the brief's explicit per-task opt-in.
 
 Loop, until no unblocked task remains:
 
@@ -25,8 +32,29 @@ Loop, until no unblocked task remains:
    split (Task 06 needs Task 07's schema, 07 is blocked by 06)? Apply
    the split once — do not ask — and re-delegate. If the second pass
    still cannot write a brief, THEN ask.)
-2. `node imp/fda_sdlc.mjs ai-docs/actual-todo/<brief>.md` — ONE task per run, never batch them
+2. `node imp/<fda>.mjs ai-docs/actual-todo/<brief>.md` — ONE task per run, never batch them
+   (`<fda>` = `fda_prototype` for `Mode: prototype`; otherwise
+   `fda_plan_build_test` when `--light`, `fda_sdlc` by default)
 3. exit 0 → report to me in one line (task, phases, tokens, commit) and continue
+   — then inspect `ai-docs/milestones.md` plus task statuses. If that task made
+   every task of a milestone `done`, run the milestone QA immediately, before
+   selecting any task from a later milestone:
+
+   ```bash
+   node imp/fda_qa.mjs "<milestone-id>"
+   ```
+
+   A UI milestone requires a valid `ai-docs/ui/contract.json`; the QA FDA
+   resolves named rules to `APPLY` or reasoned `SKIP`; only browser/audit
+   evidence earns `PASS`. It blocks on missing or
+   invalid contracts, failed Playwright evidence, or a failed design audit.
+   An API-only milestone exits 0 with a durable `Status: skipped` report and
+   its reason. QA exit 0 → report the QA report path and continue. QA exit != 0
+   → **STOP the goal**; show the phase, rule id/evidence, and artifact path.
+   Never silently defer QA, continue into the next milestone, or mark a failed
+   milestone complete. This automatic boundary supersedes the cookbook's
+   legacy “suggest `/qa` only” sentence.
+
 4. exit != 0 → ONE automatic recovery first (cookbook `harness_bridge`,
    "On failure"): if the recommended action is re-run, or you would bring
    me something to correct that an FDA can apply, do that once
@@ -38,7 +66,10 @@ Loop, until no unblocked task remains:
 
 Briefs with a `Spec: NNNN (…)` line arm the FDA's spec-coverage gate — on
 success, check the spec's Traceability table reflects the new tests and flag
-it if it doesn't.
+it if it doesn't. The tested FDAs then run `spec_close` in code: when the
+current task is the last linked task, it appends the Delivery Gate and sets
+`Status: done` before committing. A `spec_close` pending result is actionable
+planning metadata in the trace, never a transition to remember after the loop.
 
 Suggest I keep `npm run fda:viewer` open in another terminal to watch live.
 
@@ -50,8 +81,10 @@ continue — no homework at the end. Final summary: tasks, commits, tokens — a
 closing with the **How to test** section (minimal command, URL, short checklist of
 what was delivered) + an offer to start the dev server yourself right now.
 
-When a milestone's tasks are all done, suggest `/qa <milestone>` once (cookbook
-`qa.md`) before `/launch` — do not auto-run it.
+Before declaring the goal complete, verify every completed UI milestone has a
+passing report in `ai-docs/qa/` (and every API-only milestone has its reasoned
+skipped report). A missing report is a blocking unfinished boundary: run
+`node imp/fda_qa.mjs "<milestone-id>"`; failure means STOP.
 
 Running locally and tested? The next rung is `/launch` — suggest it at the end
 (it puts the app on a public URL and then into real production, guided).

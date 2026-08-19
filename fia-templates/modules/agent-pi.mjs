@@ -4,6 +4,24 @@ import { dirname } from 'node:path';
 
 const PI_BIN = process.env.PI_PATH || 'pi';
 
+const tokenCount = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
+
+export function piUsageOf(usage = {}) {
+  const input = tokenCount(usage.input ?? usage.input_tokens);
+  const output = tokenCount(usage.output ?? usage.output_tokens);
+  const cacheRead = tokenCount(usage.cacheRead ?? usage.cache_read);
+  const cacheWrite = tokenCount(usage.cacheWrite ?? usage.cache_write);
+  const componentTotal = input + output + cacheRead + cacheWrite;
+  const reportedTotal = tokenCount(usage.totalTokens ?? usage.total_tokens);
+  return {
+    input,
+    output,
+    cacheRead,
+    cacheWrite,
+    total: reportedTotal || componentTotal,
+  };
+}
+
 export function buildPiArgs(request) {
   const args = [
     '-p',
@@ -43,6 +61,8 @@ export async function runPi(request, { onEvent, onSpawn, onExit } = {}) {
 
     let text = '';
     let tokens = 0;
+    let input = 0;
+    let output = 0;
     let cost = 0;
     let cacheRead = 0;
     let cacheWrite = 0;
@@ -69,10 +89,13 @@ export async function runPi(request, { onEvent, onSpawn, onExit } = {}) {
               }
             }
             const usage = event.message.usage || event.usage || {};
-            tokens += usage.totalTokens || usage.total_tokens || (usage.input || 0) + (usage.output || 0);
+            const parts = piUsageOf(usage);
+            tokens += parts.total;
+            input += parts.input;
+            output += parts.output;
             cost += usage.cost?.total || 0;
-            cacheRead += usage.cacheRead || 0;
-            cacheWrite += usage.cacheWrite || 0;
+            cacheRead += parts.cacheRead;
+            cacheWrite += parts.cacheWrite;
             if (usage.contextSize) contextTokens = usage.contextSize;
             if (usage.contextWindow) contextWindow = usage.contextWindow;
           }
@@ -105,6 +128,8 @@ export async function runPi(request, { onEvent, onSpawn, onExit } = {}) {
         session_id: request.sessionFile,
         tokens,
         cost,
+        input_tokens: input,
+        output_tokens: output,
         cache_read_tokens: cacheRead,
         cache_write_tokens: cacheWrite,
         context_tokens: contextTokens || tokens,
@@ -114,7 +139,17 @@ export async function runPi(request, { onEvent, onSpawn, onExit } = {}) {
 
     child.on('error', (err) => {
       onExit?.(child.pid);
-      resolve({ text: `Error: ${err.message}`, returncode: 127, session_id: request.sessionFile, tokens: 0, cost: 0 });
+      resolve({
+        text: `Error: ${err.message}`,
+        returncode: 127,
+        session_id: request.sessionFile,
+        tokens: 0,
+        cost: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_read_tokens: 0,
+        cache_write_tokens: 0,
+      });
     });
   });
 }

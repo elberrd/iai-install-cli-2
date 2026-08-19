@@ -17,11 +17,16 @@ Requested task: $@ (if empty, the next unblocked one from `ai-docs/todos/issues/
    Stopped on an **impossible/circular dependency** with a recommended
    split? Apply the split once — do not ask — and re-delegate. If the
    second pass still cannot write a brief, THEN ask.)
-2. Run the FDA with the brief: `node imp/fda_plan_build_test.mjs ai-docs/actual-todo/<brief>.md`
-   (bigger/riskier task → `node imp/fda_sdlc.mjs …`, as the cookbook shows)
+2. Select from the brief, deterministically, then run ONE FDA:
+   - exact line `Mode: prototype` → `node imp/fda_prototype.mjs ai-docs/actual-todo/<brief>.md`
+   - otherwise → `node imp/fda_plan_build_test.mjs ai-docs/actual-todo/<brief>.md`
+   - bigger/riskier normal task (never a prototype) → `node imp/fda_sdlc.mjs …`, as the cookbook shows
 3. Follow along and report to me: phases executed, gate results, tokens and commit (if any).
    Brief with a `Spec: NNNN (…)` line → the FDA's spec-coverage gate is armed;
    on success, confirm the spec's Traceability table gained the new test paths.
+   The tested FDAs then run `spec_close` in code: if this is the final linked
+   task, Delivery Gate evidence and `Status: done` land before the commit; if
+   metadata is incomplete, the trace says exactly why the spec stayed open.
 
 Rules: you implement NOTHING — the FDA does the work. If the FDA fails
 (exit != 0), apply ONE automatic recovery per the cookbook (re-run /

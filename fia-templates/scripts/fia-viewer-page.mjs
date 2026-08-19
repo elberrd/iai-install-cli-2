@@ -383,7 +383,7 @@ var OUTCOME_LABELS = { goal_met:'goal met', verification_failed:'verification fa
   attempt_cap:'attempt cap reached', no_progress:'no progress',
   budget_exhausted:'time budget exhausted', breadth_exceeded:'change breadth exceeded',
   blocked_by_gate:'blocked by a gate', engine_exhausted:'engines exhausted',
-  aborted:'aborted', failed:'failed' };
+  stopped_by_request:'stopped by request', aborted:'aborted', failed:'failed' };
 // The NAMED outcome as display text, already escaped, or '' when the trace
 // carries none (older runs, and databases a new Tracer has not opened yet).
 // An unrecognised value degrades exactly as outcomeLabel() does.

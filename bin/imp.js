@@ -62,7 +62,14 @@ Usage:
   imp update             Update impactus, Pi and the Pi extension packages
   imp tui                Terminal dashboard — tasks, specs and runs (same as npm run tui)
   imp doctor             Read-only checkup: subscriptions (Claude/Codex/Cursor),
-                         CLIs, Pi and this project (--json for machine output)
+                         CLIs, Pi and this project (--json for machine output).
+                         --gates additionally self-tests the FIA gates: injects
+                         deliberate defects against throwaway fixtures and
+                         asserts every gate goes red (writes nothing here)
+  imp stop               The stop button: no new FDA run starts and an in-flight
+                         run stops cleanly before its next phase (resume later
+                         with --resume). Fails closed — even an unreadable stop
+                         file stops runs. Flags: --status, --clear, --reason "…"
   imp fix                Repair what doctor found: shows the plan, asks first,
                          restores only what is MISSING (never overwrites edits).
                          Flags: --dry-run, --yes, --json (plan only), --commit
@@ -162,11 +169,13 @@ if (cmd === 'update') {
 
 if (cmd === 'doctor') {
   // Read-only by contract — see src/steps/doctor.js. `--json` keeps stdout
-  // machine-readable (no banner), same convention as `--version`.
+  // machine-readable (no banner), same convention as `--version`. `--gates`
+  // additionally runs the stamped gate probes (they write only to OS temp —
+  // the project tree stays untouched, so the contract holds).
   const json = rest.includes('--json');
   if (!json) banner();
   const { runDoctor } = await import('../src/steps/doctor.js');
-  const healthy = await runDoctor({ json }, pkg.version);
+  const healthy = await runDoctor({ json, gates: rest.includes('--gates') }, pkg.version);
   process.exit(healthy ? 0 : 1);
 }
 
@@ -222,6 +231,10 @@ const STAMPED = {
   },
   rewind: {
     script: 'imp/scripts/rewind.mjs',
+    missing: 'Run `imp init` in your project folder first — or `npx impactus --update-runtime` on an older install.',
+  },
+  stop: {
+    script: 'imp/scripts/fia-stop.mjs',
     missing: 'Run `imp init` in your project folder first — or `npx impactus --update-runtime` on an older install.',
   },
 };

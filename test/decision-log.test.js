@@ -15,6 +15,7 @@ import {
   closeLog,
   readLogs,
   resolveLog,
+  findEntries,
   DECISIONS_DIR,
 } from '../fia-templates/scripts/decision-log.mjs';
 
@@ -178,4 +179,60 @@ test('CLI: open refuses a slashed or spaced command name with a clean error', ()
       assert.ok(!String(err.stderr).includes('at '), 'clean message, not a stack trace');
     }
   }
+});
+
+// ── kinds (product × judgement) + ask-once ───────────────────────────────────
+
+test('logEntry: kind renders, and a self-chosen entry says the AGENT decided', () => {
+  const root = freshRoot();
+  const file = join(root, openLog(root, 'stack', 'kinds'));
+  logEntry(file, { question: 'Which toast library?', answer: 'sonner', kind: 'product', self: true });
+  logEntry(file, { question: 'Raise the attempt cap?', answer: 'no, keep 3', kind: 'judgement' });
+  const content = readFileSync(file, 'utf8');
+  assert.match(content, /- Kind: product\n- Answer: sonner \(chosen by the agent\)/);
+  assert.match(content, /- Kind: judgement\n- Answer: no, keep 3/);
+});
+
+test('logEntry: a self-chosen JUDGEMENT value is refused in code — choosing one is tuning the judge', () => {
+  const root = freshRoot();
+  const file = join(root, openLog(root, 'stack', 'kinds'));
+  assert.throws(() => logEntry(file, { question: 'Lower the floor?', answer: 'yes', kind: 'judgement', self: true }), /tuning the judge/);
+  assert.throws(() => logEntry(file, { question: 'q', answer: 'a', self: true }), /kind "product"/);
+  assert.throws(() => logEntry(file, { question: 'q', answer: 'a', kind: 'vibe' }), /unknown decision kind/);
+});
+
+test('CLI: --self demands --kind product, and refuses --accepted alongside', () => {
+  const root = freshRoot();
+  cli(root, ['open', 'stack', '--topic', 'kinds']);
+  assert.throws(() => cli(root, ['log', '1', '--q', 'q', '--a', 'a', '--self']), /--self requires --kind product/);
+  assert.throws(() => cli(root, ['log', '1', '--q', 'q', '--a', 'a', '--self', '--kind', 'judgement']), /--self requires --kind product/);
+  assert.throws(() => cli(root, ['log', '1', '--q', 'q', '--rec', 'r', '--accepted', '--self', '--kind', 'product']), /mutually exclusive/);
+  assert.equal(cli(root, ['log', '1', '--q', 'Which font?', '--a', 'Inter', '--self', '--kind', 'product']), 'logged #1');
+});
+
+test('findEntries: ask-once — an already-answered question is found across logs, normalized', () => {
+  const root = freshRoot();
+  const first = join(root, openLog(root, 'idea', 'crm'));
+  logEntry(first, { question: 'Which database should we use?', answer: 'Convex' });
+  const second = join(root, openLog(root, 'stack', 'crm'));
+  logEntry(second, { question: 'Deploy target?', answer: 'Vercel', kind: 'product' });
+
+  const hits = findEntries(root, 'which database should we use');
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].answer, 'Convex');
+  assert.equal(hits[0].command, 'idea');
+  assert.deepEqual(findEntries(root, 'question nobody asked'), []);
+});
+
+test('CLI find: prints file, entry and answer; empty result tells the agent to ask', () => {
+  const root = freshRoot();
+  cli(root, ['open', 'idea', '--topic', 't']);
+  cli(root, ['log', '1', '--q', 'Which database?', '--a', 'Convex']);
+  const out = cli(root, ['find', '--q', 'which database']);
+  assert.match(out, /#1 {2}Which database\? → Convex/);
+  // A miss must never claim newness: the match is a substring of the RECORDED
+  // question, so a longer query legitimately misses a shorter entry.
+  assert.match(cli(root, ['find', '--q', 'brand color']), /retry with 2-4 distinctive words/);
+  const jsonHits = JSON.parse(cli(root, ['find', '--q', 'which database', '--json']));
+  assert.equal(jsonHits[0].answer, 'Convex');
 });

@@ -157,7 +157,11 @@ export async function runFda(main, { agents = [], agentDefault } = {}) {
     if (error?.name === 'StopCondition') {
       console.error(`\n■ FIA run stopped: ${String(error.message || error)}`);
       console.error(`  Recorded outcome: ${outcomeLabel(error.outcome)} — nothing was lost.`);
-      console.error('  Tune the limits in imp/fia.config.yaml under `stop:`.');
+      if (error.outcome === 'stopped_by_request') {
+        console.error('  Disarm the stop button when you are ready:  imp stop --clear');
+      } else {
+        console.error('  Tune the limits in imp/fia.config.yaml under `stop:`.');
+      }
       if (fdaId) console.error(`  Resume when you are ready:  node imp/${script} --fda-id ${fdaId} --resume`);
       await announceRunEnd(run, cfg);
       process.exit(1);

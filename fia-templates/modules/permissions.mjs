@@ -98,8 +98,68 @@ function matchesAny(rel, patterns) {
   return false;
 }
 
-function isProtected(rel, protectedFiles) {
-  return matchesAny(rel, protectedFiles);
+/**
+ * Paths the runtime protects REGARDLESS of the student's config — the parts
+ * of the harness that judge the agent's work. The regression floor and the
+ * holdout probes are only worth anything while agents cannot edit them: a
+ * builder that can move its own floor (or rewrite the probes it is judged by)
+ * can pass any gate. Config `defaults.protected_files` extends this list; it
+ * can never shrink it.
+ *
+ * `data_dir` is student-editable, and both guards resolve their real paths
+ * through it — so the list is computed from the CONFIGURED directory as well
+ * as the canonical one. Hardcoding only `imp/data/` would mean that moving
+ * `data_dir` silently unprotects the two files the whole design rests on.
+ */
+const JUDGE_PATHS = ['floor.json', 'holdout/', 'sessions/*/brief_checkboxes'];
+
+/** The data directories the runtime uses: the canonical one plus a configured move. */
+function dataDirs(cfg) {
+  const dirs = new Set(['imp/data']);
+  const declared = cfg?.defaults?.data_dir;
+  if (typeof declared === 'string' && declared.trim()) {
+    dirs.add(declared.trim().replace(/^\.\//, '').replace(/\/+$/, ''));
+  }
+  return [...dirs];
+}
+
+function alwaysProtected(cfg) {
+  return dataDirs(cfg).flatMap((dir) => JUDGE_PATHS.map((name) => `${dir}/${name}`));
+}
+
+/**
+ * The runtime's OWN state — the trace database, the session directories, the
+ * lock — as opposed to the files that JUDGE the agent (JUDGE_PATHS), which
+ * stay classified and protected.
+ *
+ * The default layout hides this state from the permission gate by accident:
+ * `.gitignore` lists imp/data/sessions/, imp/data/fia.db and friends, so
+ * `git ls-files --others --exclude-standard` never reports them and the
+ * snapshot never sees them churn. A student who moves `defaults.data_dir`
+ * loses that accident — and the tracer appending events mid-phase then reads
+ * as an agent writing outside its allowlist, killing the run with a breach
+ * over the FIA database the agent never touched. Skipped explicitly here so
+ * the behavior no longer depends on a gitignore entry matching a configurable
+ * path. NOT routed through `benignPatterns`: benign paths get rolled back, and
+ * rolling back a live events.jsonl mid-run would corrupt the run's own trace.
+ */
+function isRuntimeState(rel, cfg) {
+  // Anything PROTECTED is never runtime state, whatever directory it sits in:
+  // the judge files, and the student's own `protected_files` — which include
+  // `imp/data/prompt_engineering/`, the agents' own instructions. Skipping
+  // those as "runtime churn" would let a builder rewrite the prompt it is
+  // driven by, which is the single edit this harness must never allow.
+  if (isProtected(rel, cfg?.defaults?.protected_files || [], cfg)) return false;
+  return dataDirs(cfg).some((dir) => rel === dir || rel.startsWith(`${dir}/`));
+}
+
+/** Is `rel` protected — by the built-in list or the student's config? Exported for the gate probes. */
+export function isProtectedPath(rel, protectedFiles = [], cfg = null) {
+  return matchesAny(rel, [...alwaysProtected(cfg), ...protectedFiles]);
+}
+
+function isProtected(rel, protectedFiles, cfg) {
+  return isProtectedPath(rel, protectedFiles, cfg);
 }
 
 /**
@@ -135,7 +195,7 @@ function benignPatterns(cfg) {
 function pathAllowed(rel, agent, cfg) {
   const writes = agent.writes;
   const protectedFiles = cfg.defaults?.protected_files || [];
-  if (isProtected(rel, protectedFiles)) return false;
+  if (isProtected(rel, protectedFiles, cfg)) return false;
   if (writes === null || writes === undefined) {
     return true;
   }
@@ -193,8 +253,11 @@ export function enforce(run, phase, agent, treeBefore) {
   const protectedFiles = run.cfg.defaults?.protected_files || [];
   for (const path of touched) {
     const rel = relPath(path, run.repoRoot);
+    // The runtime's own bookkeeping is not agent work — never a violation and
+    // never rolled back (see isRuntimeState).
+    if (isRuntimeState(rel, run.cfg)) continue;
     if (pathAllowed(rel, agent, run.cfg)) continue;
-    if (!isProtected(rel, protectedFiles) && matchesAny(rel, benignPatterns(run.cfg))) external.push(path);
+    if (!isProtected(rel, protectedFiles, run.cfg) && matchesAny(rel, benignPatterns(run.cfg))) external.push(path);
     else violations.push(path);
   }
   if (external.length) {

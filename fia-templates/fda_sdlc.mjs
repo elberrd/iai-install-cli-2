@@ -5,6 +5,9 @@ import { artifactsExist, filesNonEmpty, verdictConsistent, parseSpecLine, checkS
 import { resolveBriefPath, runChecklistGate } from './modules/checklist.mjs';
 import { runUiGate } from './modules/ui-gate.mjs';
 import { runTestsForBrief } from './modules/quality.mjs';
+import { floorPath } from './modules/floor.mjs';
+import { runHoldoutGate } from './modules/holdout.mjs';
+import { runSpecDeliveryClose } from './modules/spec-lifecycle.mjs';
 import * as git from './modules/git-helper.mjs';
 
 await runFda(
@@ -74,6 +77,11 @@ await runFda(
       // before review, so the reviewer sees conformance already settled
       // (see modules/ui-gate.mjs).
       uiFix = await runUiGate(run, prompt);
+
+      // Holdout probes: acceptance checks written with the brief, stored where
+      // agents cannot write, run with NO repair round (modules/holdout.mjs).
+      // Skips itself when imp/data/holdout/ carries no probes.
+      await runHoldoutGate(run);
     }
 
     const review = await run.runPhase(
@@ -94,6 +102,10 @@ await runFda(
     // be swept into git (commitPaths never uses `git add -A`, so the user's
     // parallel WIP stays out of FIA commits either way).
     if (test.passed && review.approved) {
+      // Planning close-out is code, not agent memory: the last successful
+      // task linked to a spec stamps its Delivery Gate and Status: done.
+      const specClose = await runSpecDeliveryClose(run, prompt, briefPath);
+
       await run.runPhase(phaseParams('commit_code', 'code', 'git', 'Commit implementation after green tests and approval'), async (ph) => {
         let paths = [
           ...(plan.artifacts || []),
@@ -106,6 +118,11 @@ await runFda(
           // The UI repair round is the run's own change too.
           ...(uiFix?.changed_files || []),
           ...(uiFix?.artifacts || []),
+          ...(specClose.changed_files || []),
+          // The regression floor rises on a green suite (modules/floor.mjs) and
+          // rides the SAME commit as the work that raised it — unchanged or
+          // pre-run-dirty it is filtered out by commitPaths' baseline.
+          floorPath(run.cfg?.defaults?.data_dir),
         ];
         // A foundation run scaffolds far more files than any envelope can
         // enumerate — widen to everything the RUN itself changed. The baseline

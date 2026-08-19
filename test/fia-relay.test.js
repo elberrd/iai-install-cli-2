@@ -91,6 +91,8 @@ const okResult = () => ({
   returncode: 0,
   tokens: 100,
   cost: 0,
+  input_tokens: 80,
+  output_tokens: 20,
   cache_read_tokens: 0,
   cache_write_tokens: 0,
   session_id: 'sess-new',
@@ -101,6 +103,8 @@ const deadResult = (text) => ({
   returncode: 1,
   tokens: 500,
   cost: 0.01,
+  input_tokens: 450,
+  output_tokens: 50,
   cache_read_tokens: 0,
   cache_write_tokens: 0,
   session_id: '',
@@ -165,10 +169,14 @@ test('relay auto: engine death (limit) relays to the fallback with the continuat
   assert.equal(spend.length, 1);
   assert.equal(spend[0].payload.model, 'sonnet');
   assert.equal(spend[0].payload.failed, true);
+  assert.equal(spend[0].tokens, 600, 'the successful send and the failing correction are both charged');
+  assert.equal(spend[0].payload.input, 530);
+  assert.equal(spend[0].payload.output, 70);
   // …and the successful leg's on the substitute. Never both for one attempt.
   const end = byType('agent_end');
   assert.equal(end.length, 1);
   assert.equal(end[0].payload.model, 'composer');
+  assert.equal(run.tokens, 700, 'session total includes the failed call before relay');
 
   // The handover prompt reached the substitute AND the audit copy on disk.
   assert.match(cursorPrompt, /^## Continuation of an interrupted run/);

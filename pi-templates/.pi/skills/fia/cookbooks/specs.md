@@ -55,7 +55,13 @@ Sections, in order ("Not applicable — <why>" is a valid section body):
 
 Lifecycle: `draft` → `defined` (Definition Gate passed; tasks may be generated)
 → `in-progress` (first task started) → `done` (all linked tasks done + Delivery
-Gate passed). Statuses are declared, never auto-flipped.
+Gate passed). Definition remains declared by the planning flow. Delivery is
+closed deterministically by the tested task FDAs: after the suite, spec
+coverage, checklist and the remaining gates pass, their `spec_close` code
+phase treats the current issue as delivered, verifies every other number on
+`Tasks:` is already `done`, appends the Delivery Gate evidence and sets
+`Status: done` before the commit. Missing/unknown task metadata fails closed
+and is recorded in the trace instead of guessing completion.
 
 ## Test markers
 

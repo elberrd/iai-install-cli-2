@@ -8,9 +8,19 @@ Focus (optional): $@
 
 The manifest `ai-docs/stack.md` is the source of truth. In this order:
 
+`ai-docs/architecture.md`, when present, may constrain how the chosen stack is
+used but NEVER overrides the manifest or silently reopens a decided global
+layer. If architecture discovers a new global service/layer, decide and record
+it here first; callers such as `/map` resume only after that delta is settled.
+
 1. Read the manifest (doesn't exist → create it with everything "decide later") and the PRD, if any.
 2. Pending layers: ONE question at a time, always with a recommendation and the
    why in plain terms. Preference: Next.js + Convex + Clerk + R2 + Vercel.
+   This is a recommendation, not permission to rewrite an explicit choice:
+   Vue/Nuxt/Svelte or another frontend is recorded only when the user requests
+   it or brownfield evidence proves it, and is never inferred. Preserve that
+   exact frontend, research it normally, and require compatible per-surface
+   choices in `/ui-contract`; never inject the Next/React canonical adapter.
    Without Convex → Hono (API) + Neon/Supabase (database) + Drizzle/Prisma (ORM).
    Automations/jobs OUTSIDE the app are an optional layer — "none" is a valid
    answer; when something heavy runs outside (Modal recommended), it is a

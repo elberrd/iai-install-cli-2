@@ -70,9 +70,24 @@ Steps, in this order:
      wiki with `ai-docs/wiki/wiki-plan.yaml` when the repo is large. NEVER
      touch text inside a `<!-- human:start -->` … `<!-- human:end -->` block:
      that is a human's writing and it survives every regeneration.
+
    - **Project skill**: distill the conventions into short, actionable rules
-     in `.pi/skills/project/SKILL.md` AND `.claude/skills/project/SKILL.md` —
-     every future agent loads the house rules automatically.
+     in the single canonical file `.agents/skills/project/SKILL.md`. Give it a
+     trigger-rich `description` that names the project areas and tasks where
+     the rules matter, so agents load it on demand rather than on every turn.
+     Cursor and Pi discover `.agents/skills/` directly. For Claude, make
+     `.claude/skills/project` a directory symlink whose target is exactly
+     `../../.agents/skills/project`; never create `.pi/skills/project` or
+     `.cursor/skills/project` copies.
+
+     Before writing, inspect legacy `.claude/skills/project`,
+     `.cursor/skills/project`, and `.pi/skills/project` paths. If any is a real
+     directory/copy rather than
+     the expected symlink, preserve it, report whether its content differs,
+     and ask which version is authoritative before migrating. Never overwrite,
+     delete or silently merge a legacy project skill. After that explicit
+     choice, write the chosen rules once in `.agents/` and establish the
+     Claude symlink.
 4. **Short interview** (/grill style: ONE question at a time, always with a
    recommended answer, 5–8 total) ONLY about what the code doesn't reveal:
    product goal, what is untouchable, known debts, environment (dev database,

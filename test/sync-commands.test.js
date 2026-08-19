@@ -62,6 +62,54 @@ test('every .cursor command has frontmatter name matching filename', { skip }, (
   assert.deepEqual(problems, [], problems.join('\n'));
 });
 
+test('Cursor overlays preserve the one-copy project skill topology', { skip }, () => {
+  const absorb = readFileSync(join(DST, 'absorb.md'), 'utf8');
+  assert.match(absorb, /For Claude, create `.claude\/skills\/project`/);
+  assert.match(absorb, /target is exactly `\.\.\/\.\.\/\.agents\/skills\/project`/);
+  assert.match(absorb, /Never create `\.pi\/skills\/project` or `.cursor\/skills\/project` copies/);
+  assert.doesNotMatch(absorb, /For Claude, create `.cursor\/skills\/project`/);
+  for (const legacy of ['.claude/skills/project', '.cursor/skills/project', '.pi/skills/project']) {
+    assert.match(absorb, new RegExp(legacy.replace(/[./]/g, '\\$&')));
+  }
+
+  for (const file of [join(SRC, 'stack.md'), join(DST, 'stack.md')]) {
+    const stack = readFileSync(file, 'utf8');
+    assert.doesNotMatch(stack, /-a pi\b/);
+    assert.match(stack, /single canonical project skill/);
+    assert.match(stack, /Create `\.claude\/skills\/<tech>` as a directory symlink to/);
+    assert.doesNotMatch(stack, /Create `\.cursor\/skills\/<tech>` as a directory symlink to/);
+    assert.match(stack, /Never create `.cursor\/skills\/<tech>` or\s+`\.pi\/skills\/<tech>` copies/);
+    for (const location of [
+      '.agents/skills/<tech>',
+      '.claude/skills/<tech>',
+      '.cursor/skills/<tech>',
+      '.pi/skills/<tech>',
+    ]) {
+      assert.match(stack, new RegExp(location.replace(/[./]/g, '\\$&')));
+    }
+    assert.match(stack, /including each symlink target/);
+    assert.match(stack, /preserve every version/);
+    assert.match(stack, /which version is authoritative/);
+    assert.match(stack, /Never\s+overwrite, delete, or silently merge a legacy skill/);
+  }
+  const piStack = readFileSync(join(ROOT, 'pi-templates', '.pi', 'skills', 'fia', 'cookbooks', 'stack.md'), 'utf8');
+  assert.doesNotMatch(piStack, /-a pi\b/);
+  assert.match(piStack, /single canonical project skill/);
+  assert.match(piStack, /Never create `.cursor\/skills\/<tech>` or\s+`\.pi\/skills\/<tech>` copies/);
+  for (const location of [
+    '.agents/skills/<tech>',
+    '.claude/skills/<tech>',
+    '.cursor/skills/<tech>',
+    '.pi/skills/<tech>',
+  ]) {
+    assert.match(piStack, new RegExp(location.replace(/[./]/g, '\\$&')));
+  }
+  assert.match(piStack, /including each symlink target/);
+  assert.match(piStack, /preserve every version/);
+  assert.match(piStack, /which version is authoritative/);
+  assert.match(piStack, /Never\s+overwrite, delete, or silently merge a legacy skill/);
+});
+
 test('harness-backed Pi agents point at .claude/agents/ instead of restating the prompt', { skip }, () => {
   const piAgents = join(ROOT, 'pi-templates', '.pi', 'agents');
   const problems = [];

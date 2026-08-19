@@ -22,6 +22,7 @@ export const OUTCOMES = Object.freeze({
   BREADTH_EXCEEDED: 'breadth_exceeded',
   BLOCKED_BY_GATE: 'blocked_by_gate',
   ENGINE_EXHAUSTED: 'engine_exhausted',
+  STOPPED_BY_REQUEST: 'stopped_by_request',
   ABORTED: 'aborted',
   FAILED: 'failed',
 });
@@ -36,6 +37,7 @@ export const TERMINAL_OUTCOMES = Object.freeze([
   OUTCOMES.BREADTH_EXCEEDED,
   OUTCOMES.BLOCKED_BY_GATE,
   OUTCOMES.ENGINE_EXHAUSTED,
+  OUTCOMES.STOPPED_BY_REQUEST,
   OUTCOMES.ABORTED,
   OUTCOMES.FAILED,
 ]);
@@ -49,6 +51,7 @@ const LABELS = Object.freeze({
   [OUTCOMES.BREADTH_EXCEEDED]: 'change breadth exceeded',
   [OUTCOMES.BLOCKED_BY_GATE]: 'blocked by a gate',
   [OUTCOMES.ENGINE_EXHAUSTED]: 'engines exhausted',
+  [OUTCOMES.STOPPED_BY_REQUEST]: 'stopped by request',
   [OUTCOMES.ABORTED]: 'aborted',
   [OUTCOMES.FAILED]: 'failed',
 });

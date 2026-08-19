@@ -31,10 +31,39 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 /** The FIA single-run lock, when a LIVE process holds it → { pid, fda_id, … }. */
-export function activeFdaLock(root, dataDir = join('imp', 'data')) {
-  let lock = null;
+/**
+ * `defaults.data_dir` from the student's roster, resolved against `root`.
+ *
+ * DUPLICATED from imp/modules/utils.mjs ON PURPOSE — do not "DRY" it away.
+ * This file is copied ALONE into hook contexts (.claude/hooks/fda-lock.mjs
+ * and .cursor/hooks/fda-lock-cursor.mjs import it, and a project may have
+ * imp/scripts/ without imp/modules/ reachable from where the hook runs), so
+ * any cross-directory import turns the write guard into a silent no-op. The
+ * narrow regex keeps it dependency-free; anything unexpected degrades to the
+ * shipped default.
+ */
+function dataDirOf(root) {
   try {
-    lock = JSON.parse(readFileSync(join(root, dataDir, '.fda.lock'), 'utf8'));
+    const raw = readFileSync(resolve(root, 'imp', 'fia.config.yaml'), 'utf8');
+    const m = /^[ \t]*data_dir:[ \t]*(.+?)[ \t]*(?:#.*)?$/m.exec(raw);
+    const declared = m?.[1]?.replace(/^['"]|['"]$/g, '').trim();
+    if (declared) return resolve(root, declared);
+  } catch {
+    /* no roster, or unreadable — the shipped default below is correct anyway */
+  }
+  return resolve(root, 'imp', 'data');
+}
+
+export function activeFdaLock(root, dataDir = null) {
+  let lock = null;
+  // Resolve `defaults.data_dir` when the caller did not name one: a project
+  // that moved it would otherwise get "no active run" from every reader — and
+  // `imp stop` reporting "No run is active" while a run IS active is exactly
+  // the lie a stop button must never tell. `resolve` also accepts an absolute
+  // argument, so existing callers keep working unchanged.
+  const dir = dataDir ? resolve(root, dataDir) : dataDirOf(root);
+  try {
+    lock = JSON.parse(readFileSync(join(dir, '.fda.lock'), 'utf8'));
   } catch {
     return null; /* no lock or unreadable — no active run */
   }

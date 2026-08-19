@@ -24,11 +24,21 @@
  *   node imp/scripts/decision-log.mjs open <command> [--topic "…"] [--json]
  *   node imp/scripts/decision-log.mjs log <id|path> --q "…" [--rec "…"] --a "…"
  *   node imp/scripts/decision-log.mjs log <id|path> --q "…" --rec "…" --accepted
+ *   node imp/scripts/decision-log.mjs log <id|path> --q "…" --a "…" --kind product --self
  *   node imp/scripts/decision-log.mjs note <id|path> --text "…"
  *   node imp/scripts/decision-log.mjs close <id|path> [--outcome "…"] [--artifact <p>]…
+ *   node imp/scripts/decision-log.mjs find --q "…" [--json]
  *   node imp/scripts/decision-log.mjs latest [command] [--json]
  *   node imp/scripts/decision-log.mjs list [--command <c>] [--json]
  * All subcommands accept --dir <project root> (default: cwd).
+ *
+ * Kinds (`--kind product|judgement`): a PRODUCT value (a default, a name, a
+ * layout) an agent may choose alone — record it with `--self` and carry on;
+ * a JUDGEMENT value (a floor, a lock, a tolerance) is never the agent's to
+ * choose, because choosing one is tuning the judge — `--self` is refused for
+ * it in code. `find` is the ask-once rule: consult it before re-asking a
+ * question an earlier interview already answered, and reference the entry
+ * instead of asking again.
  *
  * `--accepted` is the beginner's exit from an open question: the student takes
  * the recommendation instead of typing an answer. It REQUIRES --rec and refuses
@@ -64,10 +74,15 @@ export function oneLine(text) {
 
 /** Parse the `--- … ---` frontmatter block → { fields, bodyStart } (null if absent). */
 export function parseFrontmatter(content) {
-  const m = /^---\n([\s\S]*?)\n---\n?/.exec(String(content ?? ''));
+  // CRLF-tolerant: on Windows (`core.autocrlf=true` is Git for Windows' own
+  // recommendation) a committed log comes back from a clone or a checkout with
+  // \r\n. An LF-only pattern silently matches nothing, and every reader —
+  // list, latest, find — then behaves as if the project had no decision logs
+  // at all.
+  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(String(content ?? ''));
   if (!m) return null;
   const fields = {};
-  for (const line of m[1].split('\n')) {
+  for (const line of m[1].split(/\r?\n/)) {
     const kv = /^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/.exec(line);
     if (kv) fields[kv[1]] = kv[2].trim();
   }
@@ -187,6 +202,17 @@ export function openLog(root, command, topic) {
 }
 
 /**
+ * The two kinds of value a decision can set. A PRODUCT value — a price, a
+ * default, a name, a layout — an agent may choose on its own, record here and
+ * carry on; the log is the audit trail. A JUDGEMENT value — a floor, a lock,
+ * a tolerance, a gate threshold — is never the agent's to choose, because
+ * choosing one is tuning the judge that grades the agent's own work. Code
+ * enforces the half it can see: `self` (the agent chose without asking) is
+ * only accepted together with `kind: 'product'`.
+ */
+export const DECISION_KINDS = ['product', 'judgement'];
+
+/**
  * Append one answered question. Returns the entry number.
  * `accepted: true` means the student took the recommendation instead of typing
  * an answer: the answer line becomes the recommendation plus the literal
@@ -194,16 +220,76 @@ export function openLog(root, command, topic) {
  * shape is not a second format, only a different answer text. Without a
  * recommendation there is nothing to accept, so it degrades to the plain answer
  * (the CLI refuses that combination up front).
+ * `self: true` records a decision the AGENT made without asking — allowed only
+ * for product values (see DECISION_KINDS); the entry says so in plain text,
+ * so the file stays unambiguous about who decided.
  */
-export function logEntry(file, { question, recommendation, answer, accepted }) {
+export function logEntry(file, { question, recommendation, answer, accepted, kind, self }) {
+  if (kind !== undefined && !DECISION_KINDS.includes(kind)) {
+    throw new Error(`unknown decision kind "${kind}" — use product or judgement`);
+  }
+  if (self && kind !== 'product') {
+    throw new Error(
+      'a self-chosen decision must be kind "product" — a judgement value (floor, lock, tolerance, gate threshold) ' +
+        'is never the agent\'s to choose: choosing one is tuning the judge. Ask the student and record their answer.',
+    );
+  }
   const content = readFileSync(file, 'utf8');
   const n = nextEntryNumber(content);
   const lines = [`### ${n}. ${oneLine(question)}`];
+  if (kind) lines.push(`- Kind: ${kind}`);
   const rec = recommendation ? oneLine(recommendation) : '';
   if (rec) lines.push(`- Recommendation: ${rec}`);
-  lines.push(`- Answer: ${accepted && rec ? `${rec} (accepted)` : String(answer ?? '').trim()}`, '');
+  const answerText = accepted && rec ? `${rec} (accepted)` : String(answer ?? '').trim();
+  lines.push(`- Answer: ${self ? `${answerText} (chosen by the agent)` : answerText}`, '');
   writeFileSync(file, content.replace(/\n*$/, '\n\n') + lines.join('\n'));
   return n;
+}
+
+/** Parse a log body's numbered entries → [{ n, question, kind, answer }]. */
+export function parseEntries(content) {
+  const entries = [];
+  const re = /^### (\d+)\.\s*(.*)$/gm;
+  const text = String(content ?? '');
+  let m;
+  while ((m = re.exec(text))) {
+    const block = text.slice(m.index, text.indexOf('\n### ', m.index + 1) === -1 ? undefined : text.indexOf('\n### ', m.index + 1));
+    const answer = /^- Answer:\s*(.*)$/m.exec(block)?.[1]?.trim() ?? '';
+    const kind = /^- Kind:\s*(.*)$/m.exec(block)?.[1]?.trim() ?? '';
+    entries.push({ n: Number(m[1]), question: m[2].trim(), kind, answer });
+  }
+  return entries;
+}
+
+/** Case/whitespace-insensitive needle for ask-once matching. */
+function normalizeQuestion(text) {
+  return oneLine(text).toLowerCase().replace(/[?.:!]+$/, '');
+}
+
+/**
+ * Ask-once: has this question (or one containing it) already been answered in
+ * ANY log? Commands consult this BEFORE re-asking — a second task that needs
+ * the same answer references the entry and carries on. Substring match on the
+ * normalized question, newest answers last (the last hit is the current one).
+ */
+export function findEntries(root, query) {
+  const needle = normalizeQuestion(query);
+  if (!needle) return [];
+  const hits = [];
+  for (const log of readLogs(root)) {
+    let content = '';
+    try {
+      content = readFileSync(join(root, log.file), 'utf8');
+    } catch {
+      continue;
+    }
+    for (const entry of parseEntries(content)) {
+      if (normalizeQuestion(entry.question).includes(needle)) {
+        hits.push({ file: log.file, seq: log.seq, command: log.command, status: log.status, ...entry });
+      }
+    }
+  }
+  return hits;
 }
 
 /** Append a free-form decision that surfaced outside the Q&A rhythm. */
@@ -272,13 +358,26 @@ export function main(argv) {
       const answer = flagValue(argv, '--a');
       const recommendation = flagValue(argv, '--rec');
       const accepted = argv.includes('--accepted');
+      const kind = flagValue(argv, '--kind');
+      const self = argv.includes('--self');
       if (accepted && !recommendation)
         fail('--accepted needs --rec "…" — the accepted answer IS the recommendation, so there must be one to accept');
       if (accepted && answer !== undefined)
         fail('--accepted and --a are mutually exclusive — either accept the recommendation or record a typed answer, never both');
+      if (self && accepted)
+        fail('--self and --accepted are mutually exclusive — accepted means the STUDENT took the recommendation; self means the agent chose alone');
+      if (kind !== undefined && !DECISION_KINDS.includes(kind))
+        fail(`--kind must be one of: ${DECISION_KINDS.join(', ')}`);
+      if (self && kind !== 'product')
+        fail('--self requires --kind product — a judgement value (floor, lock, tolerance, gate threshold) is never the agent\'s to choose; ask the student instead');
       if (!question || (answer === undefined && !accepted))
-        fail('usage: decision-log log <id|path> --q "…" [--rec "…"] (--a "…" | --accepted)');
-      const n = logEntry(file, { question, recommendation, answer, accepted });
+        fail('usage: decision-log log <id|path> --q "…" [--rec "…"] [--kind product|judgement] [--self] (--a "…" | --accepted)');
+      let n;
+      try {
+        n = logEntry(file, { question, recommendation, answer, accepted, kind, self });
+      } catch (err) {
+        fail(err.message);
+      }
       console.log(json ? JSON.stringify({ entry: n }) : `logged #${n}`);
     } else if (cmd === 'note') {
       const text = flagValue(argv, '--text');
@@ -292,6 +391,30 @@ export function main(argv) {
         fail(err.message);
       }
       console.log('closed');
+    }
+    return;
+  }
+
+  if (cmd === 'find') {
+    // Ask-once: consult BEFORE re-asking a question any earlier interview
+    // already answered. The LAST hit is the current answer; reference its
+    // file+entry instead of opening a new round of the same interview.
+    const query = flagValue(argv, '--q');
+    if (!query) fail('usage: decision-log find --q "…" [--json]');
+    const hits = findEntries(root, query);
+    if (json) return console.log(JSON.stringify(hits, null, 2));
+    // Deliberately NOT "this question is new": the match is a substring of the
+    // RECORDED question, so a long query ("Which auth provider should we use
+    // for the admin panel?") misses a short entry ("Which auth provider?").
+    // Claiming newness on one miss is how the ask-once rule would re-ask the
+    // very question it exists to prevent.
+    if (!hits.length) {
+      return console.log(
+        'no log matched that wording — retry with 2-4 distinctive words (e.g. "auth provider", then "auth") before treating the question as new',
+      );
+    }
+    for (const h of hits) {
+      console.log(`${h.file} #${h.n}${h.kind ? ` [${h.kind}]` : ''}  ${h.question} → ${h.answer}`);
     }
     return;
   }
@@ -319,7 +442,7 @@ export function main(argv) {
     return;
   }
 
-  fail('usage: decision-log <open|log|note|close|latest|list> …  (see the header of this file)');
+  fail('usage: decision-log <open|log|note|close|find|latest|list> …  (see the header of this file)');
 }
 
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;

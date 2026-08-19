@@ -114,7 +114,10 @@ imp                            # open Pi here (installs Pi if it's missing)
 imp update                     # update impactus + Pi + the pinned Pi extensions
 imp tui                        # the project dashboard in the terminal
 imp doctor                     # read-only checkup: subscriptions, CLIs, Pi, project
+                               # (--gates self-tests the FIA gates with injected defects)
 imp fix                        # repair what doctor found (plan + consent; restores missing files only)
+imp stop                       # the stop button: halts FDA runs cleanly before the next
+                               # phase (fails closed; --status / --clear to disarm)
 imp handoff                    # continue the newest Pi conversation in `claude`
                                # (Codex outage? your work keeps moving)
 imp health                     # loop-health report: how well the agent loop is working
@@ -127,25 +130,27 @@ imp settings                   # where every machine setting comes from (read-on
 
 | Command | What it does |
 | --- | --- |
-| `/idea [topic]` | Interview from scratch → PRD + the best stack for it. On an existing system it adds a new `## Module:` chapter instead. |
+| `/idea [topic]` | Interview from scratch → an evidence/assumption-aware PRD with a falsifiable hypothesis, measurable signals and the thinnest end-to-end MVP. On an existing system it adds a new `## Module:` chapter instead. |
 | `/stack [tech?]` | Decides pending stack layers, generates docs for each technology in `ai-docs/apis/`, installs CLIs, MCPs and skills. |
 | `/grill [target]` | Stress-tests the PRD one question at a time, recording every decision. |
 | `/prd [focus]` | Quick reviewer opinion on the PRD. |
-| `/map` | PRD → map + screens + tasks + milestones; opens the plan in the browser when done. |
-| `/task [n]` | Runs ONE task end to end via FDA (implements, tests, gates, commits). |
-| `/goal` | Runs ALL tasks until done — the fully-automated mode. |
+| `/map` | Conditional architecture checkpoint → map + screens + tasks + milestones; opens the plan in the browser when done. Simple plans skip the checkpoint automatically. |
+| `/task [n]` | Runs ONE task end to end via FDA. A brief explicitly marked `Mode: prototype` uses the guarded lint/typecheck-only prototype flow. |
+| `/goal [--light]` | Runs ALL tasks until done. `Mode: prototype` applies per brief; otherwise `--light` skips review+document phases. A completed milestone automatically runs blocking browser QA before the next one. |
 | `/feature "what you want"` | New feature in an existing system: delta interview → delta spec + new tasks. |
-| `/bug "the symptom"` | Records the defect, proves a valid failing test first (RED), then fixes it. |
+| `/bug "the symptom"` | Records the defect, runs proportional RCA when ambiguity/risk requires it, proves a valid failing test first (RED), then fixes it. |
 | `/quick "small change"` | Triage: a genuinely small change ships in one sitting; anything bigger routes to `/feature` or `/bug`. |
 | `/spec [capability]` | Durable spec — requirements + BDD scenarios + traceability gates. |
 | `/onboarding [focus?] [--report-only]` | Existing project, first run: chains `/absorb` → `/stack` → `/kit` in one guided pass — ends ready for `/idea` or `/feature`. Interrupted tours resume where they stopped; `--report-only` defers the design-system decisions. |
 | `/absorb [focus]` | Existing project → as-built PRD, map, conventions, stack manifest, component registry and the maintained `ai-docs/wiki/` (pages agents read instead of re-reading the code). |
 | `/kit` | Design-system audit of existing code: as-built registry, `/ui-components`, gap report vs the core kit (including interaction contracts: yellow search highlight, Combobox width, calendar month/year jump, Filter + chips, one component per card), then approved design-only tasks. |
+| `/ui-contract [profile\|show\|review]` | Chooses the deterministic UI product profile, capability applicability, and implementation per shell/navigation/theme/table/Kanban surface. An explicit existing/specified library or custom component wins for its named surface and resolves through a concrete local entrypoint; an unrelated package cannot claim every surface. If nothing detailed was requested, the versioned `fia-universal` kit is the fallback. Optional capabilities change atomically with `capability --name <capability> --enabled true\|false` (Kanban enables drag-and-drop; advanced tables enable base tables; conflicting disables fail without writing); quality invariants cannot be waived. |
 | `/component`, `/theme`, `/design`, `/example` | Design system: add a component (register + isolated `/ui-components` card), change colors/fonts, redesign from references, register an external reference. |
 | `/launch` | Go live — public beta and production, with readiness gates. |
 | `/qa [scope?]` | Browser QA at milestone/spec/task — Playwright e2e, responsive check, design audit, durable report. |
 | `/agents` | Visual roster editor: engine, model and fallbacks per FDA agent — with automatic mid-run relay when an engine dies. |
 | `/status` | Progress + latest runs. |
+| `/evolve --run <id>` / `--since <period>` | Evidence-backed retrospective of a finished FDA run or project-history window; writes local reports and never changes the system automatically. |
 | `/guide [goal?]` | Lost? Reads the project state, confirms your goal in one question and charts the shortest route. |
 | `/note "idea"` | One line into `ai-docs/inbox.md` — zero questions. |
 | `/fia` | Factory overview. |
@@ -154,13 +159,13 @@ imp settings                   # where every machine setting comes from (read-on
 
 | Command | What it does |
 | --- | --- |
-| `/start` | Initializes the project from the PRD: map, screens, tasks and design system. |
+| `/start` | Runs the same conditional architecture checkpoint, then initializes the project from the PRD: map, screens, tasks and design system. |
 | `/dev [task?]` | Executes a dev task test-first (no argument = the next frontier task). |
 | `/sv` | Save: build verification + git commit + database backup. |
 | `/test-ui [flow?]` | Tests the UI in a real browser, with automated sign-in and issue detection. |
 | `/team [task]` | Multi-agent orchestration: parallel specialist agents on one task. |
 | `/restore` | Rolls code + database back to a previous save (destructive — confirms first). |
-| `/grill`, `/stack`, `/absorb`, `/onboarding`, `/quick`, `/spec`, `/feature`, `/bug`, `/component`, `/theme`, `/design`, `/example`, `/kit`, `/launch`, `/qa`, `/note` | The same planning, spec and design-system commands also live here. |
+| `/grill`, `/stack`, `/absorb`, `/onboarding`, `/quick`, `/spec`, `/feature`, `/bug`, `/component`, `/theme`, `/ui-contract`, `/design`, `/example`, `/kit`, `/launch`, `/qa`, `/note` | The same planning, spec and design-system commands also live here. |
 
 ### Dashboards & utilities (npm scripts stamped into the project)
 
@@ -179,6 +184,7 @@ npm run fda:verdict   # record what a closed run still owes → the next --resum
                       #   is bounded to exactly that
 npm run notify        # show (or --test) the run-end notification targets
 npm run fda:status    # is an FDA running in this repo right now?
+npm run fda:cost-report # token cost breakdown: fresh input vs cache reads vs output per phase
 npm run docs:commit   # commit ai-docs/ artifacts (docs only)
 ```
 
@@ -199,15 +205,39 @@ overwrites a file you changed: those are reported, not touched. Use
 `--dry-run` to see the plan, `--yes --commit` to run it unattended with one
 git commit per fix.
 
-Two checkups sit next to that ladder, both read-only until you say otherwise:
+Three checkups sit next to that ladder, read-only until you say otherwise:
 `imp health` scores five dimensions of your agent loop (understanding,
 execution, validation, delivery, learning) from the project's own evidence and
 names the command that repairs each finding — `--html` also writes
-`imp/reports/loop-health.html`. `imp rewind` lists the checkpoints of every
+`imp/reports/loop-health.html`. Inside Pi, `/evolve --run <id>` or
+`/evolve --since 14d` turns traces into a factual retrospective and proposes
+the smallest durable workflow improvement; its reports stay under
+`imp/reports/evolution/` and it never applies a recommendation. `imp rewind` lists the checkpoints of every
 FDA run, previews the exact file impact of undoing one, and restores only with
 `--yes`: it never resets, never rewrites history, so the rewind itself is
 undoable. Long run? `imp notify` shows (and `--test` exercises) the ping that
 fires when a run ends — off until you turn it on, and it can never fail a run.
+For documentation drift, ask the agent for a project-knowledge audit: the
+shipped `project-knowledge-audit` skill compares active rules and current-state
+docs with repository evidence, while leaving historical decisions and intent
+alone unless you explicitly request a correction.
+
+Three more guards watch the factory itself. `imp stop` is the stop button:
+arm it from any terminal (or just `touch imp/data/fia-stop`) and no new FDA
+run starts while an in-flight one stops cleanly before its next phase — it
+fails **closed** (even an unreadable stop file stops runs) and `--clear`
+disarms it. `npm run gates:probe` (also `imp doctor --gates`) is the gate
+self-test: it injects deliberate defects against throwaway fixtures and
+asserts every quality gate goes red — the only check that measures the
+harness instead of your code. And the **regression floor** rides along
+automatically: after every green suite the runtime records how many test
+files (and passing tests) it observed in `imp/data/floor.json`, and a later
+"green" run that lost tests turns red until they come back — agents cannot
+edit the floor, so deleting tests is never a way to pass. Sealed next to it,
+`imp/data/holdout/` holds **holdout probes**: acceptance checks written when
+a task's brief is created (before the code exists), agent-write-protected and
+never quoted into the brief, and run after the suite goes green with no
+automatic repair round (`npm run holdout`).
 
 ### Example 1 — from zero, WITHOUT the template (your own stack; works as guest)
 
@@ -219,10 +249,23 @@ imp                       # open Pi
 /idea                     # interview → PRD + the best stack (all into ai-docs/)
 /stack                    # docs for each tech + CLIs, MCPs and skills
 /grill                    # stress-test the PRD before building
-/map                      # PRD → screens, tasks, milestones (opens the plan)
-/task 1                   # first task via FDA — or /goal to run them all
+/map                      # architecture when needed → screens, tasks, milestones
+/task                     # Task 01: create the app/Foundation first
+/theme                    # approve its visual identity (or `/theme accept`)
+/goal                     # run every remaining task with that identity
 npm run tui               # follow along in another terminal
 ```
+
+`/theme` intentionally comes after the Foundation: without an executable app
+there are no real components for its Current × Proposed preview. You can
+instead run `/goal` immediately after `/map`; it builds the Foundation, pauses
+at the same theme checkpoint for your decision, and then resumes.
+
+Next.js remains the recommended/default frontend; Vue, Nuxt, Svelte or another
+frontend is never inferred. When you explicitly request one, `/idea`/`/stack`
+records it and `/map` requires concrete library/custom implementations for the
+active UI surfaces. The Next/React `fia-universal` adapter then refuses to
+write into the incompatible stack instead of silently changing it.
 
 ### Example 2 — from zero, WITH the ready-made template (signed-in students)
 
@@ -251,6 +294,7 @@ imp
                           # map, stack docs, design-system audit)
 /feature "CSV export on the reports page"   # new feature → delta spec + tasks
 /bug "login loops after logout"             # defect → proven RED, then the fix
+/evolve --since 14d                          # repeated friction → local evidence report
 /quick "rename the Save button"             # small change, no ceremony
 /task                     # execute — or /goal for everything approved
 ```

@@ -919,7 +919,7 @@ The core build loop:
 
 | Command | What it does |
 | --- | --- |
-| `/start [--components] [--restart]` | 6-step project initialization: PRD check → `screens-routes.md` → task breakdown (vertical slices, one issue file per task with `Blocked by:`, specs + milestones) behind a **mandatory approval checkpoint** → `map.yaml` → component registry seeding → live `/ui-components` page. Resumable (`workflow_progress` in `map.yaml` persists after every step); `--restart` starts over; `--components` skips the step-5/6 confirmation. Missing PRD stops with a `/grill` suggestion. |
+| `/start [--components] [--restart]` | Conditional architecture checkpoint, then the existing 6-step initialization: PRD check → `screens-routes.md` → task breakdown (vertical slices, one issue file per task with `Blocked by:`, specs + milestones) behind a **mandatory approval checkpoint** → `map.yaml` → component registry seeding → live `/ui-components` page. The checkpoint writes optional `architecture.md` only for consequential choices and never renumbers `workflow_progress`. Resumable; `--restart` starts over; `--components` skips the step-5/6 confirmation. Missing PRD stops with a `/grill` suggestion. |
 | `/dev [task?]` | Executes ONE dev task test-first. No argument = the next **frontier** task (pending, all blockers done). The `task-sequencer` writes a just-in-time brief in `ai-docs/actual-todo/`; four gates run before code (blocking questions, registry-only components, interaction patterns from `ai-docs/ui/patterns.md`, spec traceability markers); TDD loop (red → green at pre-agreed seams); `npm run build` mandatory for `Kind: foundation`/`Kind: kit` briefs; self code-review; closes the task and recomputes the frontier. Also enforces the **theme gate** and the **env-preflight gate** (§10). |
 | `/sv [msg?]` | Save: `npm run build` gate → docs-sync check (schema/deps diffs must be reflected in `ai-docs/stack.md`/specs) → conventional commit → Convex export backup to `~/Documents/convex-backups/`. |
 | `/test-ui [flow?]` | Tests the UI in a real browser (Playwright MCP; Chrome DevTools MCP fallback) at `http://localhost:3000`: restarts the dev server if needed, walks the flow (default: sign-in), watches console errors and 4xx/5xx, fixes what it finds, re-tests, prints a fixed-format report. Credentials come from the `ai-docs/test-credentials.md` roster (Clerk test users `+clerk_test` / code `424242`), `map.yaml`, or the command-file placeholders. |
@@ -930,11 +930,11 @@ Planning, specs and scope:
 
 | Command | What it does |
 | --- | --- |
-| `/grill [doc\|topic?]` | Stress-tests the PRD (default) or any doc/decision — one question at a time, each with a recommendation, decisions recorded in the decision log and written back into the document. Hunts placeholders, missing actors/permissions/edge cases and a `## Launch criteria` section. Run BEFORE `/start`. |
-| `/stack [tech\|layer?]` | Owns `ai-docs/stack.md`: decides pending layers by interview (IAI preference rules), researches each tech across the 4 mandatory dimensions (docs+llms.txt, skills, CLI, MCP) into the code-verified research ledger, writes `ai-docs/apis/<tech>.md` (9 required sections incl. the Production runbook `/launch` executes), and equips the project (skills in two invocations, CLIs, MCPs). |
+| `/grill [doc\|topic?]` | Stress-tests the PRD (default) or any doc/decision — one question at a time, each with a recommendation, decisions recorded in the decision log and written back into the document. Hunts placeholders, evidence/assumption gaps, JTBD/non-users, falsifiable right/wrong signals, the thinnest testable MVP, measurable success criteria, edge cases and `## Launch criteria`. Run BEFORE `/start`. |
+| `/stack [tech\|layer?]` | Owns `ai-docs/stack.md`: decides pending layers by interview (IAI preference rules), researches each tech across the 4 mandatory dimensions (docs+llms.txt, skills, CLI, MCP) into the code-verified research ledger, writes `ai-docs/apis/<tech>.md` (9 required sections incl. the Production runbook `/launch` executes), and equips the project (one canonical skills invocation, CLIs, MCPs). |
 | `/spec [capability\|NNNN?]` | Creates/updates a durable spec `ai-docs/specs/NNNN-<slug>.md` (requirements FR/NFR, a `## Flow` mermaid diagram, BDD scenarios S-n, traceability, gate log) via a short interview. Definition Gate flips `Status: defined` — the diagram is one of its conditions. |
 | `/feature "what you want"` | New functionality on an EXISTING system: size triage (module-sized → `/idea` in Pi), delta mini-grill, delta spec (with its own `## Flow` mermaid diagram of the delta), then ONLY the new tasks (numbering continues, `Blocked by:` real tasks), shown for approval before anything executes. Requires `map.yaml` (`/absorb` first on a never-onboarded system). |
-| `/bug "the symptom"` | Registers the defect as an issue, then fixes it through the normal pipeline with a **RED-for-the-right-reason** gate: the reproduction test must fail on an assertion before the fix (a passing or broken test never counts). |
+| `/bug "the symptom"` | Registers the defect, classifies the investigation as `direct` or `rca`, and persists a base-SHA/evidence-chain RCA when ambiguity or risk requires it. Critical/sensitive/low-confidence cases wait for explicit RCA approval before claim; then the normal pipeline enforces **RED for the right reason**. |
 | `/quick "small change"` | Triage: SIMPLE only when blast radius ≤ ~3 files, one obvious shape, and none of: schema/migrations, auth/permissions, payments, new dependency, new route/page, new UI component, destructive data op. SIMPLE ships in one sitting with the guardrails on + one `## Q-NNN` audit line in `ai-docs/todos/quick-log.md`; anything else routes to `/feature`/`/bug` with the reason. Never touches the roadmap. |
 | `/note "idea"` | Appends `- [ ] YYYY-MM-DD — <idea>` to `ai-docs/inbox.md` and stops — zero questions. Later `/feature`/`/quick`/`/spec` tick items with `→ spec NNNN` / `→ Q-NNN` / `→ task NN`. |
 | `/absorb [focus?]` | Onboards an EXISTING system: surveys the code, writes `map.yaml`, the as-built PRD (never overwriting a human PRD — `PRD-as-built.md` instead), `stack.md` from what was observed, `conventions.md`, the as-built component registry, the maintained `ai-docs/wiki/` (stamped with `wiki-check.mjs --stamp` at the end, so `npm run wiki:check` reads `fresh`) and a distilled project skill; short interview for what code can't reveal. Changes no code, creates no tasks; recommends `/kit` when the registry comes out empty/duplicated. |
@@ -944,8 +944,9 @@ Design system and references:
 
 | Command | What it does |
 | --- | --- |
-| `/component <name + URL/cmd> \| list \| sync` | The legal entry path for a new UI component: duplicate check against the registry first (roles `default`/`alternative` resolved), research → `ai-docs/components/<lib>/<name>.md`, install, adapt to theme/i18n/a11y (semantic-domain fields ship with their canonical source wired), registry row, isolated `/ui-components` section (one component per card — `references/interaction.md`). `sync` reconciles registry ↔ code ↔ page; `list` prints the registry by category. |
-| `/theme [hint\|accept?]` | Visual identity behind a side-by-side preview: ~7-question interview (colors, dark/light, typography via `next/font`, shape, interaction patterns), generates the full token set (WCAG AA contrast is a blocker), renders Current × Proposed at `/ui-components/preview` with REAL registry components, and only applies to `app/globals.css` after explicit approval. `accept` fast-path records a conscious "keep the default" decision — enough to satisfy the theme gate. |
+| `/component <name + URL/cmd or custom entrypoint> \| list \| sync` | The legal entry path for a UI component: a library component supplies its URL/install command; a project-origin/custom component supplies a confirmed project-relative entrypoint and needs neither. For closed UI surfaces, the UI contract is updated first and outranks registry roles. Then dedupe, inspect/research, install or create, adapt to theme/i18n/a11y, register, and add an isolated `/ui-components` card. `sync` reconciles registry ↔ code ↔ page; `list` prints the registry by category. |
+| `/theme [hint\|accept?]` | Visual identity behind a side-by-side preview: ~7-question interview (colors, dark/light, typography, shape, interaction patterns), preserves the UI contract's selected theme library/custom entrypoint, generates its full project-native token set (WCAG AA contrast is a blocker), renders Current × Proposed with REAL registry components, and only applies through that implementation's native provider/files after explicit approval. Canonical `fia-universal` on Next.js maps this to `next/font` + `app/globals.css`; other stacks do not inherit those APIs. `accept` records a conscious "keep the default" decision — enough to satisfy the theme gate. |
+| `/ui-contract [profile\|show\|review]` | Creates or reviews schema-v3 `ai-docs/ui/contract.json`: one confirmed product profile resolves app shell, breadcrumb, System/Light/Dark, DataTable/advanced controls and Kanban to `required`, `optional`, `not_applicable` or a scoped `waived`, and records the implementation for each surface. An explicit existing/specified library or custom component always wins for its named surface and must resolve through a concrete local entrypoint; a package is not treated as proof that it implements unrelated surfaces. With no detailed choice, `fia-universal` is the deterministic fallback. A capability boolean changes atomically with `capability --name <capability> --enabled true\|false`; dependency enables cascade safely and conflicting disables fail without writing. Every skip keeps a reason; responsive/containment/keyboard/focus/recovery/drag-quality invariants cannot be waived. |
 | `/design <images + description>` | Layout redesign from reference images: structure/hierarchy/density/motion come from the reference, colors/fonts/components stay OURS (theme + registry only). Contained scope applies directly; broad scope becomes roadmap tasks. Uses the Impeccable skill for motion when installed. |
 | `/example <url> [notes] \| list` | Registers an external reference on the example shelf: reads the source (never registers from a URL alone), pins license + commit, writes `ai-docs/examples/<slug>/NOTES.md` (mandatory `## What NOT to take`) + a registry row. GPL-family/unknown licenses are never copied verbatim. |
 | `/kit [focus?] [--report-only]` | Brownfield design-system audit: as-built registry rows → `/ui-components` page → **gap report** vs the core kit (`kit-report.md`: missing needs, below-contract items with file/line evidence — the DataTable contract audited item by item, plus Combobox overlay width, yellow search highlight, calendar month/year caption, pointer cursor, and one-component-per-card isolation from `references/interaction.md` — duplicates without roles) → engineer approves → delta spec + `Kind: kit` design-only tasks with one checkbox per contract item. Changes no component and no screen itself. |
@@ -987,15 +988,17 @@ wrapper then reads `.cursor/commands/<name>.md`.
 
 ### 8.3 Skills shipped
 
-Six skills for both engines: **tdd** (the red→green loop `/dev` follows),
+Seven skills for both engines: **tdd** (the red→green loop `/dev` follows),
 **frontend-profissional**, **design-system** (incl. `references/core-kit.md`
 — the canonical component contracts — `references/semantic-fields.md` —
 known-domain data never becomes a free-text input — and
 `references/interaction.md` — pointer cursor, yellow search highlight,
 overlay width = trigger, calendar month/year caption, DataTable Filter +
 chips, `/ui-components` one-component-per-card), **security** (incl. the
-`/launch` checklist and the multi-tenancy reference), **backend-profissional**
-and **examples** (the reference-shelf matching rules). The four professional
+`/launch` checklist and the multi-tenancy reference), **backend-profissional**,
+**examples** (the reference-shelf matching rules), and
+**project-knowledge-audit** (advisory drift checks across rules and
+current-state docs; historical events and intent are never rewritten). The four professional
 ones are the template-ownable paths described above.
 
 In the harness checkout the edit path is **not** `.agents/` first: shared
@@ -1008,7 +1011,7 @@ previous skill bytes.
 ### 8.4 Seeing what the plan created
 
 With the FIA installed, `npm run plan` opens the viewer's "Plan" tab
-(`http://127.0.0.1:4600#plan`, 100% offline) with the screens/routes, tasks
+(`http://127.0.0.1:4600#plan`, 100% offline) with optional architecture decisions, screens/routes, tasks
 with blockers/criteria, design system and every `ai-docs/` file rendered —
 `/map` opens it automatically when it finishes. `npm run agents` (or
 `/agents` inside `pi`) opens the "Agents" tab to see engine login status and
@@ -1076,6 +1079,9 @@ npm run fda:rewind    # node imp/scripts/rewind.mjs             (undo a run, res
 npm run notify        # node imp/scripts/notify.mjs             (run-end pings, opt-in)
 npm run fda:verdict   # node imp/scripts/verdict.mjs                (bounded continuation)
 npm run fda:status    # node imp/scripts/fda-lock.mjs status    (is an FDA running?)
+npm run fda:stop      # node imp/scripts/fia-stop.mjs           (the stop button)
+npm run gates:probe   # node imp/scripts/gate-probes.mjs        (gate self-test)
+npm run holdout       # node imp/scripts/holdout.mjs            (holdout probes)
 npm run docs:commit   # node imp/scripts/docs-commit.mjs        (ai-docs-only commit)
 npm run tui           # node imp/scripts/fia-tui.mjs            (terminal dashboard)
 npm run handoff       # node imp/scripts/handoff.mjs            (continue the newest
@@ -1115,16 +1121,20 @@ same name lands on the session row (§9.7). A run stopped by a policy limit
 | `fda_scout` | scout (read-only) | request → scout | Recon: "where is billing implemented?" — any repo change is rolled back. |
 | `fda_document` | documenter | request → document | Write up recent changes (docs paths only). |
 | `fda_quality` | none | request → *quality* | Lint + typecheck + build + test with no agent — works with nothing logged in. |
-| `fda_plan_build_test` | planner, builder (+reviewer for the UI gate) | request → plan → build → *test* → up to `stop.attempt_cap` × (fix → *test*), default 3, cut short by `no_progress` → *spec_coverage* → checklist gate → UI gate → *commit* | The task workhorse (`/task` uses it via the sequencer). |
-| `fda_sdlc` | planner, builder, reviewer, documenter | request → plan → build → *test* (single run, no fix loop) → *spec_coverage* → checklist gate → UI gate → review → *commit_code* → document → *commit_docs* | Full cycle with an independent review — the review runs even when tests failed, and acceptance requires green tests AND an approved review. |
+| `fda_plan_build_test` | planner, builder (+reviewer for the UI gate) | request → plan → build → *test* → up to `stop.attempt_cap` × (fix → *test*), default 3, cut short by `no_progress` → *spec_coverage* → checklist gate → UI gate → *holdout* → *commit* | The task workhorse (`/task` uses it via the sequencer). |
+| `fda_sdlc` | planner, builder, reviewer, documenter | request → plan → build → *test* (single run, no fix loop) → *spec_coverage* → checklist gate → UI gate → *holdout* → review → *commit_code* → document → *commit_docs* | Full cycle with an independent review — the review runs even when tests failed, and acceptance requires green tests AND an approved review. |
 | `fda_bug` | planner, builder (+reviewer) | request → plan → red_test → *red_check* → build → *test* → fix loop (≤ `stop.attempt_cap`, default 3; `no_progress` ends it early) → gates → *commit* | Defect fixing with a **valid RED** gate: the reproduction test must fail on an assertion BEFORE the fix (passing = "bug not reproduced"; module/syntax/env failures = invalid RED). |
 | `fda_quick` | builder | request → build → *quality_1* (lint+typecheck+focal test) → one fix round (by design, not from `stop:`; still red = `attempt_cap`) → *quality_2* → *quicklog* → *commit* | Small guarded changes (`/quick`). Appends the `## Q-NNN` audit entry, then stamps the commit sha into it as a separate one-line commit. |
+| `fda_build_test` | builder (+reviewer for the UI gate) | request → build → *test* → up to `stop.attempt_cap` × (fix → *test*), default 3, cut short by `no_progress` → *spec_coverage* → checklist gate → UI gate → *holdout* → *commit* | Like `fda_plan_build_test` but **without the planner** — the brief goes directly to the builder. Saves ~1-2.5M tokens per run when the brief is already autocontained. |
+| `fda_prototype` | builder | request → build → *quality_1* (lint+typecheck) → one fix round → *quality_2* → *commit* | Fast prototyping: no plan, no test suite, no review, no document — only lint/typecheck as sanity. Requires an exact `Mode: prototype` line; `/task` and `/goal` route that brief here deterministically. |
 | `fda_qa` | builder, reviewer | request → scope → preflight → author → *e2e* → audit → report → gate | Browser QA at milestone/spec/task boundaries (`/qa`). Playwright e2e + design audit; writes `ai-docs/qa/` report. No fix loop — failures go to `/bug` or `/task`. Does not re-run unit tests. |
 
 Examples:
 
 ```bash
 node imp/fda_plan_build_test.mjs ai-docs/todos/briefs/task-07.md
+node imp/fda_build_test.mjs ai-docs/todos/briefs/task-07.md   # same but no planner
+node imp/fda_prototype.mjs ai-docs/todos/briefs/task-07.md    # requires Mode: prototype in the brief
 node imp/fda_bug.mjs "Deleting the last org member 500s instead of blocking"
 node imp/fda_quick.mjs "Make the empty-state copy on /invoices friendlier"
 node imp/fda_qa.mjs "M1"
@@ -1192,6 +1202,28 @@ Shipped roster: **planner** (claude_code/opus, writes specs+ai-docs),
 read-only), **reviewer** (claude_code/sonnet, read-only), **documenter**
 (pi/Codex, docs paths only). Each ships a fallback to the other engine.
 
+**Phase overrides** — per-phase `thinking`/`effort` tuning without changing the
+agent's default. Exact phase names and trailing-wildcard patterns are both
+supported:
+
+```yaml
+agents:
+  - name: builder
+    thinking: medium
+    phase_overrides:
+      fix_*: { thinking: low }         # all fix rounds
+      fix_checklist: { thinking: low } # checklist repair
+      fix_ui: { thinking: low }        # UI gate repair
+  - name: reviewer
+    phase_overrides:
+      ui_check: { thinking: low }      # UI rubric is simple
+```
+
+Unmatched phases use the agent's base settings. Only `thinking` and `effort`
+are accepted inside an override; engine, model, prompts, permissions and
+fallbacks remain the validated base configuration. Any other field fails
+config validation instead of silently changing how or where a phase runs.
+
 Engines (`coding_agent`):
 
 | Engine | Binary | Model examples | Notes |
@@ -1232,6 +1264,9 @@ handed to prompts as `{{context_handoff_dir}}`.
 **Prompt material** lives in `imp/data/prompt_engineering/<agent>/{system,
 user}.md` — student-editable, never touched by `--update-runtime`. Templates
 receive `{{prompt}}`, `{{previous_envelope}}` and `{{context_handoff_dir}}`.
+The previous envelope is **trimmed** before injection: only `status`,
+`summary`, `artifacts`, `changed_files` and `notes_for_next_agent` survive —
+verbose plan text and other fields are stripped to reduce per-turn context.
 
 **Envelopes**: every agent phase must end with a typed Report JSON
 (`status`, `summary`, `artifacts`, `notes_for_next_agent`, plus per-type
@@ -1393,7 +1428,7 @@ as disproportionate.
   existing installs.
 - **Observability**: every phase, gate verdict, engine call, token count and
   cost lands in `imp/data/fia.db`. `agent_end` events stamp
-  `{model, coding_agent, cost, cache_read, cache_write}` — the per-LLM ledger
+  `{model, coding_agent, cost, input, output, cache_read, cache_write}` — the per-LLM ledger
   groups by what actually ran, so later roster edits never re-attribute
   spend; a failed phase that burned tokens emits its own `agent_spend` event.
 
@@ -1480,10 +1515,17 @@ npm run fda:sessions                      # 20 newest runs (id, status, outcome,
                                           # request, tokens, relayed)
 npm run fda:phases -- <fda_id>            # phase list of one run
 npm run fda:tail   -- <fda_id>            # last 20 raw JSONL events of a run
+npm run fda:cost-report                   # token cost breakdown per phase: fresh
+                                          # input vs cache_read vs output (0 tokens)
+npm run fda:cost-report -- <fda_id>       # same, filtered to one run
 node imp/scripts/fia-query.mjs models     # per-LLM lifetime ledger (engine, model,
                                           # runs, tokens, cost, last used)
 node imp/scripts/fia-query.mjs sessions --json   # scripts/Pi consume JSON
 ```
+
+Runs recorded before the input/output split was introduced keep their real
+total/cache values; `fresh`, `output` and `cache_pct` show `null` rather than
+guessing an input/output decomposition that was never captured.
 
 The `models` ledger sums what actually ran (`agent_end` + failed-attempt
 `agent_spend` events, stamped at spend time) — roster edits never
@@ -1600,6 +1642,20 @@ run's permission gate would roll the write back, so nothing is written and the
 command exits 1. Under `--json` stdout stays pure JSON and the HTML notice goes
 to stderr.
 
+**System evolution review** — inside Pi, `/evolve --run <fda_id>` reviews one
+finished FDA execution, while `/evolve --since <Nd|YYYY-MM-DD>` scans a bounded
+history window; both accept an optional `--steer "…"`. A deterministic,
+read-only collector normalizes the trace database, session artifacts, command
+telemetry and attributable commits into a versioned JSON evidence bundle. The
+agent then writes local, gitignored reports under `imp/reports/evolution/`:
+run mode produces a factual execution Markdown plus a self-contained system
+review HTML; window mode produces an opportunity-scan HTML. Missing or legacy
+data becomes an explicit `gap`, messages are bounded and secrets redacted, and
+an active FDA blocks report writes. This is system/process review, not code
+review: every recommendation needs exact evidence, frequency, impact,
+confidence, the smallest durable primitive and a probe, and nothing is ever
+applied automatically.
+
 **Undo a run** — `npm run fda:rewind` / `imp rewind` (`node
 imp/scripts/rewind.mjs [--dir <root>] [--list]` ·
 `… --run <fda_id> [--to <sha>] [--json] [--dry-run] [--yes] [--allow-dirty]`).
@@ -1647,6 +1703,7 @@ can never be spelled two ways:
 | `breadth_exceeded` | The run had already changed more files than `stop.breadth_ceiling`. |
 | `blocked_by_gate` | A gate or the permission allowlist refused (`GateFailure`, `PermissionBreach`). |
 | `engine_exhausted` | Every engine in the fallback chain died (`EngineFailure`). |
+| `stopped_by_request` | The manual stop button (`imp stop`) was armed — the run stopped cleanly before its next phase; nothing is lost and `--resume` continues it after `imp stop --clear`. |
 | `aborted` | Ctrl+C / SIGTERM — the signal handler closes the session instead of leaving an eternal `running` orphan. |
 | `failed` | An unclassified throw. |
 
@@ -1713,6 +1770,21 @@ student's plan. They live under `stop:` in `imp/fia.config.yaml`:
 - **Tolerant by design**: a missing block, a missing key, a typo'd value or a
   negative number all fall back to the default and are printed as a warning at
   the start of the run. Nothing here can throw.
+
+**The manual stop button (`imp stop`)** sits beside the automatic limits: it
+arms `imp/data/fia-stop` (a plain file — `touch` works too), and while it is in
+place no new run starts (`ensure()` checks it before reading anything else)
+and an in-flight run stops before its next phase with outcome
+`stopped_by_request`. The reader (`manualStopState` in `imp/modules/stop.mjs`)
+**fails closed**: only a clean ENOENT means "keep running" — a stop file that
+exists but cannot be read still stops the run, because the obvious polarity
+("run unless a readable stop request is found") makes the button work only
+while the filesystem does. `imp stop --status` shows the state (and any live
+run), `imp stop --clear` disarms and VERIFIES the file is really gone,
+`--reason "…"` attaches a note shown wherever the stop is reported. Alias:
+`npm run fda:stop`. The button is exercised by the repo's test suite in both
+directions — a stop button that has never been used is a stop button nobody
+knows works.
 
 **Bounded continuation** — the other half of "how did it end": a run that closed
 `verification_failed`, `attempt_cap` or `no_progress` did real work, and `--resume`
@@ -1814,6 +1886,94 @@ imp notify --test --event gate_blocked
 imp notify --json          # same information as JSON — never contains a URL
 ```
 
+### 9.9 The gate that measures itself: regression floor, holdout probes, gate probes
+
+Three guards that watch the FACTORY rather than the student's code. All three
+follow one rule borrowed from lights-out factory experiments: a check the
+builder can read and iterate against is inside its optimization loop — the
+numbers that judge the work must live where agents cannot touch them, and the
+harness must be able to prove its own checks can fail.
+
+**Regression floor (`imp/modules/floor.mjs`)** — a ratchet with zero slack
+under the test suite. After every GREEN full-suite run (`runTestsForBrief`, so
+`/task`, `/goal`, `/feature`, `/bug` and the UI-gate retest all pass through
+it; `/quick` and `fda_quality` are excluded by construction — they run focal
+or non-suite checks) the runtime stamps what it observed into
+`imp/data/floor.json`: the count of
+`*.test.*`/`*.spec.*` files in the tree, and — when the runner's summary is
+recognizable (vitest, jest, node:test TAP, mocha, pytest) — how many tests
+passed. The next green run must observe **at least** those numbers: a suite
+that went green because tests were deleted or skipped turns RED with a
+synthetic `floor` check, and the ordinary repair loop asks the builder to
+restore the tests. The passing-test count is the AUTHORITATIVE signal and the
+file census only a proxy for it, so when the count holds or grows a smaller
+file count reads as a reorganization (two suites merged, a rename) and
+re-baselines instead of failing — otherwise an honest refactor would be
+blocked by a number the builder is not allowed to touch. Three properties keep
+the rest honest:
+
+- **Zero slack**: floors sit equal to what was last observed — the gap between
+  observed and floor is exactly the number of tests that can be deleted with
+  the gate still green. (The file census is the one number that may also
+  re-baseline downward, and only when the passing count confirmed the
+  coverage held.)
+- **Agents cannot move it**: the file is protected in code
+  (`ALWAYS_PROTECTED` in `imp/modules/permissions.mjs`, independent of the
+  student's `protected_files` config) — an agent write is rolled back, and a
+  deleted one is restored from git. Because only trusted code stamps it, the
+  ratchet RISES automatically; the authoritative `tests_passed` floor never
+  moves down on its own, and lowering it is a human edit in the student's own
+  commit (deleting the file re-baselines on the next green run). The raise
+  rides the same FIA commit as the work that earned it.
+- **Fail closed**: an unreadable or corrupt floor file is indistinguishable
+  from tampering and fails the check, with both recoveries named
+  (`git checkout -- imp/data/floor.json`, or delete to re-baseline).
+- **Raised by the test phase, not by the merge**: the stamp happens where the
+  observation does, so a run that goes green and then fails a later gate
+  leaves the higher floor behind as an uncommitted change. That is harmless
+  while the work stays (the next run observes the same numbers) and
+  `git checkout -- imp/data/floor.json` restores it if the work is reverted —
+  the same one-liner the violation message prints.
+- An unrecognizable test summary never guesses: the passed-count floor simply
+  does not apply then; the file census always does.
+
+**Holdout probes (`imp/data/holdout/`, `imp/modules/holdout.mjs`)** —
+acceptance checks OUTSIDE the builder's loop. The task-sequencer seals 1–3
+probes when it writes a brief — before the code they will judge exists,
+because a scenario written after seeing the implementation is a description
+of the implementation. Each probe is a plain Node script run as bare `node
+<file>` from the project root (exit 0 = the invariant holds; no bundler, so no
+TS path aliases and no `.tsx`), and the FDA runs them in a `holdout` code
+phase after the suite goes green. The directory is agent-**write**-protected
+and probe contents are never quoted into the brief; reading is not blocked (an
+agent holding `bash` cannot be prevented from opening a file), so the
+separation rests on the probe existing before the code and on nothing in the
+builder's prompt pointing at it. A violation fails the run with **no repair
+round** — feeding the probe back to the builder would move it inside the loop
+it exists to sit outside of; the output goes to the human, in the trace.
+Probes accumulate across tasks as a growing regression holdout. A project
+with no probes skips the phase (proportionality) — which is also why the
+sequencer **commits** the probes it seals: no FDA commits `imp/data/holdout/`
+(their commit is pathspec-limited to what the run produced), so an
+uncommitted probe set is lost to a checkout and the gate would then stand
+down silently. A project that has adopted holdouts asserts they still exist
+with `npm run holdout -- --require`, which fails on an empty directory. CLI:
+`npm run holdout` (`--list`, `--require`, `--json`); green emits the literal
+marker `HOLDOUT_PASSED scenarios=N`.
+
+**Gate probes (`imp/scripts/gate-probes.mjs`)** — the self-test of the
+harness: deliberate defects (an unchecked brief box, a rubber-stamp `— N/A`,
+a swapped checklist item, a ghost artifact, a lowered floor, an approved
+verdict with blockers, an unreadable stop file…) injected against throwaway
+fixtures in OS temp, each of which must make its gate go RED — plus clean
+controls that must pass, so an always-red gate cannot satisfy the test.
+Until a defect has been injected and caught there is no evidence a check can
+fail at all; a MISSED probe means a class of defect can currently slip
+through that project's gates unseen (the fix is `npx impactus
+--update-runtime`, never deleting the probe). Run it with
+`npm run gates:probe` or `imp doctor --gates`; the repo's own CI runs the
+same catalog against the templates. The project tree is never touched.
+
 ## 10. The durable planning layer
 
 Shared conventions between the harness (Claude Code/Cursor) and Pi, all under
@@ -1852,6 +2012,15 @@ Shared conventions between the harness (Claude Code/Cursor) and Pi, all under
   (`checkSpecCoverage` in `imp/modules/gates.mjs` — `git grep` with a
   recursive fallback): every listed ID must appear in some test's `covers:`
   list, missing ones fail the phase by name. No `Spec:` line → check skipped.
+- **Spec delivery close-out** — after a tested task passes its suite, coverage,
+  checklist and remaining gates, the FDA runs `spec_close` as code. It treats
+  the current roadmap issue as delivered, verifies every other issue on the
+  spec's `Tasks:` line is already `done`, appends dated Delivery Gate evidence
+  and sets `Status: done` before the implementation commit. Missing Tasks
+  metadata, unknown issue files or an unfinished sibling fail closed: the spec
+  stays open and the exact reason is recorded in the run trace. Re-running is
+  idempotent, so the last task no longer depends on a later agent pass to
+  remember the transition.
 - **RED validity** — `fda_bug.mjs` writes ONLY the failing reproduction test
   first, then a `red_check` phase runs it and `validateRedReason` classifies
   the failure: an assertion/expectation failure is a valid RED; a passing
@@ -2098,32 +2267,74 @@ the design system deterministic instead:
   are props/composition), and the living `/ui-components` page renders
   everything in it. Two components for the same need carry roles — exactly
   one `default`, the rest `alternative`, used only on explicit request.
+- **The UI contract** (`ai-docs/ui/contract.json`, created by `/ui-contract`)
+  deterministically separates the non-waivable quality floor from product
+  capabilities **and from implementation choice**. The confirmed profile resolves application shell,
+  breadcrumb, System/Light/Dark switcher, DataTable/advanced controls and
+  Kanban to `required`, `optional`, `not_applicable` or a scoped `waived`;
+  each capability boolean records real activation, so `optional` + `false`
+  stays dormant while `optional` + `true` is built only after approval.
+  Independently, each surface resolves to an existing library, a specified
+  library, a custom project path, or the `fia-universal` fallback. Explicit
+  user/project choices always win and keep the same behavioral/quality
+  contract; canonical package names and props are required only for a
+  canonical selection. Planning, materialization, FDA gates, QA and launch
+  consume the same reasoned decision. Schema-v1/v2 artifacts migrate only
+  through the explicit migration command; ambiguous global alternatives fail
+  closed, and a missing per-surface library entrypoint must be supplied through
+  `--entrypoint <surface=project-relative-path>` instead of being guessed.
 - **The core kit** (design-system skill, `references/core-kit.md`) is the
-  canonical always-needed set — buttons, inputs, MaskedInput, Select,
-  Combobox, MultiSelect, the three date components (typed, calendar,
-  date+time), menus incl. right-click ContextMenu, dialogs, toast, Skeleton,
-  EmptyState — plus the FULL per-component contracts. The DataTable contract
-  (TanStack Table as `default`; REUI Data Grid registered `alternative`) is
-  the big one: global fuzzy multi-word search with yellow match highlights,
-  header menu on click AND right-click (sort/hide/filter), per-column
+  universal behavioral reference — only contract-applicable rows are seeded
+  and built up front. The optional `ai-docs/examples/` shelf remains prior art,
+  never this authority. The design-system skill also ships a versioned,
+  checksummed executable adapter for the canonical Next/React/shadcn stack;
+  `.agents/scripts/ui-kit.mjs plan → install → verify` materializes it without
+  reading `live1`/`live2`, writes `ai-docs/ui/kit-receipt.json`, is idempotent,
+  and fails before writes on source/dependency/stack conflicts. A selected
+  library/custom surface is recorded as a deterministic materialization skip,
+  not replaced. The catalog includes buttons/fields/overlays needed by the data
+  model plus full professional contracts for selected complex components. For
+  the canonical adapter, the DataTable contract uses TanStack Table; when
+  advanced controls apply, ordinary grouping through three levels stays there, and
+  a REUI/licensed `alternative` is limited to an explicitly requested
+  pivot/tree/sub-grid/Excel-like surface. The professional base contract includes
+  global fuzzy multi-word search with yellow match highlights unless a scoped
+  approved waiver records why search is inapplicable, one Filter control, a
+  header menu from a visible button/left-click, right-click, Shift+F10 or the
+  Context Menu key (compatible sort/hide/reset/filter), per-column
   filters adapted to the column type (text/enum-facet/date-range/number-range)
   reached from the header or a single Filter control — never a toolbar row
-  of per-column buttons — active-filter chips with an x + clear-all, column
-  visibility, pagination, row selection + bulk-actions bar, row-click edit,
-  skeleton/empty/no-results states. Cross-cutting interaction contracts
+  of per-column buttons — compact removable active-filter chips with an x +
+  clear-all, column
+  visibility, pagination/count, row selection + bulk-actions bar, row-click
+  edit, skeleton/empty/no-results/error/long-content states. When
+  `data_table.advanced_controls`
+  separately applies, canonical-adapter call sites pass `advancedControls={true}` only when that
+  rule is APPLY; the optional prop defaults to false and base call sites omit
+  `advancedControls`. Omitted/default false exposes no grouping, pinning,
+  move/reorder, sizing/density, persistence/Restore or sticky-header UI while
+  retaining base header sort/filter/hide/clear. The opt-in adds the ordered grouping lane, truthful leaf-record
+  counts, pinning, sizing/density, versioned per-user view persistence + full
+  Restore defaults across reload, optional accessible header drag reorder,
+  sticky header, and the
+  server-side/virtualization scale contract. Cross-cutting interaction contracts
   (pointer cursor, yellow `<mark>` on any typed search, Combobox popover as
   wide as the trigger, calendar caption that jumps month and year,
   `/ui-components` one-component-per-card) live in
   `references/interaction.md`.
 - **Greenfield**: Task 01 is always the fixed Foundation scaffold and Task
-  02 the fixed **Core component kit** (`Kind: kit`), blocked by 01 and
+  02 the contract-selected **Core component kit** (`Kind: kit`), blocked by 01 and
   blocking every feature task — sequenced after the `/theme` checkpoint, so
   the demos render with the approved identity. Enforcement is code, not
-  prose: `Kind: kit` arms `npm run build` in the FDA test phase
+  prose: before a kit builder runs, the executable plan resolves the selected
+  implementation per surface. Completion requires an installer receipt whose
+  files/checksums still verify plus the real project typecheck/build; a registry
+  row that merely says `installed` is not evidence. `Kind: kit` arms `npm run build` in the FDA test phase
   (`isFoundationBrief` in `imp/modules/gates.mjs`), the issue carries one
-  checkbox per component (the checklist gate refuses to close with an open
-  box), and the UI gate's rubric fails a run whose list of records bypasses
-  the registry's default table.
+  checkbox per applicable component (the checklist gate refuses to close with
+  an open box), and the UI gate filters named rules through the same contract.
+  A game or art-directed surface may therefore skip enterprise chrome without
+  losing responsive containment, keyboard/focus quality or error recovery.
 
 **Semantic fields** ride along: known-domain data (state/UF, country,
 address/CEP, phone, documents, money, dates, timezone, fixed categories)
@@ -2177,40 +2388,43 @@ thinking `high`); `APPEND_SYSTEM.md` appends the FIA persona to every session
 the protected machinery); and `.pi/skills/fia/SKILL.md` carries the hard
 rules + the **Routing table — the single source of truth for the command
 catalog** (`/guide` routes exclusively from it; a command absent there "does
-not exist"). Deep procedures live in 15 cookbooks
+not exist"). Deep procedures live in 18 cookbooks
 (`.pi/skills/fia/cookbooks/`): fia_overview, harness_bridge, install,
-run_fda, create_fda, observability, decision-log, stack, specs, components,
-theme, design, examples, launch, update_roster.
+run_fda, create_fda, observability, evolution, architecture, decision-log,
+stack, specs, components, theme, design, examples, launch, qa and
+update_roster.
 
-### 12.1 The 24 commands (`.pi/prompts/`)
+### 12.1 The 26 commands (`.pi/prompts/`)
 
 | Command | Arguments | What it does |
 |---|---|---|
 | `/fia` | — | Factory overview: FDA table, task counts, last run, command list. Read-only. |
 | `/guide` | `[goal?]` | Situational router: probes the state with the deterministic scripts, asks ONE confirming question, answers with a numbered command route (each step carries the criterion that decided it). Suggests, never executes — at most offers to run step 1. |
-| `/idea` | `[topic?]` | Interview → PRD + stack. Branches on `project-mode.mjs`: greenfield (full discovery), ideation (revise the idea), brownfield (**module mode** — appends a `## Module: <name>` chapter, never rewrites the rest). Tags semantic field types in the data model and always adds `## Launch criteria`. |
+| `/idea` | `[topic?]` | Interview → PRD + stack. Separates evidence from assumptions, records JTBD/non-users, a falsifiable right/wrong hypothesis, measurable signals and the thinnest end-to-end MVP. Branches on `project-mode.mjs`: greenfield, ideation, or brownfield **module mode** without rewriting the rest. Preserves semantic field types and `## Launch criteria`. |
 | `/stack` | `[tech\|layer?]` | Decide pending layers + the 4-dimension research gate + `ai-docs/apis/<tech>.md` docs + equip (skills/CLI/MCP). |
 | `/grill` | `[doc\|topic?]` | Stress-test the PRD one question at a time; decisions recorded and written back. |
 | `/prd` | `[focus?]` | Quick reviewer opinion on the PRD — never edits it. |
-| `/map` | `[notes?]` | PRD → `map.yaml` + screens-routes + issues/task-master + specs + registry seed + `/ui-components` + milestones; ends by opening the Plan page (`npm run plan -- --detach`). Greenfield build order: `/task` (foundation) → `/theme` → `/goal`. |
-| `/task` | `[number\|description?]` | ONE task: the task-sequencer writes the brief (enforcing the theme and env gates), then `node imp/fda_plan_build_test.mjs <brief>` (bigger/riskier work → `fda_sdlc`). On first failure: one automatic recovery (re-run / repair once); if that also fails: `npm run fda:phases -- <id>`, resume with `--fda-id <id> --resume`. |
-| `/goal` | `[limit?]` | All unblocked tasks to done, one FDA per task (never batched), gates inside the loop, human-only steps handled MID-goal; a first recoverable FDA failure gets one automatic recovery before the loop asks; ends with the app RUNNING + "How to test", suggests `/qa <milestone>` when a milestone completes, then `/launch`. |
+| `/map` | `[notes?]` | Runs a conditional architecture checkpoint before planning; consequential decisions land in optional `architecture.md`, while simple plans skip it. Then PRD → `map.yaml` + screens-routes + issues/task-master + specs + registry seed + `/ui-components` + milestones; ends by opening the Plan page. |
+| `/task` | `[number\|description?]` | ONE task: the task-sequencer writes the brief (enforcing the theme and env gates); exact `Mode: prototype` → `fda_prototype`, otherwise `fda_plan_build_test` (bigger/riskier normal work → `fda_sdlc`). On first failure: one automatic recovery (re-run / repair once); if that also fails: `npm run fda:phases -- <id>`, resume with `--fda-id <id> --resume`. |
+| `/goal` | `[limit?] [--light]` | All unblocked tasks to done, one FDA per task (never batched), gates inside the loop, human-only steps handled MID-goal; `Mode: prototype` selects `fda_prototype` per brief, otherwise `--light` selects `fda_plan_build_test` and the default is `fda_sdlc`; every completed milestone automatically runs blocking `fda_qa` before the next milestone; ends with the app RUNNING + "How to test", then `/launch`. |
 | `/feature` | `"request"` | Delta on an existing mapped system: size triage (module-sized routes UP to `/idea`), delta mini-grill, delta spec, DELTA tasks, approval before executing. Requires `map.yaml` (`/absorb` first otherwise). |
-| `/bug` | `"symptom"` | Issue + `node imp/fda_bug.mjs` with the RED-validity gate (assertion-failing reproduction before any fix). |
+| `/bug` | `"symptom"` | Classifies `direct` vs `rca`; ambiguous/risky defects get a versioned investigation and critical/sensitive/low-confidence RCAs require approval before claim. Then `fda_bug` enforces an assertion-failing reproduction before any fix. |
 | `/quick` | `"small change"` | Triage; SIMPLE runs `node imp/fda_quick.mjs` + the `Q-NNN` quick-log entry; COMPLEX routes to `/feature`/`/bug` naming the failed criterion. |
 | `/note` | `"idea"` | One line into `ai-docs/inbox.md`, zero questions. |
 | `/spec` | `"capability"\|NNNN` | Create/update a durable spec, `## Flow` mermaid diagram included; the Definition Gate (requirements + scenarios + diagram, no open P1) flips `Status: defined`; ticks related inbox items. |
 | `/launch` | `[beta\|production?]` | Go live by rungs, `fia-launch-check.mjs --json` as the fact source; confirms before every irreversible step; secrets never in chat. Warns when `qa_evidence` is missing for done milestones. |
-| `/qa` | `[M1\|NNNN\|NN] [--video]` | Browser QA: `node imp/fda_qa.mjs` — Playwright e2e at 375/768/1280, registry/patterns audit, report in `ai-docs/qa/`. Suggested after milestone/spec completion; not per-task. |
-| `/component` | `name + URL/cmd \| list \| sync` | Design-system entry path (dedupe → research → install → register → isolated `/ui-components` card). |
-| `/theme` | `[hint\|accept?]` | Identity interview → FDA-built side-by-side preview at `/ui-components/preview` → explicit approval. `accept` records "keep the default" (satisfies the theme gate) with zero app changes. AA contrast is a blocker. |
+| `/qa` | `[M1\|NNNN\|NN] [--video]` | Browser QA: `node imp/fda_qa.mjs` — contract-filtered Playwright e2e at 360/768/1440 plus 100/125/200% zoom, table/Kanban geometry and accessibility audit, report in `ai-docs/qa/`. Runs automatically at goal milestone boundaries; may also be invoked directly. |
+| `/component` | `name + URL/cmd or custom entrypoint \| list \| sync` | Design-system entry path (contract-first for closed surfaces; dedupe → research/inspect → install/create → register → isolated `/ui-components` card). |
+| `/theme` | `[hint\|accept?]` | Identity interview → FDA-built side-by-side preview in the project-native component catalog → explicit approval through the UI contract's selected theme implementation. `accept` records "keep the default" (satisfies the theme gate) with zero app changes. Canonical Next files/APIs apply only to canonical `fia-universal`; AA contrast remains a blocker everywhere. |
+| `/ui-contract` | `[profile\|show\|review]` | Schema-v3 UI applicability plus implementation precedence: explicit per-surface library/custom choices with concrete local entrypoints win, while canonical remains the default for untouched surfaces; confirmed booleans use atomic `capability --name <capability> --enabled true\|false`; writes only after confirmation and migrates v1/v2 explicitly. |
 | `/design` | `images + scope` | Layout redesign from references — structure from the image, identity from OUR system. |
 | `/example` | `URL [notes] \| list` | Register an external reference on the shelf (license researched, `What NOT to take` mandatory). |
 | `/agents` | — | Opens the viewer's Agents tab (`npm run agents -- --detach`) to edit engines/models/fallbacks; Pi is forbidden from editing `imp/fia.config.yaml` itself. |
 | `/onboarding` | `[focus?] [--report-only]` | First command on an EXISTING system: chains `/absorb` → `/stack` → `/kit` in one guided pass (each stage's own prompt is the law; stages whose artifacts already exist can be kept and skipped), then hands over explaining the split — `/idea` for a MODULE-sized addition vs `/feature` for a one-sentence delta. The tour keeps a **resume rail** in the decision log (`open onboarding` → one stage note each → `close`): an interrupted session resumes from its last stage note instead of restarting. `--report-only` is the express path — the `/kit` stage presents its gap report and defers the design decisions to a later `/kit` run. |
-| `/absorb` | `[focus?]` | Brownfield onboarding (as-built PRD/map/conventions/registry, the maintained `ai-docs/wiki/` + its digest stamp, and a project skill in `.pi/skills/project/` AND `.claude/skills/project/`); recommends `/kit` when the registry comes out empty/duplicated. |
+| `/absorb` | `[focus?]` | Brownfield onboarding (as-built PRD/map/conventions/registry, maintained wiki + digest stamp, and one canonical project skill in `.agents/skills/project/` with a Claude symlink; never `.pi` or `.cursor` copies). Divergent legacy copies in any engine stop for an explicit choice. |
 | `/kit` | `[focus?] [--report-only]` | Brownfield design-system audit → gap report vs core-kit + `interaction.md` → approved design-only tasks. |
 | `/status` | — | Read-only progress: tasks, milestones (status as declared), specs, inbox, latest runs and failed phases. |
+| `/evolve` | `--run <id> \| --since <Nd\|date> [--steer "…"]` | Evidence-backed review of one finished FDA run or a bounded history window. Writes only local Markdown/HTML under `imp/reports/evolution/`; never changes rules, prompts, skills, gates or code. |
 
 ### 12.2 The interactive subagents, chains and extensions
 
@@ -2329,6 +2543,8 @@ one repairs:
 | "update the CLI itself, Pi and the extensions" | `imp update` (§14.3) |
 | "is my agent loop actually working?" | `imp health` — the evidence-based loop-health report (§9.6) |
 | "undo what that FDA run did" | `imp rewind` — checkpoints, preview, restore-only (§9.6) |
+| "stop the running FDA / don't let another one start" | `imp stop` — fails closed, `--clear` disarms (§9.7) |
+| "do the quality gates actually work?" | `npm run gates:probe` / `imp doctor --gates` — injected defects must go red (§9.9) |
 | "where does this setting come from?" | `imp settings` — read-only view of the machine config (§14.6) |
 
 The split is deliberate: **doctor never writes, fix never overwrites**. A
@@ -2450,12 +2666,13 @@ impactus`) is a thin brand wrapper over the real `pi` binary — NOT a fork:
 | `imp init [flags]` | The full impactus installer in place — every flag works (`imp init --harness-only -y`, `imp init --verify`, …). |
 | `imp update` | `npm install -g impactus@latest` + `pi update` (or install) + re-pin of the three Pi extension packages. Exit code keyed to the impactus self-update; the extension refresh is best-effort. |
 | `imp tui [args]` | Runs the project-stamped `imp/scripts/fia-tui.mjs` (errors with a `imp init` hint when the runtime is absent); `imp tui --once` passes through. |
-| `imp doctor [--json]` | Read-only checkup of the machine and, inside a project, of the install — detection only, fixes nothing. Full reference: §14.4. |
+| `imp doctor [--json] [--gates]` | Read-only checkup of the machine and, inside a project, of the install — detection only, fixes nothing. `--gates` adds the gate self-test (§9.9): it spawns the PROJECT's stamped `imp/scripts/gate-probes.mjs`, so version drift in the runtime is exactly what the section detects, and the probes only write to OS temp. Full reference: §14.4. |
 | `imp fix [flags]` | The remediating sibling of doctor — restore-only, plan → one y/N → apply. Full reference: §14.5. |
 | `imp handoff [args]` | Runs the project-stamped `imp/scripts/handoff.mjs`: hands the newest interactive Pi conversation to the `claude` CLI with a continuation prompt pointing at the session transcript (same preamble the FDA relay uses). Works while Codex is down — that is the point. `--list` picks a session, `--session <id>` targets one, `--full` asks for a full transcript read, `--print` prints the prompt without launching. Also `npm run handoff`. |
 | `imp health [args]` | Runs the project-stamped `imp/scripts/loop-health.mjs` — the five-dimension loop-health report (`--json`, `--html [path]`, `--strict`; §9.6). |
 | `imp rewind [args]` | Runs the project-stamped `imp/scripts/rewind.mjs` — checkpoints of an FDA run, preview, restore-only apply (`--list`, `--run <id>`, `--to <sha>`, `--dry-run`, `--yes`, `--allow-dirty`, `--json`; §9.6). |
 | `imp notify [args]` | Runs the project-stamped `imp/scripts/notify.mjs` — the resolved notification config, or `--test` to send one (`--event <name>`, `--json`; §9.8). |
+| `imp stop [args]` | Runs the project-stamped `imp/scripts/fia-stop.mjs` — the stop button (§9.7). Bare arms it, `--status` reports, `--clear` disarms, `--reason "…"` attaches a note, `--json` for machine output. Fails closed. Also `npm run fda:stop`. |
 | `imp settings [--json] [--path]` | Read-only report of where every machine-level setting comes from (§14.6). The verb is `settings`, **never `config`**: unknown verbs fall through to Pi and `pi config` is a real Pi command that must keep working. |
 | `imp help` / `imp --version` | Help / bare version. |
 | anything else | Straight through to `pi` (e.g. `imp -p "prompt"`, `imp --continue`). |
@@ -2484,7 +2701,7 @@ command that repairs it, and the repairs live in their own commands, each
 with its own consent flow (`imp fix`, `imp update`, `imp init`, `npx impactus
 --update-runtime`).
 
-Four sections:
+Four sections (five with `--gates`):
 
 | Section | What it checks |
 |---|---|
@@ -2492,6 +2709,7 @@ Four sections:
 | **Core CLIs** | node (the >= 22.12 floor), git and npm as required; gh and vercel as optional. |
 | **Pi & imp** | Pi installed + version, the three exact-pinned extension packages, and the same update probe the launcher prints after a session — timeboxed at 4 s, so offline or a slow registry just drops those rows instead of holding the report. |
 | **Project** (only when the folder looks like an IAI project) | FIA runtime present (`imp/scripts` + `imp/fia.config.yaml`); `.mcp.json` hygiene; the harness stamp state; a summarized `--verify` audit (capped at 8 rows — the full report stays in `npx impactus --verify`). |
+| **Gates (self-test)** — only with `--gates` | Spawns the project's stamped `imp/scripts/gate-probes.mjs` (§9.9): deliberate defects that must make each gate go red, plus clean controls that must pass. A missed probe is an **error** — a class of defect can currently slip through this project's gates unseen, and the repair is `npx impactus --update-runtime`. Probes write only to OS temp, so the detection-only contract holds. A self-test that cannot run is reported as an error too, never as a silent skip. |
 
 Two project checks are worth spelling out:
 
@@ -2693,6 +2911,7 @@ imp
 ```bash
 npm run fda:sessions                     # find the run id + HOW it ended (outcome)
 npm run fda:phases -- 3fa9c21b           # which phase failed
+npm run fda:cost-report -- 3fa9c21b      # per phase: fresh input/cache/output
 npm run fda:tail   -- 3fa9c21b           # last events (raw JSONL)
 npm run fda:viewer                       # or drill down in the browser
 
@@ -2958,12 +3177,28 @@ npm run sync:skills                         # regenerate harness/.cursor/skills
 npm run sync:commands                       # regenerate harness/.cursor/commands
 ```
 
+Two source-only experiment tools live under `scripts/` and are deliberately
+excluded from the npm package and stamped projects:
+
+```bash
+node scripts/ai-layer-map.mjs --dir <repo> --json
+node scripts/ai-layer-ablate.mjs --dir <repo> --task <file> --runner-bin <bin> \
+  --runner-arg <arg> --runs 2 --execute
+```
+
+The mapper inventories always-loaded, on-demand and enforcement surfaces per
+engine without emitting their contents. Ablation is dry-run unless
+`--execute` is present, refuses a dirty source by default, preserves every
+enforcement file, runs control versus always-loaded-stripped arms in detached
+temporary worktrees, and writes blinded diffs outside the source tree. It
+never grades, merges, edits `.gitignore` or removes a rule automatically.
+
 **Mirror rule (single source of truth):** shared skills are edited ONLY in
 `harness/.claude/skills/` — `harness/.cursor/skills/` is GENERATED by
 `npm run sync:skills` (Cursor-only skills like `project-workflow` and
 `workflow-*` are untouched). `harness/.agents/skills/<name>` is a directory
 symlink to that Cursor tree — **that** is what Cursor and Pi resolve in a
-stamped project (Claude Code gets a symlink of its own to the same store).
+stamped project; Claude reads the canonical `harness/.claude/skills/` tree.
 `test/consistency.test.js` fails on skill drift and `sync:skills:check`
 reports it without writing. Agents are the other way around: edit
 `harness/.claude/agents/`; `.cursor/agents/` and `.agents/agents/` are

@@ -92,6 +92,10 @@ function spawnOnce(bin, request, { onEvent, onSpawn, onExit }) {
         // The Cursor CLI does not report token usage in stream-json.
         tokens: 0,
         cost: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_read_tokens: 0,
+        cache_write_tokens: 0,
         context_tokens: 0,
         context_window: 0,
       });
@@ -103,7 +107,17 @@ function spawnOnce(bin, request, { onEvent, onSpawn, onExit }) {
         err.code === 'ENOENT'
           ? `Cursor CLI not found (${bin}). Install it: curl https://cursor.com/install -fsS | bash — then log in: cursor-agent login`
           : String(err.message || err);
-      resolve({ text: `Error: ${hint}`, returncode: 127, session_id: sessionId, tokens: 0, cost: 0 });
+      resolve({
+        text: `Error: ${hint}`,
+        returncode: 127,
+        session_id: sessionId,
+        tokens: 0,
+        cost: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_read_tokens: 0,
+        cache_write_tokens: 0,
+      });
     });
   });
 }

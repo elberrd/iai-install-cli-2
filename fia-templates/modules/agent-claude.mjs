@@ -5,6 +5,16 @@ import { dirname } from 'node:path';
 const CLAUDE_BIN = process.env.CLAUDE_PATH || 'claude';
 const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'];
 
+const tokenCount = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
+
+export function claudeUsageOf(usage = {}) {
+  const input = tokenCount(usage.input_tokens);
+  const output = tokenCount(usage.output_tokens);
+  const cacheRead = tokenCount(usage.cache_read_input_tokens);
+  const cacheWrite = tokenCount(usage.cache_creation_input_tokens);
+  return { input, output, cacheRead, cacheWrite, total: input + output + cacheRead + cacheWrite };
+}
+
 export function buildClaudeArgs(request) {
   const args = ['-p', '--output-format', 'stream-json', '--verbose'];
   if (request.model) args.push('--model', request.model);
@@ -45,6 +55,8 @@ export async function runClaude(request, { onEvent, onSpawn, onExit } = {}) {
 
     let text = '';
     let tokens = 0;
+    let input = 0;
+    let output = 0;
     let cacheRead = 0;
     let cacheWrite = 0;
     // Subscription billing: no dollar cost unless the CLI reports one (result event).
@@ -74,12 +86,12 @@ export async function runClaude(request, { onEvent, onSpawn, onExit } = {}) {
           if (event.usage) {
             // Cache read/creation make up most of the input in an agentic session —
             // without them the viewer undercounts and the hit rate becomes invisible.
-            tokens += event.usage.input_tokens || 0;
-            tokens += event.usage.output_tokens || 0;
-            tokens += event.usage.cache_read_input_tokens || 0;
-            tokens += event.usage.cache_creation_input_tokens || 0;
-            cacheRead += event.usage.cache_read_input_tokens || 0;
-            cacheWrite += event.usage.cache_creation_input_tokens || 0;
+            const usage = claudeUsageOf(event.usage);
+            tokens += usage.total;
+            input += usage.input;
+            output += usage.output;
+            cacheRead += usage.cacheRead;
+            cacheWrite += usage.cacheWrite;
           }
         } catch {
           text += line;
@@ -98,6 +110,8 @@ export async function runClaude(request, { onEvent, onSpawn, onExit } = {}) {
         session_id: sessionId,
         tokens,
         cost,
+        input_tokens: input,
+        output_tokens: output,
         cache_read_tokens: cacheRead,
         cache_write_tokens: cacheWrite,
         context_tokens: tokens,
@@ -107,7 +121,17 @@ export async function runClaude(request, { onEvent, onSpawn, onExit } = {}) {
 
     child.on('error', (err) => {
       onExit?.(child.pid);
-      resolve({ text: `Error: ${err.message}`, returncode: 127, session_id: sessionId, tokens: 0, cost: 0 });
+      resolve({
+        text: `Error: ${err.message}`,
+        returncode: 127,
+        session_id: sessionId,
+        tokens: 0,
+        cost: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_read_tokens: 0,
+        cache_write_tokens: 0,
+      });
     });
   });
 }

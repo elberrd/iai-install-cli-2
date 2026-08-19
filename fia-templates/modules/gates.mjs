@@ -172,6 +172,22 @@ export function isFoundationBrief(text) {
   return /^Kind:\s*(foundation|kit)\b/im.test(String(text || ''));
 }
 
+/** Explicit opt-in for the runner that deliberately skips tests and review. */
+export function isPrototypeBrief(text) {
+  let fence = null;
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const marker = /^\s*(`{3,}|~{3,})/.exec(line);
+    if (marker) {
+      const candidate = { char: marker[1][0], length: marker[1].length };
+      if (!fence) fence = candidate;
+      else if (fence.char === candidate.char && candidate.length >= fence.length) fence = null;
+      continue;
+    }
+    if (!fence && /^Mode:\s*prototype\s*$/i.test(line)) return true;
+  }
+  return false;
+}
+
 /**
  * Brief meta line `Surface: ui` (or `Surface: ui, api`) → lowercase token
  * list, or null when the brief carries no Surface line. Same contract as
@@ -200,8 +216,12 @@ function isTestPath(path) {
   return /\.(test|spec)\./.test(parts.at(-1) || '');
 }
 
-/** Recursive *.test.* / *.spec.* listing — the fallback when git grep cannot answer. */
-function listTestFiles(dir, acc = [], depth = 0) {
+/**
+ * Recursive *.test.* / *.spec.* listing — the coverage-gate fallback when git
+ * grep cannot answer, and the deterministic test-file census the regression
+ * floor (modules/floor.mjs) counts.
+ */
+export function listTestFiles(dir, acc = [], depth = 0) {
   if (depth > 8) return acc;
   let entries = [];
   try {

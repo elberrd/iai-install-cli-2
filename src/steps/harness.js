@@ -1,7 +1,8 @@
-import { existsSync, lstatSync, mkdtempSync, readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import { readFile, writeFile, rm, cp, rename, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { HARNESS } from '../config.js';
 import { presentAgentFiles, backupAgentFiles } from '../lib/agent-backup.js';
 import { run } from '../lib/proc.js';
@@ -10,6 +11,116 @@ import { collectHarnessManifest, writeHarnessManifest } from '../lib/harness-man
 import { migrateLegacyFiaLayout } from './update-runtime.js';
 import { toolPending } from './preflight.js';
 import * as ui from '../lib/ui.js';
+
+export const CANONICAL_UI_KIT_HARNESS_PATHS = Object.freeze([
+  '.agents/scripts/ui-contract.mjs',
+  '.agents/scripts/ui-kit.mjs',
+  '.claude/skills/design-system/scripts/install-canonical-kit.mjs',
+  '.claude/skills/design-system/assets/canonical-next-shadcn/manifest.json',
+]);
+
+const CANONICAL_UI_MANIFEST_PATH = '.claude/skills/design-system/assets/canonical-next-shadcn/manifest.json';
+
+/**
+ * A greenfield harness must carry executable UI source, not only instructions.
+ * Kept pure/exported so the no-network distribution seam is testable.
+ */
+export function canonicalUiKitAvailability(harnessRoot) {
+  const root = resolve(harnessRoot);
+  const missing = CANONICAL_UI_KIT_HARNESS_PATHS.filter((path) => !existsSync(join(root, path)));
+  const issues = missing.map((path) => ({ code: 'distribution_file_missing', path }));
+  const manifestPath = join(root, CANONICAL_UI_MANIFEST_PATH);
+
+  if (existsSync(manifestPath)) {
+    let manifest;
+    try {
+      manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    } catch {
+      issues.push({ code: 'manifest_json_invalid', path: CANONICAL_UI_MANIFEST_PATH });
+    }
+    if (manifest) {
+      if (manifest.schemaVersion !== 1) {
+        issues.push({
+          code: 'manifest_schema_invalid',
+          path: CANONICAL_UI_MANIFEST_PATH,
+          expected: 1,
+          actual: manifest.schemaVersion ?? null,
+        });
+      }
+      if (manifest.id !== 'canonical-next-shadcn') {
+        issues.push({
+          code: 'manifest_id_invalid',
+          path: CANONICAL_UI_MANIFEST_PATH,
+          expected: 'canonical-next-shadcn',
+          actual: manifest.id ?? null,
+        });
+      }
+      if (!Array.isArray(manifest.files) || manifest.files.length === 0) {
+        issues.push({ code: 'manifest_files_invalid', path: CANONICAL_UI_MANIFEST_PATH });
+      } else {
+        const presetRoot = dirname(manifestPath);
+        for (const file of manifest.files) {
+          const source = typeof file?.source === 'string' ? file.source : '';
+          const sourcePath = source && !isAbsolute(source) ? resolve(presetRoot, source) : null;
+          const safe = sourcePath && sourcePath !== presetRoot && sourcePath.startsWith(`${presetRoot}${sep}`);
+          const displayPath = safe
+            ? relative(root, sourcePath).replaceAll('\\', '/')
+            : `${CANONICAL_UI_MANIFEST_PATH}#${source || '<missing-source>'}`;
+          if (!safe) {
+            issues.push({ code: 'manifest_source_unsafe', path: displayPath });
+          } else if (!existsSync(sourcePath)) {
+            missing.push(displayPath);
+            issues.push({ code: 'canonical_asset_missing', path: displayPath });
+          } else if (!lstatSync(sourcePath).isFile()) {
+            issues.push({ code: 'canonical_asset_invalid_type', path: displayPath });
+          } else {
+            try {
+              const actual = createHash('sha256').update(readFileSync(sourcePath)).digest('hex');
+              if (typeof file.sha256 !== 'string' || actual !== file.sha256) {
+                issues.push({
+                  code: 'canonical_asset_checksum_stale',
+                  path: displayPath,
+                  expected: file.sha256 ?? null,
+                  actual,
+                });
+              }
+            } catch {
+              issues.push({ code: 'canonical_asset_unreadable', path: displayPath });
+            }
+          }
+        }
+      }
+    }
+  }
+  return { ok: issues.length === 0, missing, issues };
+}
+
+export function requireCanonicalUiKit(harnessRoot) {
+  const availability = canonicalUiKitAvailability(harnessRoot);
+  if (!availability.ok) {
+    const issueSummary = availability.issues.map(({ code, path }) => `${code}:${path}`).join(', ');
+    throw new Error(
+      `The downloaded harness has an invalid executable canonical UI kit (${issueSummary}). ` +
+        'Nothing was merged. Refresh the harness release and run the installer again.',
+    );
+  }
+  return availability;
+}
+
+/**
+ * Filesystem-only seam used by setupHarness after the downloaded tree has
+ * been adapted. Exporting the exact merge operation lets a hermetic test start
+ * from an empty directory without exercising auth, network, prompts or Git.
+ */
+export async function mergeHarnessTree(harnessRoot, targetRoot, { requireCanonical = false } = {}) {
+  if (requireCanonical) requireCanonicalUiKit(harnessRoot);
+  await cp(harnessRoot, targetRoot, {
+    recursive: true,
+    force: false,
+    errorOnExist: false,
+    verbatimSymlinks: true,
+  });
+}
 
 /**
  * The Harness — an agent-workflow scaffold (/start, /dev, /sv, /test-ui, /team,
@@ -83,6 +194,23 @@ export async function setupHarness(ctx) {
       'Harness downloaded.',
     );
 
+    // A fresh project has no live1/live2 source to copy later. Fail early if
+    // the downloaded harness is incomplete: otherwise /start would promise a
+    // deterministic Core kit but Task 02 would find prose only. Brownfield is
+    // intentionally non-blocking — it may have no UI at all and /kit remains
+    // an opt-in audit of its existing implementation.
+    const greenfield = !ctx.existingProject && ctx.stackPath !== 'brownfield';
+    const uiKit = greenfield ? requireCanonicalUiKit(tmpClone) : canonicalUiKitAvailability(tmpClone);
+    if (!uiKit.ok) {
+      const issueSummary = uiKit.issues.map(({ code, path }) => `${code}:${path}`).join(', ');
+      ui.warn(
+        `This brownfield harness has no complete canonical UI kit (${issueSummary}). ` +
+          'Existing application code is preserved; refresh before opting into /kit upgrades.',
+      );
+    } else {
+      ctx.canonicalUiKitAvailable = true;
+    }
+
     // ── Adapt to the template before merging ─────────────────────────────────
     // README.md → imp/HARNESS.md (the project keeps its own README). readmeAs
     // lives inside imp/ — create the folder in the clone before the rename.
@@ -129,13 +257,7 @@ export async function setupHarness(ctx) {
     const keptFiles = mergeSkips(tmpClone, dir);
     await ui.spin(
       'Merging the harness into the project…',
-      () =>
-        cp(tmpClone, dir, {
-          recursive: true,
-          force: false, // NEVER overwrite project files
-          errorOnExist: false, // existing file ⇒ silently keep the project's
-          verbatimSymlinks: true, // .cursor/agents + .agents are symlinks
-        }),
+      () => mergeHarnessTree(tmpClone, dir, { requireCanonical: greenfield }),
       'Harness merged (existing files were preserved).',
     );
     reportKeptFiles(keptFiles, { harnessOnly });
@@ -148,7 +270,8 @@ export async function setupHarness(ctx) {
       const result = await mergeAgentsMd(join(dir, 'AGENTS.md'), harnessAgents, { refresh });
       if (result === 'appended') ui.success('AGENTS.md: harness instructions appended.');
       else if (result === 'created') ui.success('AGENTS.md created with the harness instructions.');
-      else if (result === 'updated') ui.success('AGENTS.md: harness block updated to this harness version (your own text kept).');
+      else if (result === 'updated')
+        ui.success('AGENTS.md: harness block updated to this harness version (your own text kept).');
       else if (result === 'current') ui.info('AGENTS.md already carried this harness block — kept.');
       else if (result === 'malformed')
         ui.warn(
@@ -170,7 +293,9 @@ export async function setupHarness(ctx) {
       await writeHarnessManifest(dir, await collectHarnessManifest(tmpClone));
       ui.info('Harness stamp manifest recorded (imp/.harness-manifest.json — read by imp doctor/fix).');
     } catch (err) {
-      ui.warn(`Could not record the harness manifest: ${err?.message || err} — imp doctor/fix will skip the harness checks.`);
+      ui.warn(
+        `Could not record the harness manifest: ${err?.message || err} — imp doctor/fix will skip the harness checks.`,
+      );
     }
   } finally {
     await rm(tmpRoot, { recursive: true, force: true });

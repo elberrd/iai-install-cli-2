@@ -1,4 +1,6 @@
 node_modules
+.DS_Store
+.playwright-mcp/
 
 # Teste manual em sandbox Daytona (efêmero) + a chave de API usada por ele.
 # Nada aqui é parte do produto: scripts descartáveis, logs e transcrições.

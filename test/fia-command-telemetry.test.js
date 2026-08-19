@@ -20,6 +20,10 @@ test('docsStatus: missing core docs list commands to run', () => {
   const partial = docsStatus(root);
   assert.equal(partial.find((r) => r.id === 'prd').exists, true);
   assert.equal(partial.find((r) => r.id === 'map').exists, false);
+  assert.equal(partial.find((r) => r.id === 'architecture').optional, true);
+  assert.equal(partial.find((r) => r.id === 'architecture').command, '/map');
+  assert.equal(partial.find((r) => r.id === 'investigations').optional, true);
+  assert.equal(partial.find((r) => r.id === 'investigations').command, '/bug');
 
   const missing = missingCoreDocs(root);
   assert.ok(missing.some((m) => m.id === 'map'));

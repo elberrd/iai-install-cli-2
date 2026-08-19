@@ -2,9 +2,16 @@ import { phaseParams } from './fda-cli.mjs';
 import { artifactsExist, verdictConsistent, parseSurfaceLine } from './gates.mjs';
 import { runTestsForBrief } from './quality.mjs';
 import * as git from './git-helper.mjs';
+import { verifyUiKitReceipt } from './ui-kit-receipt.mjs';
+import {
+  loadUiContract,
+  resolveUiImplementation,
+  resolveUiRuleApplicability,
+  UI_RULES,
+} from '../scripts/ui-contract.mjs';
 
 /** Component/page files — the surfaces the UI-conformance rubric applies to. */
-export const FRONTEND_FILE = /\.(tsx|jsx|vue|svelte)$/i;
+export const FRONTEND_FILE = /\.(tsx|jsx|vue|svelte|css|scss|sass|less)$/i;
 
 /**
  * The default UI-conformance contract, mirrored from the harness's
@@ -14,28 +21,149 @@ export const FRONTEND_FILE = /\.(tsx|jsx|vue|svelte)$/i;
  * overrides these defaults — the rubric says so.
  */
 const UI_RUBRIC = [
-  'Field validation errors render INLINE with the field: a short, specific message below/beside the field (the form library\'s message slot), an error border, aria-invalid + aria-describedby, and focus moving to the first invalid field on submit. A top-of-page banner, a card-header message, or a toast as the ONLY display of a field error is a violation.',
-  'Validation runs on blur and on submit, the error clears once the value becomes valid, and labels are persistent (a placeholder is never the label).',
-  'Every mutation/submit announces its outcome — success AND failure — through the project\'s toast system (e.g. sonner), fired only AFTER the operation resolves. A silent failure, or success shown before the operation resolved, is a violation.',
-  'Create/edit flows follow the project\'s interaction pattern: by default an explicit button (or row click) opens a modal Dialog holding the form, and destructive actions confirm through an AlertDialog-style dialog. A create form permanently inlined on a list page is a violation unless ai-docs/ui/patterns.md or the brief explicitly chose it.',
-  'Native browser alert()/confirm()/prompt() are never used.',
-  'UI components come from the project\'s component registry (ai-docs/components/registry.md) when it keeps one — no ad-hoc duplicate of a component the registry already covers.',
-  'Lists of records render through the registry\'s default table component (the shared DataTable) when the registry has one — a hand-rolled <table>, a bare primitive-Table composition, or a second per-screen table implementation is a violation.',
-  'Fields whose data has a known domain (state/UF, country, timezone, language, fixed categories) or a normalizable format (CEP, phone, CPF/CNPJ, money, civil dates) use their semantic component — a picker fed by the canonical source, or a masked+validated input (a CEP field with its address lookup) — storing the canonical code, never the typed label. A free-text input for such data is a violation.',
-  'Submit buttons disable while submitting; async views have explicit loading and empty states.',
-  'Interactive surfaces follow `.claude/skills/design-system/references/interaction.md`: pointer cursor on every clickable control; any typed search/filter highlights matching text in yellow (`<mark>`); Combobox/MultiSelect/Select popovers are at least as wide as their trigger; Calendar caption lets the user jump month and year (not arrows-only); DataTable filters open from the column header / a single Filter control and render as removable chips — never a toolbar row of per-column filter buttons; `/ui-components` cards isolate ONE registry component (no kitchen-sink form reused across DateInput/Calendar/Combobox sections).',
+  {
+    ruleId: 'quality.error_recovery',
+    requirement:
+      "Field validation errors render INLINE with the field: a short, specific message below/beside the field (the form library's message slot), an error border, aria-invalid + aria-describedby, and focus moving to the first invalid field on submit. A top-of-page banner, a card-header message, or a toast as the ONLY display of a field error is a violation.",
+  },
+  {
+    ruleId: 'quality.focus_visibility',
+    requirement:
+      'Validation runs on blur and on submit, the error clears once the value becomes valid, labels are persistent (a placeholder is never the label), and keyboard focus remains visible.',
+  },
+  {
+    ruleId: 'quality.error_recovery',
+    requirement:
+      "Every mutation/submit announces its outcome — success AND failure — through the project's toast system, fired only AFTER the operation resolves. A silent failure, or success shown before the operation resolved, is a violation.",
+  },
+  {
+    ruleId: 'quality.keyboard_access',
+    requirement:
+      "Create/edit flows follow the project's interaction pattern: by default an explicit button (or row click) opens a modal Dialog holding the form, and destructive actions confirm through an AlertDialog-style dialog. Native alert()/confirm()/prompt() are forbidden and every flow is keyboard operable.",
+  },
+  {
+    ruleId: 'quality.keyboard_access',
+    requirement:
+      'UI components come from the project registry when it keeps one — no ad-hoc duplicate. Every clickable control is semantic, keyboard operable, visibly focusable, and shows the pointer cursor. The `/ui-components` page gives each registry component one isolated card; a kitchen-sink form repeated across sibling cards is a violation.',
+  },
+  {
+    ruleId: 'components.data_table',
+    requirement:
+      "Lists of records render through the registry's selected shared table/data-grid implementation, with semantic accessible table or grid structure. Its professional base includes global search unless a scoped approved waiver records why search is inapplicable; one Filter control; per-column filters from an accessible header menu opened by a visible header button/left-click, right-click, and Shift+F10 or the Context Menu key; compact removable filter chips plus Clear filters; compatible sort, hide, and reset actions; column visibility; pagination with a truthful count summary; and loading, empty, no-results, error, and long-content states. Base call sites expose no advanced-only UI and retain header sort/filter/hide/clear. A toolbar row of per-column filter buttons, an inaccessible hand-rolled table, bare primitive composition, or a second per-screen table implementation is a violation.",
+  },
+  {
+    ruleId: 'data_table.advanced_controls',
+    requirement:
+      "Advanced actions appear only when this rule applies and are activated through the selected implementation's explicit advanced configuration; when the rule is skipped, none leak into the base surface. The ordered grouping lane exposes removable/reorderable chips and + Level to a maximum of three; semantic aria-expanded groups and summaries use truthful leaf-record counts, never expanded DOM leaves. The accessible header menu adds compatible group/ungroup, pin/unpin, move, sizing and density actions. Versioned per-user view persistence covers search/filter/sort/grouping/visibility/order/width/pinning/density/page size, and Restore defaults survives reload. Optional header reorder uses a dedicated column-drag handle, insertion indicator, cancel/rollback and menu/keyboard fallback. A sticky header remains contained. Large/unknown data uses server-side sorting, filtering, and pagination with backend totals; virtualization is only for many already-loaded rows.",
+  },
+  {
+    ruleId: 'quality.error_recovery',
+    requirement:
+      'Fields with a known domain or normalizable format use their semantic component and canonical stored code, with masks/validation where appropriate. Submit buttons disable while submitting; async views have explicit loading, empty and recoverable error states.',
+  },
+  {
+    ruleId: 'quality.overflow_containment',
+    requirement:
+      'Every component owns its geometry: long content, menus, tables, boards and actions remain inside their card/container or an explicit internal scroller. No child, transform, overlay or toolbar widens the page or escapes its owning border.',
+  },
+  {
+    ruleId: 'quality.responsive_layout',
+    requirement:
+      'The changed surface remains usable on narrow/mobile, tablet and desktop layouts and at 200% zoom, with responsive actions and no page-level horizontal overflow.',
+  },
+  {
+    ruleId: 'shell.app_shell',
+    requirement:
+      'Routed application surfaces reuse the project-selected shared AppShell and PageHeader implementation; the shell owns sidebar/header/main geometry with min-width: 0 and screen pages do not recreate that chrome.',
+  },
+  {
+    ruleId: 'navigation.breadcrumb',
+    requirement:
+      'Nested routes expose the real parent hierarchy through the project-selected accessible Breadcrumb implementation. Tabs switch views and never substitute for route hierarchy.',
+  },
+  {
+    ruleId: 'theme.user_switcher',
+    requirement:
+      'System, light and dark appearance choices use semantic theme tokens, default to system, persist the user choice and keep content readable in every mode.',
+  },
+  {
+    ruleId: 'components.kanban',
+    requirement:
+      'Kanban uses the project-selected shared board implementation: one card root contains title, metadata, handle and actions; columns have stable minimum width, empty columns remain valid targets, and horizontal scrolling belongs to the board.',
+  },
+  {
+    ruleId: 'quality.drag_geometry',
+    requirement:
+      'Drag listeners live on an internal dedicated handle. A single measured overlay preserves the source bounding box and pointer pickup offset through scroll and zoom without teleporting or rotation; cancel/error restores the captured state.',
+  },
+  {
+    ruleId: 'quality.drag_alternative',
+    requirement:
+      'Every drag operation also exposes localized keyboard/single-pointer alternatives such as Move to…, Move up and Move down; dragging is never the only way to perform the action.',
+  },
 ];
 
-function checkPrompt(files) {
+function routeDepthFromBrief(prompt) {
+  const match = /^Route depth:\s*(\d+)\s*$/im.exec(String(prompt || ''));
+  return match ? Number(match[1]) : undefined;
+}
+
+/** Resolve applicability only. The reviewer still proves actual compliance. */
+export function uiGateRulePlan(contract, prompt = '') {
+  const routeDepth = routeDepthFromBrief(prompt);
+  return Object.keys(UI_RULES).map((ruleId) => resolveUiRuleApplicability(contract, ruleId, { routeDepth }));
+}
+
+const IMPLEMENTATION_SURFACES = Object.freeze(['app_shell', 'breadcrumb', 'theme', 'data_table', 'kanban']);
+
+function selectedImplementationLine(contract, surface) {
+  const selection = resolveUiImplementation(contract, surface);
+  if (selection.isCanonical) {
+    return `- ${surface}: canonical fallback preset ${selection.preset}`;
+  }
+  const target = selection.package || selection.path || '(project-defined)';
+  return `- ${surface}: ${selection.mode} ${target} — explicit project/user choice; do not replace it with the canonical fallback`;
+}
+
+function canonicalSpecificRequirements(contract, decisions) {
+  const requirements = [];
+  const table = resolveUiImplementation(contract, 'data_table');
+  if (decisions.get('components.data_table')?.applicable && table.isCanonical) {
+    requirements.push(
+      '[rule id: components.data_table] Canonical preset receipt: the shared DataTable uses the FIA canonical TanStack implementation. Base call sites omit advancedControls (default false).',
+    );
+  }
+  if (decisions.get('data_table.advanced_controls')?.applicable && table.isCanonical) {
+    requirements.push(
+      '[rule id: data_table.advanced_controls] Canonical preset receipt: applicable advanced call sites pass advancedControls={true}; no base-only call site passes it.',
+    );
+  }
+  return requirements;
+}
+
+function checkPrompt(files, rulePlan, contract) {
+  const decisions = new Map(rulePlan.map((result) => [result.ruleId, result]));
+  const applicable = UI_RUBRIC.filter((item) => decisions.get(item.ruleId)?.applicable);
+  const canonicalSpecific = canonicalSpecificRequirements(contract, decisions);
+  const applied = rulePlan.filter((result) => result.applicable);
+  const skipped = rulePlan.filter((result) => !result.applicable);
   return [
     'Audit ONLY the UI conformance of the frontend files listed below — the functional review happens elsewhere; do not re-review the task.',
-    'Read `ai-docs/ui/patterns.md` and `ai-docs/components/registry.md` first when they exist: patterns.md is the project\'s interaction-pattern contract and OVERRIDES the rubric defaults below. `.claude/skills/design-system/references/semantic-fields.md`, when the project ships it, is the catalog behind the semantic-field item. `.claude/skills/design-system/references/interaction.md` is the catalog behind the pointer / yellow-highlight / overlay-width / calendar-caption / table-chrome / showcase-isolation item.',
+    'Read validated `ai-docs/ui/contract.json`, `ai-docs/ui/patterns.md`, `ai-docs/components/registry.md`, `.claude/skills/design-system/references/interaction.md`, and `.claude/skills/design-system/references/semantic-fields.md` first when they exist. The UI contract owns applicability; the catalogs refine applicable interaction and semantic-field defaults but cannot waive quality invariants.',
     '',
     'Frontend files this run changed:',
     ...files.map((f) => `- ${f}`),
     '',
-    'Rubric — emit ONE finding per item ({requirement, met, evidence}, evidence citing file/line or the concrete gap):',
-    ...UI_RUBRIC.map((r, i) => `${i + 1}. ${r}`),
+    'Deterministic implementation selections (an explicit library/custom/project choice wins; the canonical preset is fallback only):',
+    ...IMPLEMENTATION_SURFACES.map((surface) => selectedImplementationLine(contract, surface)),
+    '',
+    'Deterministic contract decisions retained by this gate:',
+    ...applied.map((result) => `- ${result.label} ${result.ruleId} — ${result.status} (${result.reason})`),
+    ...skipped.map((result) => `- ${result.label} ${result.ruleId} — ${result.reason}`),
+    '',
+    'Applicable rubric — emit ONE finding per item ({requirement, met, evidence}, evidence citing file/line or the concrete gap). Keep the rule id in the requirement/evidence:',
+    ...applicable.map((item, i) => `${i + 1}. [rule id: ${item.ruleId}] ${item.requirement}`),
+    ...canonicalSpecific.map((item, i) => `${applicable.length + i + 1}. ${item}`),
     '',
     'Scope discipline: judge only what these files implement. Files with no user-facing form or flow (pure types, tests, config) satisfy every item — say so in the evidence. Never demand work beyond the rubric. Set approved=true ONLY when every applicable item is met; otherwise list exactly what must change in `blocking`.',
   ].join('\n');
@@ -57,7 +185,12 @@ function checkPrompt(files) {
  */
 export async function runUiGate(run, prompt) {
   const scope = await run.runPhase(
-    phaseParams('ui_scope', 'code', 'quality', 'Decide whether the run changed frontend files that need the UI-conformance audit'),
+    phaseParams(
+      'ui_scope',
+      'code',
+      'quality',
+      'Decide whether the run changed frontend files that need the UI-conformance audit',
+    ),
     async (ph) => {
       const surface = parseSurfaceLine(prompt);
       if (surface && !surface.includes('ui')) {
@@ -69,29 +202,58 @@ export async function runUiGate(run, prompt) {
         ph.log({ skipped: 'the run changed no frontend component files' });
         return { skip: true };
       }
-      ph.log({ ui_files: uiFiles.length });
-      return { skip: false, uiFiles };
+      const contract = loadUiContract(run.repoRoot, { required: true });
+      const kitReceipt = verifyUiKitReceipt(run.repoRoot, contract);
+      if (kitReceipt.required && !kitReceipt.ok) {
+        const codes = kitReceipt.errors.map((error) => error.code).join(', ');
+        throw new Error(`ui kit receipt incomplete: ${codes}`);
+      }
+      const rulePlan = uiGateRulePlan(contract, prompt);
+      for (const result of rulePlan.filter((item) => !item.applicable)) {
+        ph.log({ skipped_rule: `${result.label} ${result.ruleId} — ${result.reason}` });
+      }
+      ph.log({
+        ui_files: uiFiles.length,
+        contract_profile: contract.profile,
+        ui_kit_receipt: kitReceipt.outcome,
+      });
+      return { skip: false, uiFiles, rulePlan, contract, kitReceipt };
     },
   );
   if (scope.skip) return null;
 
   const check = await run.runPhase(
-    phaseParams('ui_check', 'agent', 'reviewer', 'Audit the changed frontend files against the UI-conformance rubric', { retries: 1 }),
-    async (ph) => ph.call({ outputType: 'ReviewOutput', prompt: checkPrompt(scope.uiFiles), gates: [verdictConsistent] }),
+    phaseParams('ui_check', 'agent', 'reviewer', 'Audit the changed frontend files against the UI-conformance rubric', {
+      retries: 1,
+    }),
+    async (ph) =>
+      ph.call({
+        outputType: 'ReviewOutput',
+        prompt: checkPrompt(scope.uiFiles, scope.rulePlan, scope.contract),
+        gates: [verdictConsistent],
+      }),
   );
   if (check.approved) return null;
 
   const problems = [
     ...(check.blocking || []),
-    ...(check.findings || []).filter((f) => !f.met).map((f) => `${f.requirement}${f.evidence ? ` — ${f.evidence}` : ''}`),
+    ...(check.findings || [])
+      .filter((f) => !f.met)
+      .map((f) => `${f.requirement}${f.evidence ? ` — ${f.evidence}` : ''}`),
   ];
   const fix = await run.runPhase(
-    phaseParams('fix_ui', 'agent', 'builder', 'Repair the UI-conformance violations found in the changed frontend files', { retries: 1 }),
+    phaseParams(
+      'fix_ui',
+      'agent',
+      'builder',
+      'Repair the UI-conformance violations found in the changed frontend files',
+      { retries: 1 },
+    ),
     async (ph) =>
       ph.call({
         outputType: 'BuildOutput',
         prompt: [
-          'The implementation works and the tests are green, but the frontend files this run changed violate the project\'s interaction patterns (`ai-docs/ui/patterns.md`; the audit below cites the defaults). Fix ONLY these violations — no scope expansion, no refactors beyond them:',
+          "The implementation works and the tests are green, but the frontend files this run changed violate the project's interaction patterns (`ai-docs/ui/patterns.md`; the audit below cites the defaults). Fix ONLY these violations — no scope expansion, no refactors beyond them:",
           ...problems.map((p) => `- ${p}`),
           '',
           'Declare every file you touch in `changed_files`.',
@@ -106,11 +268,18 @@ export async function runUiGate(run, prompt) {
     // rejecting envelope on --resume would make a failed gate a permanent
     // dead end (the engineer's hand-fix could never be seen); re-auditing
     // costs one reviewer call and keeps resume honest.
-    phaseParams('ui_verify', 'agent', 'reviewer', 'Re-audit the frontend files after the repair round', { retries: 1, replay: false }),
+    phaseParams('ui_verify', 'agent', 'reviewer', 'Re-audit the frontend files after the repair round', {
+      retries: 1,
+      replay: false,
+    }),
     async (ph) =>
       ph.call({
         outputType: 'ReviewOutput',
-        prompt: checkPrompt([...new Set([...scope.uiFiles, ...(fix.changed_files || []).filter((f) => FRONTEND_FILE.test(f))])]),
+        prompt: checkPrompt(
+          [...new Set([...scope.uiFiles, ...(fix.changed_files || []).filter((f) => FRONTEND_FILE.test(f))])],
+          scope.rulePlan,
+          scope.contract,
+        ),
         previous: fix,
         gates: [verdictConsistent],
       }),

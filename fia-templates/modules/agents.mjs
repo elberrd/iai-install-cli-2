@@ -13,6 +13,7 @@ import { extractJson, getOutputSchema } from './envelopes.mjs';
 import { gateReport } from './gates.mjs';
 
 const JSON_FIX_ATTEMPTS = 2;
+const PHASE_OVERRIDE_FIELDS = new Set(['thinking', 'effort']);
 
 export class GateFailure extends Error {}
 
@@ -68,6 +69,31 @@ export function resolve(cfg, name) {
   return agent;
 }
 
+/**
+ * Resolve an agent with phase_overrides applied. Entries in the agent's
+ * `phase_overrides` map are matched by exact name or trailing wildcard
+ * (e.g. `fix_*` matches `fix_1`, `fix_2`, `fix_checklist`). Matched
+ * fields (`thinking` or `effort`) are shallow-merged on top of the base
+ * agent — engine/model/permissions and the original object are never mutated.
+ */
+export function resolveForPhase(cfg, agentName, phaseName) {
+  const base = resolve(cfg, agentName);
+  const overrides = base.phase_overrides;
+  if (!overrides || typeof overrides !== 'object') return base;
+  let match = overrides[phaseName];
+  if (!match) {
+    for (const [pattern, value] of Object.entries(overrides)) {
+      if (pattern.endsWith('*') && phaseName.startsWith(pattern.slice(0, -1))) {
+        match = value;
+        break;
+      }
+    }
+  }
+  if (!match || typeof match !== 'object') return base;
+  const tuning = Object.fromEntries(Object.entries(match).filter(([key]) => PHASE_OVERRIDE_FIELDS.has(key)));
+  return { ...base, ...tuning };
+}
+
 export function validate(cfg, required) {
   const problems = [];
   // Remember which agents this FDA actually uses — engine fallback resolution
@@ -87,6 +113,28 @@ export function validate(cfg, required) {
           !fb.model.trim()
         ) {
           problems.push(`agent ${name}: fallbacks[${i}] needs coding_agent (pi|claude_code|cursor) and a model`);
+        }
+      }
+      if (agent.phase_overrides !== undefined) {
+        if (!agent.phase_overrides || typeof agent.phase_overrides !== 'object' || Array.isArray(agent.phase_overrides)) {
+          problems.push(`agent ${name}: phase_overrides must be a map of phase names to { thinking, effort }`);
+        } else {
+          for (const [pattern, override] of Object.entries(agent.phase_overrides)) {
+            if (!/^[A-Za-z0-9_-]+\*?$/.test(pattern)) {
+              problems.push(`agent ${name}: invalid phase_overrides pattern "${pattern}" (only a trailing * is supported)`);
+            }
+            if (!override || typeof override !== 'object' || Array.isArray(override)) {
+              problems.push(`agent ${name}: phase_overrides.${pattern} must be an object`);
+              continue;
+            }
+            const unsupported = Object.keys(override).filter((key) => !PHASE_OVERRIDE_FIELDS.has(key));
+            if (unsupported.length) {
+              problems.push(
+                `agent ${name}: phase_overrides.${pattern} has unsupported field(s): ${unsupported.join(', ')} ` +
+                  '(only thinking and effort may vary by phase)',
+              );
+            }
+          }
         }
       }
       for (const [label, ref] of [
@@ -390,11 +438,23 @@ function recordEngineFailure(run, phase, agent, agentDir, error) {
   return marker;
 }
 
+/**
+ * Trim a previous-phase envelope to the fields the next agent actually needs.
+ * Full envelopes can carry verbose plan text; the builder only consumes the
+ * summary, artifacts list, and notes — passing the rest inflates every turn.
+ */
+function trimEnvelope(envelope) {
+  if (!envelope) return null;
+  const { summary, artifacts, notes_for_next_agent, changed_files, status } = envelope;
+  return { status, summary, artifacts, changed_files, notes_for_next_agent };
+}
+
 export async function execute(run, phase, call) {
-  const agent = resolve(run.cfg, phase.params.owner);
+  const agent = resolveForPhase(run.cfg, phase.params.owner, phase.params.name);
+  const trimmed = trimEnvelope(call.previous);
   const variables = {
     prompt: call.prompt,
-    previous_envelope: call.previous ? JSON.stringify(call.previous, null, 2) : '(none)',
+    previous_envelope: trimmed ? JSON.stringify(trimmed, null, 2) : '(none)',
     context_handoff_dir: run.contextHandoffDir,
   };
   const systemText = prompts.render(agent.prompt_engineering.system, variables);
@@ -465,6 +525,17 @@ export async function execute(run, phase, call) {
       agent.model = next.model;
       if (next.effort !== undefined) agent.effort = next.effort;
       if (next.thinking !== undefined) agent.thinking = next.thinking;
+      // When phase_overrides produced a copy, the relay mutation above is
+      // local to that copy and lost after execute() returns. Propagate the
+      // switch back to the canonical config entry so future phases (which
+      // re-resolve from cfg.agents[]) inherit the substitution.
+      const base = (run.cfg.agents || []).find((a) => a.name === agent.name);
+      if (base && base !== agent) {
+        base.coding_agent = next.coding_agent;
+        base.model = next.model;
+        if (next.effort !== undefined) base.effort = next.effort;
+        if (next.thinking !== undefined) base.thinking = next.thinking;
+      }
       tried.add(engineKey(agent));
       run.console.engineRelay(agent.name, from, { coding_agent: agent.coding_agent, model: agent.model }, error.kind);
       try {
@@ -506,6 +577,8 @@ async function attemptPhase(run, phase, call, agent, agentDir, systemText, userT
   const rawOutputPath = join(agentDir, 'raw_output.jsonl');
   let spentTokens = 0;
   let spentCost = 0;
+  let spentInput = 0;
+  let spentOutput = 0;
   let spentCacheRead = 0;
   let spentCacheWrite = 0;
   // Set true the moment enforce STARTS on the happy path, so the error path
@@ -514,6 +587,21 @@ async function attemptPhase(run, phase, call, agent, agentDir, systemText, userT
 
   const doSend = async (promptText) => {
     const result = await send(run, phase, agent, promptText, systemText, { sessionId });
+    // Account for the call BEFORE classifying its exit. Engines can return
+    // real usage together with a non-zero code (limit, crash after generation,
+    // invalid resumed session). Dropping that spend makes both the session
+    // total and cost-report understate the exact failures relay is meant to
+    // make visible.
+    if (result.session_id) sessionId = result.session_id;
+    const tokens = result.tokens || 0;
+    const cost = result.cost || 0;
+    run.addUsage(tokens, cost);
+    spentTokens += tokens;
+    spentCost += cost;
+    spentInput += result.input_tokens || 0;
+    spentOutput += result.output_tokens || 0;
+    spentCacheRead += result.cache_read_tokens || 0;
+    spentCacheWrite += result.cache_write_tokens || 0;
     if (result.returncode === 127) {
       throw new EngineFailure(`${agent.name} (${agent.coding_agent}): ${result.text}`, {
         kind: 'missing',
@@ -538,12 +626,6 @@ async function attemptPhase(run, phase, call, agent, agentDir, systemText, userT
         },
       );
     }
-    if (result.session_id) sessionId = result.session_id;
-    run.addUsage(result.tokens, result.cost);
-    spentTokens += result.tokens;
-    spentCost += result.cost;
-    spentCacheRead += result.cache_read_tokens || 0;
-    spentCacheWrite += result.cache_write_tokens || 0;
     return result;
   };
 
@@ -614,6 +696,8 @@ async function attemptPhase(run, phase, call, agent, agentDir, systemText, userT
       // fallback on a future run) never re-attributes what this model spent.
       payload: {
         cost: spentCost,
+        input: spentInput,
+        output: spentOutput,
         cache_read: spentCacheRead,
         cache_write: spentCacheWrite,
         model: agent.model,
@@ -662,6 +746,8 @@ async function attemptPhase(run, phase, call, agent, agentDir, systemText, userT
           tokens: spentTokens,
           payload: {
             cost: spentCost,
+            input: spentInput,
+            output: spentOutput,
             cache_read: spentCacheRead,
             cache_write: spentCacheWrite,
             model: agent.model,

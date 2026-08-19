@@ -7,7 +7,8 @@ An FDA is one deterministic Node script: phases own sequencing, agents work insi
 1. Pick a starter to copy (never edit the starters in place):
    - single agent → `imp/fda_prompt.mjs`
    - read-only recon → `imp/fda_scout.mjs`
-   - multi-phase pipeline → `imp/fda_plan_build_test.mjs` or `imp/fda_sdlc.mjs`
+   - multi-phase pipeline → `imp/fda_plan_build_test.mjs`, `imp/fda_build_test.mjs` (no planner), or `imp/fda_sdlc.mjs`
+   - fast prototype (build + lint only, guarded by `Mode: prototype`) → `imp/fda_prototype.mjs`
 2. `cp imp/fda_plan.mjs imp/fda_<name>.mjs` and edit:
    - `validate(cfg, [...])` — declare every agent the FDA uses
    - phases via `run.runPhase(phaseParams(name, kind, owner, description), fn)`
