@@ -102,6 +102,11 @@ defaults:
     - imp/fda_*.mjs
     - imp/scripts/
     - imp/data/prompt_engineering/
+    # The two files that JUDGE the agent's work are also protected in code
+    # (imp/modules/permissions.mjs) — listing them here is documentation;
+    # removing these lines does not unprotect them:
+    - imp/data/floor.json # the regression floor (ratchet) — only code raises it, only a human commit lowers it
+    - imp/data/holdout/ # holdout probes — acceptance checks the builder never edits
   data_dir: imp/data
   permissions:
     # Changes that build tools make on their own during a phase (e.g. Next.js
@@ -118,7 +123,13 @@ observability:
 # stop — how a run is allowed to end. Every run closes with ONE named outcome:
 #   goal_met · verification_failed · attempt_cap · no_progress ·
 #   budget_exhausted · breadth_exceeded · blocked_by_gate · engine_exhausted ·
-#   aborted · failed        (only goal_met is success)
+#   stopped_by_request · aborted · failed        (only goal_met is success)
+# Besides these automatic limits there is a MANUAL stop button: `imp stop`
+# (or `npm run fda:stop`) arms imp/data/fia-stop — no new run starts and an
+# in-flight run stops cleanly before its next phase (outcome
+# stopped_by_request; resume later with --resume). It fails closed: a stop
+# file that exists but cannot be read still stops runs. `imp stop --clear`
+# disarms it.
 # The values below are the CODE defaults — this whole block is optional and a
 # missing/typo'd/negative key degrades to the default with a printed warning.
 # stop:

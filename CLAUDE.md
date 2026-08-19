@@ -24,8 +24,9 @@ keys or extra usage).
 - `pi-templates/` — the project `.pi/` (prompts, the `fia` skill + cookbooks,
   extensions).
 - `harness/`, `live1/`, `live2/` — the harness and the two live templates
-  (separate repos checked out here; the harness is the single source of truth
-  for skills/commands — templates never carry their own copies).
+  (separate repos checked out here). The harness is canonical for commands,
+  agents and harness-only skills; template-owned professional skill variants
+  may replace the harness copy in a generated project.
 - `test/` — `node:test` suite. `DOCS.md` — the deep documentation. Internal
   planning/design docs live in the private `impactus-internal-docs` repo —
   never add them back here (this repo is public).
@@ -46,10 +47,13 @@ npm run sync:commands # regenerates .cursor/commands from .claude + overlays
   Commit messages are Portuguese, matching the history.
 - Nothing about optional extras (skills, Impeccable, addons) may ever abort an
   install — degrade with a warning and print the manual command.
-- Skills topology: the canonical copy lives in `.agents/skills/<name>/`;
-  Claude Code symlinks it, Cursor and Pi read it directly. Never reintroduce
-  copies in `.pi/skills/` (Pi dedupes by realpath — a copy means a "Skill
-  conflicts" panel at every launch).
+- Runtime-installed and project-authored skill topology: the canonical copy
+  lives in `.agents/skills/<name>/`; Claude Code symlinks it, Cursor and Pi
+  read it directly. Never reintroduce copies in `.pi/skills/` (Pi dedupes by
+  realpath — a copy means a "Skill conflicts" panel at every launch). Bundled
+  harness skills use their source topology instead: `.claude/skills/` is
+  canonical, `.cursor/skills/` is generated, and `.agents/skills/` contains
+  discovery symlinks to the generated Cursor tree.
 - A new student-facing command must be registered everywhere it is listed
   (prompt file, `fia` SKILL.md routing, `finish.js` panels, README, DOCS).
 - Run `npm test` and `npm run lint` before committing. Commit/push only when

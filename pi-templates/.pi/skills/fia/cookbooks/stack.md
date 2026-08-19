@@ -30,6 +30,12 @@ config — never app code. Speak the engineer's language.
 - **IAI preference** (recommend whenever it fits): Next.js + **Convex**
   (backend + database, NO API layer) + **Clerk** (auth) + **Cloudflare R2**
   (files) + **Vercel** (publishing).
+- **The preference is not a mandate.** Vue/Nuxt/Svelte or another frontend is
+  selected only from an explicit user request or brownfield evidence, never by
+  inference. Preserve the exact choice in the manifest and research it like
+  every other technology. A non-Next frontend must use compatible explicit
+  per-surface library/custom selections in `/ui-contract`; never normalize it
+  to Next or materialize the Next/React `fia-universal` adapter.
 - **Convex ⇒ no API layer and no ORM.** It is database + backend + realtime in
   one piece; the frontend connects directly.
 - **Backend that is NOT Convex ⇒ three tied choices**: your own API with
@@ -118,16 +124,17 @@ Offer (confirm once, execute yourself) the official tooling of each newly
 decided tech **from its research ledger** (`ai-docs/research/<tech>.md`) —
 never from memory. The table below is a bootstrap HINT: when the research
 diverges from it, the ledger wins — report the divergence in Step 5 so the
-table gets updated. Skills install in **two invocations** — one call cannot
-cover all three engines:
+table gets updated. Skills install in **one invocation**. The canonical copy
+lands in `.agents/skills/`, Claude receives a compatibility symlink, and Pi
+reads `.agents/` directly:
 
 ```bash
-npx skills add <source> --skill <name> -y -a claude-code cursor   # .agents/skills/ (Cursor) + .claude/skills/ symlinks
-npx skills add <source> --skill <name> -y -a pi                   # .pi/skills/ copies — the FDA agents read this one
+npx skills add <source> --skill <name> -y -a claude-code cursor
 ```
 
-Never use a comma list (`-a a,b`) — it is rejected; and never pass all three
-agents in one call — `pi` is announced and then silently skipped.
+Never run a second Pi-specific installation or create a `.pi/skills/` copy: Pi would
+discover both realpaths and report a conflict. Never use a comma list
+(`-a a,b`) — it is rejected.
 
 | Tech | Skills | CLI | MCP (Claude Code) |
 |---|---|---|---|
@@ -143,7 +150,20 @@ agents in one call — `pi` is announced and then silently skipped.
 | Modal | none — create a project skill | `pip install modal` → `modal setup` | — |
 
 No official skill (per the ledger) → distill the doc you wrote into a
-project skill: `.pi/skills/<tech>/SKILL.md` AND `.claude/skills/<tech>/SKILL.md`.
+single canonical project skill at `.agents/skills/<tech>/SKILL.md`, then create
+`.claude/skills/<tech>` as a directory symlink to
+`../../.agents/skills/<tech>`. Never create `.cursor/skills/<tech>` or
+`.pi/skills/<tech>` copies.
+
+Before installing or writing that skill, inspect `.agents/skills/<tech>`,
+`.claude/skills/<tech>`, `.cursor/skills/<tech>`, and `.pi/skills/<tech>`,
+including each symlink target. The only valid steady state is one canonical
+directory in `.agents/` plus the exact Claude symlink above. If a legacy path
+is a real file/directory, the Claude symlink points elsewhere, or existing
+copies differ, preserve every version, report the differences, STOP, and ask
+which version is authoritative. Only after that explicit choice may you write
+the chosen rules once in `.agents/` and establish the Claude symlink. Never
+overwrite, delete, or silently merge a legacy skill.
 
 ## Step 5 — Close
 

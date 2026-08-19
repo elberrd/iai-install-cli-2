@@ -1,11 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { parseSurfaceLine } from '../fia-templates/modules/gates.mjs';
-import { FRONTEND_FILE, runUiGate } from '../fia-templates/modules/ui-gate.mjs';
+import { FRONTEND_FILE, runUiGate, uiGateRulePlan } from '../fia-templates/modules/ui-gate.mjs';
+import { expectedUiKitResolution } from '../fia-templates/modules/ui-kit-receipt.mjs';
+import {
+  defaultContract,
+  inspectUiImplementationMaterialization,
+  saveUiContract,
+} from '../fia-templates/scripts/ui-contract.mjs';
 
 // ── parseSurfaceLine ─────────────────────────────────────────────────────────
 
@@ -34,7 +41,93 @@ test('parseSurfaceLine: empty token list → null', () => {
 // ── runUiGate ────────────────────────────────────────────────────────────────
 
 /** A git repo whose only change vs the (empty) baseline is one .tsx file. */
-function uiFixture({ testExit = 0 } = {}) {
+function seedVerifiedUiKitReceipt(repo, contract) {
+  const expected = expectedUiKitResolution(contract);
+  if (!expected.required) return;
+  const pkgPath = join(repo, 'package.json');
+  const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+  const registryRows = [];
+  for (const alternate of expected.alternate) {
+    const entrypoint = join(repo, alternate.path);
+    mkdirSync(dirname(entrypoint), { recursive: true });
+    writeFileSync(entrypoint, `export const ${alternate.surface.replaceAll('_', '')}Fixture = true;\n`);
+    registryRows.push(
+      `| ${alternate.surface} | data | project | ${alternate.path} | — | — | installed | default | selected |`,
+    );
+    if (alternate.mode !== 'custom') {
+      const packageName = alternate.package.startsWith('@')
+        ? alternate.package.slice(1).includes('@')
+          ? alternate.package.slice(0, alternate.package.indexOf('@', 1))
+          : alternate.package
+        : alternate.package.replace(/@[^@]+$/, '');
+      pkg.dependencies = { ...(pkg.dependencies ?? {}), [packageName]: '^1.0.0' };
+    }
+  }
+  writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+  if (registryRows.length) {
+    const registryPath = join(repo, 'ai-docs', 'components', 'registry.md');
+    mkdirSync(dirname(registryPath), { recursive: true });
+    writeFileSync(
+      registryPath,
+      ['# Registry', '<!-- registry:start -->', ...registryRows, '<!-- registry:end -->', ''].join('\n'),
+    );
+  }
+  const installedPath = join(repo, 'components', 'canonical-ui-fixture.tsx');
+  mkdirSync(join(repo, 'components'), { recursive: true });
+  const contents = 'export const CanonicalUiFixture = true;\n';
+  writeFileSync(installedPath, contents);
+  const sha256 = createHash('sha256').update(contents).digest('hex');
+  const manifestDir = join(
+    repo,
+    '.claude',
+    'skills',
+    'design-system',
+    'assets',
+    'canonical-next-shadcn',
+  );
+  mkdirSync(manifestDir, { recursive: true });
+  writeFileSync(
+    join(manifestDir, 'manifest.json'),
+    JSON.stringify({
+      preset: 'fia-universal',
+      presetVersion: 1,
+      files: [
+        {
+          source: 'components/canonical-ui-fixture.tsx',
+          destination: 'components/canonical-ui-fixture.tsx',
+          surfaces: expected.canonical,
+          sha256,
+        },
+      ],
+    }),
+  );
+  const receiptDir = join(repo, 'ai-docs', 'ui');
+  mkdirSync(receiptDir, { recursive: true });
+  writeFileSync(
+    join(receiptDir, 'kit-receipt.json'),
+    JSON.stringify({
+      schemaVersion: 2,
+      target: '.',
+      preset: 'fia-universal',
+      presetVersion: 1,
+      sourceRoot: '.',
+      surfaces: expected.canonical,
+      skipped: expected.alternate,
+      alternateVerification: expected.alternate.map((selected) =>
+        inspectUiImplementationMaterialization(repo, selected),
+      ),
+      verificationStatus: 'verified',
+    }),
+  );
+}
+
+function uiFixture({
+  testExit = 0,
+  withContract = true,
+  withReceipt = true,
+  profile = 'enterprise-admin',
+  contract = null,
+} = {}) {
   const repo = mkdtempSync(join(tmpdir(), 'ui-gate-'));
   execFileSync('git', ['init', '-q'], { cwd: repo });
   writeFileSync(
@@ -43,6 +136,11 @@ function uiFixture({ testExit = 0 } = {}) {
   );
   mkdirSync(join(repo, 'app'), { recursive: true });
   writeFileSync(join(repo, 'app', 'Form.tsx'), 'export const Form = () => null;\n');
+  if (withContract) {
+    const selectedContract = contract || defaultContract(profile);
+    saveUiContract(repo, selectedContract);
+    if (withReceipt) seedVerifiedUiKitReceipt(repo, selectedContract);
+  }
   return repo;
 }
 
@@ -124,7 +222,7 @@ test('runUiGate: verify still rejecting → the gate throws before any retest', 
 });
 
 test('runUiGate: Surface without ui stands the gate down', async () => {
-  const repo = uiFixture();
+  const repo = uiFixture({ withContract: false });
   const run = fakeUiRun(repo, { onCall: () => assert.fail('no agent phase may run') });
   assert.equal(await runUiGate(run, 'Surface: api\n\nBackend-only task.'), null);
   assert.deepEqual(
@@ -133,13 +231,167 @@ test('runUiGate: Surface without ui stands the gate down', async () => {
   );
 });
 
+test('runUiGate: UI work fails closed when ai-docs/ui/contract.json is missing', async () => {
+  const repo = uiFixture({ withContract: false });
+  const run = fakeUiRun(repo, { onCall: () => assert.fail('no agent phase may run') });
+  await assert.rejects(() => runUiGate(run, UI_BRIEF), /UI contract not found/);
+});
+
+test('runUiGate: UI work fails closed before reviewer when the executable kit receipt is missing', async () => {
+  const repo = uiFixture({ withReceipt: false });
+  const run = fakeUiRun(repo, { onCall: () => assert.fail('no reviewer phase may run') });
+  await assert.rejects(() => runUiGate(run, UI_BRIEF), /ui kit receipt incomplete: receipt_missing/);
+  assert.deepEqual(
+    run.params.map((p) => p.name),
+    ['ui_scope'],
+  );
+});
+
+test('runUiGate: product capability skips are named in the reviewer prompt', async () => {
+  const repo = uiFixture({ profile: 'immersive-game' });
+  let auditPrompt = '';
+  const run = fakeUiRun(repo, {
+    onCall: (name, call) => {
+      if (name === 'ui_check') {
+        auditPrompt = call.prompt;
+        return { approved: true, findings: [] };
+      }
+      throw new Error(`unexpected agent phase ${name}`);
+    },
+  });
+  assert.equal(await runUiGate(run, UI_BRIEF), null);
+  assert.match(auditPrompt, /SKIP components\.data_table — profile_not_applicable/);
+  assert.doesNotMatch(auditPrompt, /Lists of records render through.*DataTable/);
+  assert.match(auditPrompt, /quality\.overflow_containment/);
+});
+
+test('runUiGate: a base-only DataTable does not activate the advanced table rubric', async () => {
+  const contract = defaultContract('operational-saas');
+  contract.capabilities.dataTables = true;
+  const repo = uiFixture({ contract });
+  let reviewerPrompt = '';
+  const run = fakeUiRun(repo, {
+    onCall: (name, call) => {
+      if (name === 'ui_check') {
+        reviewerPrompt = call.prompt;
+        return { approved: true, findings: [] };
+      }
+      throw new Error(`unexpected agent phase ${name}`);
+    },
+  });
+
+  assert.equal(await runUiGate(run, UI_BRIEF), null);
+  assert.match(reviewerPrompt, /selected shared table\/data-grid implementation/i);
+  assert.match(reviewerPrompt, /FIA canonical TanStack implementation/i);
+  assert.match(reviewerPrompt, /one Filter control/i);
+  assert.match(reviewerPrompt, /visible header button/i);
+  assert.match(reviewerPrompt, /left-click/i);
+  assert.match(reviewerPrompt, /right-click/i);
+  assert.match(reviewerPrompt, /Shift\+F10/i);
+  assert.match(reviewerPrompt, /compact removable filter chips/i);
+  assert.match(reviewerPrompt, /Clear filters/i);
+  assert.match(reviewerPrompt, /sort.*hide.*reset/i);
+  assert.match(reviewerPrompt, /advancedControls.*(?:omitted|default false)/i);
+  assert.match(reviewerPrompt, /no advanced-only/i);
+  assert.match(reviewerPrompt, /SKIP data_table\.advanced_controls/);
+  assert.doesNotMatch(
+    reviewerPrompt,
+    /ordered grouping lane|dedicated column-drag handle|pinning|versioned per-user|Restore defaults|sticky header|server-side sorting|virtualization/i,
+  );
+});
+
+test('runUiGate: advanced DataTable rubric requires truthful grouped counts and durable restore', async () => {
+  const repo = uiFixture({ profile: 'enterprise-admin' });
+  let reviewerPrompt = '';
+  const run = fakeUiRun(repo, {
+    onCall: (name, call) => {
+      if (name === 'ui_check') {
+        reviewerPrompt = call.prompt;
+        return { approved: true, findings: [] };
+      }
+      throw new Error(`unexpected agent phase ${name}`);
+    },
+  });
+
+  assert.equal(await runUiGate(run, UI_BRIEF), null);
+  assert.match(reviewerPrompt, /APPLY data_table\.advanced_controls/);
+  assert.match(reviewerPrompt, /advancedControls=\{true\}/i);
+  assert.match(reviewerPrompt, /ordered grouping lane/i);
+  assert.match(reviewerPrompt, /leaf-record counts.*never expanded DOM leaves/i);
+  assert.match(reviewerPrompt, /Restore defaults survives reload/i);
+  assert.match(reviewerPrompt, /server-side sorting, filtering, and pagination/i);
+});
+
+test('runUiGate: an explicit table library keeps the universal behavior contract without canonical APIs', async () => {
+  const contract = defaultContract('enterprise-admin');
+  contract.implementation.surfaces.data_table = {
+    mode: 'specified-library',
+    package: '@mui/x-data-grid-premium',
+    path: 'components/data-table/mui-grid.tsx',
+    reason: 'user_explicit_specified_library',
+  };
+  const repo = uiFixture({ contract });
+  let reviewerPrompt = '';
+  const run = fakeUiRun(repo, {
+    onCall: (name, call) => {
+      if (name === 'ui_check') {
+        reviewerPrompt = call.prompt;
+        return { approved: true, findings: [] };
+      }
+      throw new Error(`unexpected agent phase ${name}`);
+    },
+  });
+
+  assert.equal(await runUiGate(run, UI_BRIEF), null);
+  assert.match(reviewerPrompt, /data_table: specified-library @mui\/x-data-grid-premium/);
+  assert.match(reviewerPrompt, /explicit project\/user choice; do not replace it/i);
+  assert.match(reviewerPrompt, /semantic accessible table or grid/i);
+  assert.match(reviewerPrompt, /selected implementation's explicit advanced configuration/i);
+  assert.doesNotMatch(reviewerPrompt, /FIA canonical TanStack|advancedControls=\{true\}/i);
+});
+
+test('uiGateRulePlan separates applicability from a future compliance verdict', () => {
+  const plan = uiGateRulePlan(defaultContract('enterprise-admin'), 'Route depth: 1');
+  assert.deepEqual(
+    plan.find((item) => item.ruleId === 'components.data_table'),
+    {
+      ruleId: 'components.data_table',
+      status: 'required',
+      reason: 'data_dense_workflow',
+      applicable: true,
+      label: 'APPLY',
+    },
+  );
+  assert.deepEqual(
+    plan.find((item) => item.ruleId === 'components.kanban'),
+    {
+      ruleId: 'components.kanban',
+      status: 'optional',
+      reason: 'feature_not_requested',
+      applicable: false,
+      label: 'SKIP',
+    },
+  );
+  assert.ok(plan.every((item) => !('outcome' in item)));
+});
+
 // ── FRONTEND_FILE ────────────────────────────────────────────────────────────
 
-test('FRONTEND_FILE: component files arm the gate, everything else does not', () => {
-  for (const f of ['app/pacientes/page.tsx', 'src/Form.jsx', 'src/App.vue', 'lib/Card.svelte', 'UPPER.TSX']) {
+test('FRONTEND_FILE: components and presentation styles arm the gate', () => {
+  for (const f of [
+    'app/pacientes/page.tsx',
+    'src/Form.jsx',
+    'src/App.vue',
+    'lib/Card.svelte',
+    'UPPER.TSX',
+    'app/globals.css',
+    'styles/card.module.scss',
+    'src/theme.sass',
+    'src/layout.less',
+  ]) {
     assert.ok(FRONTEND_FILE.test(f), `${f} should count as frontend`);
   }
-  for (const f of ['convex/schema.ts', 'app/api/route.ts', 'styles.css', 'page.tsx.bak', 'notes.md', 'x.test.ts']) {
+  for (const f of ['convex/schema.ts', 'app/api/route.ts', 'page.tsx.bak', 'notes.md', 'x.test.ts']) {
     assert.ok(!FRONTEND_FILE.test(f), `${f} should NOT count as frontend`);
   }
 });

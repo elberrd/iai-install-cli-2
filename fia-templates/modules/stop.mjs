@@ -11,6 +11,8 @@
  * here and an absent block must behave exactly like the defaults.
  */
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { treeFingerprints } from './git-helper.mjs';
 
 export const STOP_DEFAULTS = Object.freeze({
@@ -64,6 +66,65 @@ export class StopCondition extends Error {
     this.name = 'StopCondition';
     this.outcome = outcome;
   }
+}
+
+/** The manual stop button: `imp stop` writes this file, `imp stop --clear` removes it. */
+export const MANUAL_STOP_FILE = 'fia-stop';
+
+export function manualStopPath(dataDir) {
+  return join(dataDir || 'imp/data', MANUAL_STOP_FILE);
+}
+
+/** One candidate location → { stopped, path, reason }. */
+function readStopFile(path) {
+  let raw = null;
+  try {
+    raw = readFileSync(path, 'utf8');
+  } catch (err) {
+    if (err?.code === 'ENOENT') return { stopped: false, path };
+    return {
+      stopped: true,
+      path,
+      reason: `the stop file exists but could not be read (${err?.code || 'error'}) — failing closed`,
+    };
+  }
+  let reason = '';
+  try {
+    const parsed = JSON.parse(raw);
+    reason = String(parsed?.reason || '').trim();
+  } catch {
+    reason = String(raw || '').trim().slice(0, 200); // a hand-written `touch`+echo still counts
+  }
+  return { stopped: true, path, reason };
+}
+
+/**
+ * Has a human armed the stop button? FAIL CLOSED: only a clean "the file does
+ * not exist" (ENOENT) means "keep running" — a stop file that EXISTS but cannot
+ * be read (permissions, a directory in its place, I/O error) still stops the
+ * run. The obvious polarity ("run unless a readable stop request is found")
+ * would make the button work only while the filesystem does.
+ *
+ * With `repoRoot` the CANONICAL `imp/data/fia-stop` is checked as well as the
+ * configured `data_dir`. That is what lets `imp stop` stay a dependency-free
+ * script: it always writes the canonical path, so a project that moved
+ * `defaults.data_dir` cannot end up with a button that reports ARMED while the
+ * runner reads a different file and keeps going — a stop button that fails
+ * OPEN is worse than none.
+ */
+export function manualStopState(dataDir, repoRoot = null) {
+  const paths = [manualStopPath(dataDir)];
+  if (repoRoot) {
+    const canonical = manualStopPath(join(repoRoot, 'imp', 'data'));
+    if (!paths.includes(canonical)) paths.push(canonical);
+  }
+  let last = null;
+  for (const path of paths) {
+    const state = readStopFile(path);
+    if (state.stopped) return state;
+    last = state;
+  }
+  return last;
 }
 
 /** De-duplicated, sorted, stringified — the order-insensitive half of a signature. */

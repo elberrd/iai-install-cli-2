@@ -258,6 +258,9 @@ test('inbox: unchecked items counted, missing file → available:false', () => {
 test('readPlanOverview: carries milestones/specs/inbox and indexes the new docs', () => {
   const root = mkdtempSync(join(tmpdir(), 'plan-ov-'));
   const dir = seedAiDocs(root);
+  mkdirSync(join(dir, 'investigations'), { recursive: true });
+  writeFileSync(join(dir, 'architecture.md'), '# Architecture\n');
+  writeFileSync(join(dir, 'investigations/01-bug-login.md'), '# Investigation\n');
   const o = readPlanOverview(dir, root);
   // Milestone refs resolved against the task index parsed by readPlanTasks.
   assert.equal(o.milestones.available, true);
@@ -270,6 +273,8 @@ test('readPlanOverview: carries milestones/specs/inbox and indexes the new docs'
   const paths = listPlanDocs(dir).map((f) => f.path);
   assert.ok(paths.includes('milestones.md'));
   assert.ok(paths.includes('inbox.md'));
+  assert.ok(paths.includes('architecture.md'));
+  assert.ok(paths.includes('investigations/01-bug-login.md'));
   assert.ok(paths.includes('specs/0001-task-crud.md'));
 });
 

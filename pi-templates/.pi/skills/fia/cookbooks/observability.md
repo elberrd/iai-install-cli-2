@@ -62,6 +62,7 @@ the run says honestly how it ended:
 | `breadth_exceeded` | the run touched more files than `stop.breadth_ceiling` |
 | `blocked_by_gate` | a gate or the permission allowlist refused (spec coverage, C8 checklist, UI conformance, a write outside `writes:`) |
 | `engine_exhausted` | every engine in the fallback chain died |
+| `stopped_by_request` | the manual stop button (`imp stop`) was armed — the run stopped cleanly before its next phase; nothing is lost, and `--resume` continues it after `imp stop --clear` |
 | `aborted` | Ctrl+C / SIGTERM — no longer an eternal `running` orphan |
 | `failed` | an unclassified throw |
 
@@ -151,3 +152,23 @@ FROM gate_results WHERE passed = 0 GROUP BY gate ORDER BY failures DESC;
 ```
 
 Or use the helper: `node imp/scripts/fia-query.mjs sessions`.
+
+## Do the gates still work? (`npm run gates:probe`)
+
+Everything above observes what the gates DECIDED. This one measures the gates
+themselves: it injects deliberate defects — an unchecked brief box, a
+rubber-stamp `— N/A`, a ghost artifact, a lowered regression floor, an
+approved verdict with blockers — against throwaway fixtures in the OS temp
+directory, and asserts each gate goes RED. Clean "control" probes must pass
+too, so a gate that simply always fails cannot satisfy the self-test. The
+project tree is never touched.
+
+```bash
+npm run gates:probe          # human report; also `imp doctor --gates`
+npm run gates:probe -- --json
+```
+
+A green run prints `GATE_PROBES total=N caught=R/R controls=C/C`. A **MISSED**
+probe means a class of defect can currently merge through this project's
+gates unseen — the runtime under `imp/modules/` has drifted, and the repair is
+`npx impactus --update-runtime`. Never delete a probe to go green.

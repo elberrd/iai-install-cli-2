@@ -7,6 +7,9 @@ import { artifactsExist, filesNonEmpty, parseSpecLine, checkSpecCoverage, checkS
 import { resolveBriefPath, runChecklistGate } from './modules/checklist.mjs';
 import { runUiGate } from './modules/ui-gate.mjs';
 import { runTestsForBrief, asEnvelope } from './modules/quality.mjs';
+import { floorPath } from './modules/floor.mjs';
+import { runHoldoutGate } from './modules/holdout.mjs';
+import { runSpecDeliveryClose } from './modules/spec-lifecycle.mjs';
 import { OUTCOMES } from './modules/outcome.mjs';
 import { changedContentSignature, createRepairTracker } from './modules/stop.mjs';
 import * as git from './modules/git-helper.mjs';
@@ -162,6 +165,15 @@ await runFda(
       // it (see modules/ui-gate.mjs).
       await runUiGate(run, prompt);
 
+      // Holdout probes: acceptance checks written with the brief, stored where
+      // agents cannot write, run with NO repair round (modules/holdout.mjs).
+      // Skips itself when imp/data/holdout/ carries no probes.
+      await runHoldoutGate(run);
+
+      // Planning close-out is code, not agent memory: the last successful
+      // task linked to a spec stamps its Delivery Gate and Status: done.
+      const specClose = await runSpecDeliveryClose(run, prompt, briefPath);
+
       await run.runPhase(
         phaseParams('commit', 'code', 'git', 'Commit only after the test suite passed'),
         async (ph) => {
@@ -174,6 +186,11 @@ await runFda(
               ...(previous.changed_files || []),
               ...(previous.artifacts || []),
               ...builderDeclaredFiles(run),
+              ...(specClose.changed_files || []),
+              // The regression floor rises on a green suite (modules/floor.mjs)
+              // and rides the SAME commit as the work that raised it — unchanged
+              // or pre-run-dirty it is filtered out by commitPaths' baseline.
+              floorPath(run.cfg?.defaults?.data_dir),
               // A foundation run scaffolds far more files than any envelope can
               // enumerate — widen to everything the RUN itself changed. The
               // baseline diff keeps the engineer's pre-run WIP out either way.

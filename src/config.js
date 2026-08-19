@@ -124,6 +124,8 @@ export const FIA = {
     'imp/node_modules/',
     'imp/data/sessions/',
     'imp/data/telemetry/',
+    // The manual stop button (imp stop) — transient local state, never history.
+    'imp/data/fia-stop',
     'imp/data/fia.db',
     'imp/data/fia.db-wal',
     'imp/data/fia.db-shm',
@@ -160,6 +162,7 @@ export const FIA = {
     'fda:sessions': 'node imp/scripts/fia-query.mjs sessions',
     'fda:phases': 'node imp/scripts/fia-query.mjs phases',
     'fda:tail': 'node imp/scripts/fia-query.mjs tail',
+    'fda:cost-report': 'node imp/scripts/fia-query.mjs cost-report',
     'fda:viewer': 'node imp/scripts/fia-viewer.mjs',
     // "Plan" tab of the viewer: everything /map created (screens, tasks, design system).
     plan: 'node imp/scripts/fia-viewer.mjs --view plan',
@@ -169,6 +172,9 @@ export const FIA = {
     'launch:check': 'node imp/scripts/fia-launch-check.mjs',
     // Dev-env preflight (read-only): the keys the declared stack needs in .env.local.
     'env:check': 'node imp/scripts/env-preflight.mjs',
+    // Contract-aware canonical component materialization. The command points
+    // at the harness-owned runner, so the same path also works without FIA.
+    'ui:kit': 'node .agents/scripts/ui-kit.mjs',
     // Repo-wiki freshness (read-only, zero tokens): which ai-docs/wiki/ pages
     // describe sources that have changed since the page was stamped.
     'wiki:check': 'node imp/scripts/wiki-check.mjs',
@@ -187,6 +193,14 @@ export const FIA = {
     'fda:verdict': 'node imp/scripts/verdict.mjs',
     // Single-run lock probe (read-only): is an FDA active in this repo right now?
     'fda:status': 'node imp/scripts/fda-lock.mjs status',
+    // The stop button: arm (default), --status, --clear. Fails closed — an
+    // unreadable stop file still stops runs. Same as `imp stop`.
+    'fda:stop': 'node imp/scripts/fia-stop.mjs',
+    // Gate self-test: inject deliberate defects against throwaway fixtures and
+    // assert every gate goes RED (plus clean controls). Measures the harness.
+    'gates:probe': 'node imp/scripts/gate-probes.mjs',
+    // Holdout probes (imp/data/holdout/): acceptance checks agents never edit.
+    holdout: 'node imp/scripts/holdout.mjs',
     // Pathspec-limited commit of ai-docs/ artifacts (docs only, refuses mid-FDA).
     'docs:commit': 'node imp/scripts/docs-commit.mjs',
     // Continue the newest interactive Pi conversation in the `claude` CLI
@@ -365,16 +379,12 @@ export const ADDON_GROUPS = [
 ];
 
 // Every selectable addon id (derived from the groups above).
-export const ALL_ADDON_IDS = ADDON_GROUPS.flatMap((g) =>
-  g.options.map((o) => o.value).filter((v) => v !== 'none'),
-);
+export const ALL_ADDON_IDS = ADDON_GROUPS.flatMap((g) => g.options.map((o) => o.value).filter((v) => v !== 'none'));
 
 // `--preset` shortcuts. `padrao` mirrors the recommended set.
 export const ADDON_PRESETS = {
   minimo: [],
-  padrao: ADDON_GROUPS.flatMap((g) =>
-    g.options.filter((o) => o.recommended && o.value !== 'none').map((o) => o.value),
-  ),
+  padrao: ADDON_GROUPS.flatMap((g) => g.options.filter((o) => o.recommended && o.value !== 'none').map((o) => o.value)),
   saas: [
     'commitlint',
     'knip',
@@ -400,14 +410,17 @@ Object.defineProperty(ADDON_PRESETS, 'completo', { value: ADDON_PRESETS.saas, en
 // an external account/key to fully activate (everything degrades gracefully
 // until then).
 export const ADDON_NOTES = {
-  sentry: 'Sentry: create the project at sentry.io and fill NEXT_PUBLIC_SENTRY_DSN in .env.local. Local dev: npm run dev:spotlight (http://localhost:8969).',
+  sentry:
+    'Sentry: create the project at sentry.io and fill NEXT_PUBLIC_SENTRY_DSN in .env.local. Local dev: npm run dev:spotlight (http://localhost:8969).',
   posthog: 'PostHog: create the project at posthog.com and fill NEXT_PUBLIC_POSTHOG_KEY in .env.local.',
   resend:
     'Resend: npx convex env set RESEND_API_KEY re_...  (test mode active until RESEND_TEST_MODE=false). For production, verify a domain and also set EMAIL_FROM ("Name <noreply@your-domain.com>") on Convex. Keys: https://resend.com/api-keys',
-  stripe: 'Stripe: set STRIPE_SECRET_KEY, STRIPE_PRICE_ID, STRIPE_WEBHOOK_SECRET, and SITE_URL on Convex (npx convex env set ...) and point the webhook to <deployment>.convex.site/stripe-webhook. Keys: https://dashboard.stripe.com/apikeys',
+  stripe:
+    'Stripe: set STRIPE_SECRET_KEY, STRIPE_PRICE_ID, STRIPE_WEBHOOK_SECRET, and SITE_URL on Convex (npx convex env set ...) and point the webhook to <deployment>.convex.site/stripe-webhook. Keys: https://dashboard.stripe.com/apikeys',
   asaas:
     'Asaas: set ASAAS_API_KEY, ASAAS_VALUE, ASAAS_WEBHOOK_TOKEN, and ASAAS_ENV (production to hit the real API; without it the sandbox is used) on Convex (npx convex env set ...) and create the webhook pointing to <deployment>.convex.site/asaas-webhook. Sandbox: https://sandbox.asaas.com · API key: Minha Conta → Integrações → API.',
-  'clerk-billing': 'Clerk Billing: enable Billing in the Clerk dashboard and create the plans — the /dashboard/billing page already renders the PricingTable.',
+  'clerk-billing':
+    'Clerk Billing: enable Billing in the Clerk dashboard and create the plans — the /dashboard/billing page already renders the PricingTable.',
 };
 
 // ── Per-addon tooling: official skills + official CLI ────────────────────────
@@ -438,7 +451,11 @@ export const ADDON_TOOLING = {
     cli: {
       bin: 'sentry-cli',
       name: 'Sentry CLI',
-      install: { npm: '@sentry/cli', brew: 'getsentry/tools/sentry-cli', docsUrl: 'https://docs.sentry.io/cli/installation/' },
+      install: {
+        npm: '@sentry/cli',
+        brew: 'getsentry/tools/sentry-cli',
+        docsUrl: 'https://docs.sentry.io/cli/installation/',
+      },
       loginArgs: ['login'],
       loginHint: 'opens the browser to create the auth token',
       dashboardUrl: 'https://sentry.io/settings/auth-tokens/',

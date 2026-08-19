@@ -11,4 +11,4 @@ You are the FIA roster entry for the **task-sequencer** harness agent.
 
 **Canonical prompt:** read and follow `.claude/agents/task-sequencer.md` in full. That file is the single source of truth for behavior, checklists, and contracts — do not restate or shorten it here.
 
-Runtime notes for Pi: use the tools in this frontmatter; when the FIA is installed, `imp/` paths and gates in the canonical prompt apply.
+Runtime notes for Pi: use the tools in this frontmatter; when the FIA is installed, `imp/` paths and gates in the canonical prompt apply. If the selected issue carries an exact `Mode: prototype` line, copy it verbatim into the brief as top-level metadata (beside `Spec:`/`Kind:`/`Surface:`); otherwise emit no `Mode:` line. The orchestrator uses that marker to select the guarded prototype FDA.

@@ -2,6 +2,7 @@
 import Database from 'better-sqlite3';
 import { readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { costReportRows, parseCostReportId } from './cost-report.mjs';
 
 const dbPath = process.env.FIA_DB || 'imp/data/fia.db';
 // --json → machine-readable output (Pi and scripts consume it; no formatting).
@@ -68,6 +69,34 @@ if (cmd === 'sessions') {
     });
   }
   emit(rows);
+} else if (cmd === 'cost-report') {
+  let fdaFilter;
+  try {
+    if (positional.length > 2) throw new Error('Usage: node imp/scripts/fia-query.mjs cost-report [fda_id]');
+    fdaFilter = parseCostReportId(arg);
+  } catch (error) {
+    console.error(error.message);
+    process.exit(1);
+  }
+  const sql = `SELECT
+         e.fda_id,
+         e.phase_id,
+         p.name AS phase,
+         e.name AS agent,
+         e.tokens AS total,
+         e.payload_json
+       FROM events e
+       LEFT JOIN phases p ON p.phase_id = e.phase_id
+       WHERE e.type IN ('agent_end', 'agent_spend')
+         ${fdaFilter ? 'AND e.fda_id = ?' : ''}
+       ORDER BY e.started_at DESC
+       LIMIT 100`;
+  const rawRows = fdaFilter ? db.prepare(sql).all(fdaFilter) : db.prepare(sql).all();
+  if (!rawRows.length) {
+    console.error(fdaFilter ? `No agent events for ${fdaFilter}.` : 'No agent events recorded yet.');
+    process.exit(1);
+  }
+  emit(costReportRows(rawRows));
 } else if (cmd === 'tail') {
   if (!arg || !SAFE_ID.test(arg)) {
     console.error('Usage: node imp/scripts/fia-query.mjs tail <fda_id>  (letters, digits, - and _ only)');
@@ -82,6 +111,8 @@ if (cmd === 'sessions') {
   const lines = readFileSync(path, 'utf8').trim().split('\n').slice(-20);
   for (const line of lines) console.log(line);
 } else {
-  console.error('Commands: sessions [--json] | phases <fda_id> [--json] | models [--json] | tail <fda_id>');
+  console.error(
+    'Commands: sessions [--json] | phases <fda_id> [--json] | models [--json] | cost-report [fda_id] [--json] | tail <fda_id>',
+  );
   process.exit(1);
 }

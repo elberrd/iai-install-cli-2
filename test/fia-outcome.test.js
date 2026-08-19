@@ -57,6 +57,7 @@ test('outcomes: the vocabulary is frozen, complete and listed in a stable order'
     'breadth_exceeded',
     'blocked_by_gate',
     'engine_exhausted',
+    'stopped_by_request',
     'aborted',
     'failed',
   ]);

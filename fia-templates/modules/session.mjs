@@ -1,10 +1,11 @@
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { readFileSync, writeFileSync, rmSync, mkdirSync, linkSync, renameSync } from 'node:fs';
 import { Tracer } from './tracer.mjs';
 import { Run } from './runner.mjs';
 import { engineerName, newId, nowIso } from './utils.mjs';
 import { resolveEngines } from './engines.mjs';
 import { clearRunVerdict, readEngineErrors, readRunVerdict, relayModeOf, shouldArmFallback } from './continuation.mjs';
+import { manualStopState } from './stop.mjs';
 
 function pidAlive(pid) {
   try {
@@ -116,6 +117,22 @@ export function acquireLock(dataDir, fdaId) {
 export function ensure(cfg, fdaId = null, { resume = false } = {}) {
   if (resume && !fdaId) throw new Error('resume requires the fda_id of the failed run');
   const dataDir = cfg.defaults?.data_dir || 'imp/data';
+
+  // The manual stop button is checked before ANYTHING else is read or written
+  // (same rule as an in-flight run: stop.mjs fails closed on an unreadable
+  // file). Starting a run past an armed stop would defeat the button's whole
+  // point — being reachable from outside the run's own terminal.
+  // `ensure()` runs before any Run exists; the FDA contract is that the
+  // process cwd IS the repo root (Run sets repoRoot = process.cwd()), so it
+  // doubles as the canonical-path anchor here.
+  const manual = manualStopState(resolve(process.cwd(), dataDir), process.cwd());
+  if (manual.stopped) {
+    throw new Error(
+      `a manual stop is armed for this repository (${manual.path})${manual.reason ? ` — ${manual.reason}` : ''}.\n` +
+        'No FDA run starts while it is in place. Disarm it first:\n' +
+        '  imp stop --clear      (or: npm run fda:stop -- --clear)',
+    );
+  }
 
   // Engine resolution happens before anything is traced: agents whose engine
   // is hard-unavailable fall back down their declared chain; an agent this

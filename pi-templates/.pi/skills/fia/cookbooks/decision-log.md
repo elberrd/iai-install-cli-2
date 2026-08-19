@@ -26,6 +26,24 @@ same command is marked `superseded` automatically).
    it in passing instead** ("last time you decided X — still true?").
    `open` prints the file path; use it (or its `NNN` id) in the calls below.
 
+   **Ask-once, enforced by lookup.** Before asking any question that another
+   command may already have settled (database? auth? deploy target? brand
+   color?), check across ALL logs:
+
+   ```
+   node imp/scripts/decision-log.mjs find --q "<2-4 distinctive words, in the order they would appear>" --json
+   ```
+
+   The match is a substring of the RECORDED question, so pass KEY WORDS, never
+   the whole sentence you were about to ask (a longer query never matches a
+   shorter entry). Try two or three wordings — `auth`, `auth provider`,
+   `database` — before concluding nothing was decided.
+
+   A hit means the question was answered — reference it ("decided in
+   `<file> #<n>`: <answer>") and move on; re-asking a decided question is how
+   an honest interview starves the work downstream. No hit after a couple of
+   wordings → ask it.
+
 2. **After EACH answered question** — immediately, never batched at the end:
 
    ```
@@ -52,6 +70,16 @@ same command is marked `superseded` automatically).
    requires `--rec` and refuses a simultaneous `--a`. Never use it for a
    question the user actually answered, and never invent an acceptance — offer,
    then wait.
+
+   **Product vs judgement (`--kind product|judgement`).** Tag decisions that
+   set a VALUE. A *product* value — a default, a name, a layout, a library
+   pick — you may, when the interview did not need to stop for it, choose
+   yourself and record with `--self --kind product` (the entry says "chosen by
+   the agent"; the work never blocks on it). A *judgement* value — a floor, a
+   lock, an attempt cap, a gate threshold, anything the harness uses to JUDGE
+   agent work — is **never yours to choose**: choosing one is tuning the
+   judge. Ask the student and record their answer with `--kind judgement`;
+   the script refuses `--self` on it in code.
 
 3. **At the wrap-up** — after writing the artifacts (PRD, spec, manifest…):
 

@@ -12,6 +12,7 @@ import {
   preflightFailMessage,
   qaArtifactDir,
   resolveQaScope,
+  routesForQaScope,
   scopeNeedsUi,
   writeQaReport,
 } from './modules/qa-gate.mjs';
@@ -20,13 +21,8 @@ import {
   preflightPlaywright,
   runPlaywrightE2e,
 } from './modules/qa-playwright.mjs';
-import { readPlanScreens } from './scripts/plan-docs.mjs';
-
-function loadRoutes(repoRoot) {
-  const aiDocs = join(repoRoot, process.env.FIA_AI_DOCS || 'ai-docs');
-  const screens = readPlanScreens(aiDocs);
-  return (screens.screens || []).map((s) => s.route).filter(Boolean);
-}
+import { loadUiContract } from './scripts/ui-contract.mjs';
+import { verifyUiKitReceipt } from './modules/ui-kit-receipt.mjs';
 
 function credentialsHint(repoRoot) {
   const path = join(repoRoot, 'ai-docs', 'test-credentials.md');
@@ -60,7 +56,23 @@ await runFda(
           ph.log({ skipped: 'scope has no user-facing UI to exercise in a browser' });
           return { scope, skip: true, skipReason: 'API-only or non-UI scope — browser QA does not apply' };
         }
-        return { scope, skip: false, routes: loadRoutes(run.repoRoot) };
+        const routes = routesForQaScope(scope, run.repoRoot);
+        const contract = loadUiContract(run.repoRoot, { required: true });
+        const kitReceipt = verifyUiKitReceipt(run.repoRoot, contract);
+        if (kitReceipt.required && !kitReceipt.ok) {
+          throw new Error(
+            `ui kit receipt incomplete before browser QA: ${kitReceipt.errors
+              .map((error) => error.code)
+              .join(', ')}`,
+          );
+        }
+        return {
+          scope: { ...scope, routes },
+          skip: false,
+          routes,
+          contract,
+          kitReceipt,
+        };
       },
     );
 
@@ -109,6 +121,7 @@ await runFda(
           prompt: authorPrompt(resolved.scope, {
             routes: resolved.routes,
             credentialsHint: credentialsHint(run.repoRoot),
+            contract: resolved.contract,
           }),
           gates: [artifactsExist],
         }),
@@ -147,6 +160,8 @@ await runFda(
           prompt: auditPrompt(resolved.scope, {
             artifactDir: artifactRelDir,
             e2eSummary: auditSummary,
+            routes: resolved.routes,
+            contract: resolved.contract,
           }),
           gates: [verdictConsistent],
         }),
@@ -160,6 +175,9 @@ await runFda(
       artifactDir: artifactRelDir,
       fdaId: run.fdaId,
       notes: audit.summary || '',
+      routes: resolved.routes,
+      contract: resolved.contract,
+      kitReceipt: resolved.kitReceipt,
     });
 
     const reportPath = await run.runPhase(

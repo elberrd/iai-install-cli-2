@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildClaudeArgs } from '../fia-templates/modules/agent-claude.mjs';
+import { buildClaudeArgs, claudeUsageOf } from '../fia-templates/modules/agent-claude.mjs';
 
 test('buildClaudeArgs: model alias and effort become flags', () => {
   const args = buildClaudeArgs({ prompt: 'plan X', model: 'opus', effort: 'xhigh' });
@@ -45,4 +45,16 @@ test('buildClaudeArgs: system prompt via --append-system-prompt, including on re
 
   const none = buildClaudeArgs({ prompt: 'x' });
   assert.ok(!none.includes('--append-system-prompt'));
+});
+
+test('claudeUsageOf: preserves every component used by cost-report', () => {
+  assert.deepEqual(
+    claudeUsageOf({
+      input_tokens: 30,
+      output_tokens: 20,
+      cache_read_input_tokens: 40,
+      cache_creation_input_tokens: 10,
+    }),
+    { input: 30, output: 20, cacheRead: 40, cacheWrite: 10, total: 100 },
+  );
 });

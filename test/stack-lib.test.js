@@ -13,6 +13,10 @@ import {
 import { STACK_CATEGORIES, STACK_LATER } from '../src/stack-catalog.js';
 import { normalizeNeonResponse, parseNeonProjectCreate } from '../src/lib/neon.js';
 
+function databaseUrl(scheme, host, database = 'db', user = 'u', password = 'p') {
+  return `${scheme}://${user}:${password}@${host}/${database}`;
+}
+
 // ── Compatibility rules ──────────────────────────────────────────────────────
 
 test('applyStackRules: empty → everything pending, no errors', () => {
@@ -38,7 +42,10 @@ test('applyStackRules: pending backend drags database and ORM to pending — WIT
   const r = applyStackRules({ database: 'neon' });
   assert.equal(r.choices.database, STACK_LATER);
   assert.equal(r.choices.orm, STACK_LATER);
-  assert.ok(r.errors.some((e) => e.includes('neon')), 'discarding an explicit choice raises a warning');
+  assert.ok(
+    r.errors.some((e) => e.includes('neon')),
+    'discarding an explicit choice raises a warning',
+  );
 });
 
 test('applyStackRules: Convex backend discards a diverging explicit database with a warning', () => {
@@ -180,8 +187,12 @@ test('renderStackMd: pending layers show the ◌ marker and decision instruction
 
 test('renderStackMd: an external automations layer gets its row, doc and envs', () => {
   const { choices, pending } = applyStackRules({
-    frontend: 'nextjs', backend: 'convex', auth: 'clerk', blob: 'r2',
-    automations: 'modal', deploy: 'vercel',
+    frontend: 'nextjs',
+    backend: 'convex',
+    auth: 'clerk',
+    blob: 'r2',
+    automations: 'modal',
+    deploy: 'vercel',
   });
   const md = renderStackMd({ choices, pending, source: 'custom' });
   assert.match(md, /\| Automations \/ Jobs \| Modal \(external compute\) \| `ai-docs\/apis\/modal\.md`/);
@@ -191,11 +202,18 @@ test('renderStackMd: an external automations layer gets its row, doc and envs', 
 
 test('renderStackMd: the Neon claim URL lands in the manifest', () => {
   const { choices, pending } = applyStackRules({
-    frontend: 'nextjs', backend: 'hono', database: 'neon', orm: 'drizzle',
-    auth: 'clerk', blob: 'r2', deploy: 'vercel',
+    frontend: 'nextjs',
+    backend: 'hono',
+    database: 'neon',
+    orm: 'drizzle',
+    auth: 'clerk',
+    blob: 'r2',
+    deploy: 'vercel',
   });
   const md = renderStackMd({
-    choices, pending, source: 'custom',
+    choices,
+    pending,
+    source: 'custom',
     provision: { neon: { claimUrl: 'https://neon.new/claim/abc123' } },
   });
   assert.ok(md.includes('https://neon.new/claim/abc123'));
@@ -223,24 +241,27 @@ test('applyAgentsStackBlock: creates, appends and is idempotent', () => {
 // ── Neon Launchpad response (tolerant shape) ─────────────────────────────────
 
 test('normalizeNeonResponse: neon-new-style shape (env vars)', () => {
+  const pooledUrl = databaseUrl('postgresql', 'ep-x-pooler.neon.tech');
+  const directUrl = databaseUrl('postgresql', 'ep-x.neon.tech');
   const r = normalizeNeonResponse({
-    DATABASE_URL: 'postgresql://u:p@ep-x-pooler.neon.tech/db',
-    DATABASE_URL_DIRECT: 'postgresql://u:p@ep-x.neon.tech/db',
+    DATABASE_URL: pooledUrl,
+    DATABASE_URL_DIRECT: directUrl,
     PUBLIC_POSTGRES_CLAIM_URL: 'https://neon.new/claim/uuid',
     expires_at: '2026-08-14T00:00:00Z',
   });
-  assert.equal(r.databaseUrl, 'postgresql://u:p@ep-x-pooler.neon.tech/db');
-  assert.equal(r.directUrl, 'postgresql://u:p@ep-x.neon.tech/db');
+  assert.equal(r.databaseUrl, pooledUrl);
+  assert.equal(r.directUrl, directUrl);
   assert.equal(r.claimUrl, 'https://neon.new/claim/uuid');
   assert.equal(r.expiresAt, '2026-08-14T00:00:00Z');
 });
 
 test('normalizeNeonResponse: nested API-style shape (connection_string)', () => {
+  const connectionString = databaseUrl('postgres', 'host');
   const r = normalizeNeonResponse({
-    database: { connection_string: 'postgres://u:p@host/db' },
+    database: { connection_string: connectionString },
     claim_url: 'https://neon.new/claim/x',
   });
-  assert.equal(r.databaseUrl, 'postgres://u:p@host/db');
+  assert.equal(r.databaseUrl, connectionString);
   assert.equal(r.claimUrl, 'https://neon.new/claim/x');
 });
 
@@ -251,12 +272,13 @@ test('normalizeNeonResponse: nothing recognizable → null fields', () => {
 });
 
 test('parseNeonProjectCreate: documented CLI shape (connection_uris)', () => {
+  const connectionUri = databaseUrl('postgresql', 'ep-x.neon.tech', 'neondb');
   const stdout = JSON.stringify({
     project: { id: 'proj-123', name: 'meu-app' },
-    connection_uris: [{ connection_uri: 'postgresql://u:p@ep-x.neon.tech/neondb' }],
+    connection_uris: [{ connection_uri: connectionUri }],
   });
   const r = parseNeonProjectCreate(stdout);
-  assert.equal(r.databaseUrl, 'postgresql://u:p@ep-x.neon.tech/neondb');
+  assert.equal(r.databaseUrl, connectionUri);
   assert.equal(r.projectId, 'proj-123');
 });
 

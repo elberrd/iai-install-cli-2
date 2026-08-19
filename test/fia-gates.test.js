@@ -7,6 +7,7 @@ import {
   verdictConsistent,
   gateReport,
   isFoundationBrief,
+  isPrototypeBrief,
 } from '../fia-templates/modules/gates.mjs';
 
 function mockRun(files = {}) {
@@ -120,4 +121,15 @@ test('isFoundationBrief: bold, inline mentions and absence do not arm it', () =>
   assert.equal(isFoundationBrief('**Kind: kit** is the meta line'), false);
   assert.equal(isFoundationBrief('# Task 02\n\nSpec: 0001 (S-1)\n'), false);
   assert.equal(isFoundationBrief(null), false);
+});
+
+test('isPrototypeBrief: only an exact top-level marker authorizes the lightweight runner', () => {
+  assert.equal(isPrototypeBrief('Mode: prototype\n# Task'), true);
+  assert.equal(isPrototypeBrief('mode: PROTOTYPE\r\n# Task'), true);
+  assert.equal(isPrototypeBrief('Use Mode: prototype for this task'), false);
+  assert.equal(isPrototypeBrief('Mode: prototype-ish'), false);
+  assert.equal(isPrototypeBrief('```yaml\nMode: prototype\n```'), false);
+  assert.equal(isPrototypeBrief('````md\n```\nMode: prototype\n````'), false);
+  assert.equal(isPrototypeBrief('> Mode: prototype'), false);
+  assert.equal(isPrototypeBrief('# Task\n'), false);
 });

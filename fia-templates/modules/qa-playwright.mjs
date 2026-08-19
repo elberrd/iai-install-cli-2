@@ -48,11 +48,17 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   projects: [
-    { name: 'mobile', use: { ...devices['iPhone 13'] } },
-    { name: 'tablet', use: { ...devices['iPad (gen 7)'] } },
     {
-      name: 'desktop',
-      use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 720 } },
+      name: 'mobile-360',
+      use: { ...devices['iPhone 13'], viewport: { width: 360, height: 800 } },
+    },
+    {
+      name: 'tablet-768',
+      use: { ...devices['iPad (gen 7)'], viewport: { width: 768, height: 1024 } },
+    },
+    {
+      name: 'desktop-1440',
+      use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
     },
   ],
   webServer: {

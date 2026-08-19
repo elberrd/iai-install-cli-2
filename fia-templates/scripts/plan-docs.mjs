@@ -1147,6 +1147,7 @@ export function listPlanDocs(aiDocsDir) {
   if (existsSync(join(aiDocsDir, 'PRD.md'))) add('PRD.md', 'PRD — what the app is');
   else add('prd.md', 'PRD — what the app is');
   add('map.yaml', 'Project map');
+  add('architecture.md', 'Architecture decisions');
   add('screens-routes.md', 'Screens and routes');
   add('milestones.md', 'Milestones');
   add('inbox.md', 'Idea inbox');
@@ -1186,6 +1187,7 @@ export function listPlanDocs(aiDocsDir) {
     const m = ISSUE_FILE.exec(n);
     return m ? `Task ${m[1].padStart(2, '0')} — ${m[2].replace(/-/g, ' ')}` : n;
   });
+  addDir('investigations', (n) => `Investigation — ${n.replace(/\.md$/, '').replace(/-/g, ' ')}`);
   addDir('actual-todo', (n) => `Active task — ${n.replace(/\.md$/, '')}`);
   addDir('apis', (n) => `API — ${n.replace(/\.md$/, '')}`);
   return out;

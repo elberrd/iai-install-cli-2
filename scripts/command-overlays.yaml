@@ -20,8 +20,18 @@ commands:
   absorb:
     description: Workflow command /absorb — onboard an existing system (as-built PRD, map, conventions)
     replace:
-      - from: (and mirror to `.pi/skills/project/SKILL.md` when `.pi/` exists)
-        to: (and mirror to `.claude/skills/project/SKILL.md` and `.pi/skills/project/SKILL.md` when they exist)
+      - from: |-
+          For Claude, create `.cursor/skills/project` as a
+            directory symlink whose target is exactly `../../.agents/skills/project`.
+        to: |-
+          For Claude, create `.claude/skills/project` as a
+            directory symlink whose target is exactly `../../.agents/skills/project`.
+      - from: |-
+          Before writing, inspect legacy `.cursor/skills/project`,
+            `.cursor/skills/project`, and `.pi/skills/project` paths.
+        to: |-
+          Before writing, inspect legacy `.claude/skills/project`,
+            `.cursor/skills/project`, and `.pi/skills/project` paths.
 
   bug:
     description: Workflow command /bug — fix a defect, reproduction first
@@ -33,7 +43,7 @@ commands:
     description: Create a new slash command with professional structure and best practices
     mergeFrontmatter: true
     replace:
-      - from: "Check: `ls .claude/commands/`"
+      - from: "Check: `ls .cursor/commands/`"
         to: "Check: `ls .cursor/commands/` (and `ls .claude/commands/`)"
 
   design:
@@ -109,6 +119,15 @@ commands:
 
   stack:
     description: Workflow command /stack — see AGENTS.md
+    replace:
+      - from: "Create `.cursor/skills/<tech>` as a directory symlink to"
+        to: "Create `.claude/skills/<tech>` as a directory symlink to"
+      - from: |-
+          Before installing or writing that skill, inspect `.agents/skills/<tech>`,
+          `.cursor/skills/<tech>`, `.cursor/skills/<tech>`, and `.pi/skills/<tech>`,
+        to: |-
+          Before installing or writing that skill, inspect `.agents/skills/<tech>`,
+          `.claude/skills/<tech>`, `.cursor/skills/<tech>`, and `.pi/skills/<tech>`,
 
   start:
     description: Workflow command /start — see AGENTS.md
@@ -125,3 +144,6 @@ commands:
 
   theme:
     description: Workflow command /theme — see AGENTS.md
+
+  ui-contract:
+    description: Workflow command /ui-contract — deterministic UI applicability and implementation selection

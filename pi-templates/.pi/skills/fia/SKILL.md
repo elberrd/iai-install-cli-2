@@ -44,6 +44,7 @@ Short commands (prompt templates in `.pi/prompts/`) are the student entry points
 | `/qa [scope?]` | browser QA at milestone/spec/task — Playwright e2e + design audit | qa |
 | `/component [name + URL/command]` | add a component to the design system (register + install + page) | components |
 | `/theme [hint]` | change colors/fonts/shape — interview → approved preview → apply | theme |
+| `/ui-contract [profile\|show\|review]` | deterministic UI profile + applicable capabilities + scoped opt-outs | ui-contract |
 | `/design [images]` | layout redesign from references, inside the design system | design |
 | `/example [URL or slug]` | register an external reference (repo, code, docs, design) on the examples shelf | examples |
 | `/agents` | visual roster editor — engines, models, fallbacks (viewer "Agents" tab) | update_roster |
@@ -51,11 +52,15 @@ Short commands (prompt templates in `.pi/prompts/`) are the student entry points
 | `/absorb [focus]` | existing project → as-built PRD + map + conventions + stack manifest + component registry + the maintained `ai-docs/wiki/` (stamped, then checked by `npm run wiki:check`) | — |
 | `/kit` | existing code → design-system audit: as-built registry + `/ui-components`, gap report vs the core kit, approved design-only tasks (`Kind: kit`) | components |
 | `/status` | progress + latest runs | observability |
+| `/evolve --run <fda_id> \| --since <Nd\|YYYY-MM-DD> [--steer "…"]` | evidence-backed retrospective of one finished FDA run or a bounded project-history window; writes local reports only and never changes the system | evolution |
 | `imp handoff` (terminal, outside Pi) | Codex outage — continue the newest Pi conversation in the `claude` CLI (`--list` picks a session) | update_roster |
 | `imp health` (terminal) | five-dimension score of this project's agent work loop, from its own evidence — every finding names the command that repairs it (`--html` writes a report, `--strict` for CI) | observability |
 | `imp rewind` (terminal) | undo an FDA run — lists its checkpoints, previews the exact file impact, restores only with `--yes`. Restore-only: never resets, never rewrites history | run_fda |
 | `imp notify` (terminal) | show (or `--test`) the run-end ping — webhook/Slack/Discord/Telegram, off until the engineer turns it on | observability |
 | `imp settings` (terminal) | where every setting comes from (machine config, project roster, env), read-only and secrets redacted | — |
+| `imp stop` (terminal) | the stop button — no new FDA run starts and an in-flight run stops cleanly before its next phase (outcome `stopped_by_request`, resumable). Fails closed; `--status` / `--clear` / `--reason "…"` | run_fda |
+| `npm run gates:probe` (terminal) | gate self-test — injects deliberate defects against throwaway fixtures and asserts every FIA gate goes red (also `imp doctor --gates`) | observability |
+| `npm run holdout` (terminal) | run the holdout probes in `imp/data/holdout/` — acceptance checks sealed at brief time that agents can never edit (`--list`, `--require`) | run_fda |
 
 For anything else, route by request:
 
@@ -66,6 +71,7 @@ For anything else, route by request:
 | Spec format / test markers / traceability | [cookbooks/specs.md](cookbooks/specs.md) |
 | UI components / design system / registry | [cookbooks/components.md](cookbooks/components.md) |
 | Change theme / colors / fonts | [cookbooks/theme.md](cookbooks/theme.md) |
+| Decide UI applicability / product profile | [cookbooks/ui-contract.md](cookbooks/ui-contract.md) |
 | Layout redesign / visual reference / motion | [cookbooks/design.md](cookbooks/design.md) |
 | External references / what to take from a repo | [cookbooks/examples.md](cookbooks/examples.md) |
 | Install / stamp FIA | [cookbooks/install.md](cookbooks/install.md) |
@@ -73,6 +79,7 @@ For anything else, route by request:
 | Create a new FDA | [cookbooks/create_fda.md](cookbooks/create_fda.md) |
 | Update the roster / agents | [cookbooks/update_roster.md](cookbooks/update_roster.md) |
 | Observe trace / how a run ended (terminal outcomes) | [cookbooks/observability.md](cookbooks/observability.md) |
+| Review a run or repeated workflow friction and propose the smallest durable system improvement | [cookbooks/evolution.md](cookbooks/evolution.md) |
 | Resume only the MISSING work after a failed run (verdict) | [cookbooks/run_fda.md](cookbooks/run_fda.md) |
 | Keep the repo wiki true / a page went stale | [cookbooks/observability.md](cookbooks/observability.md) |
 | Bridge with ai-docs issues | [cookbooks/harness_bridge.md](cookbooks/harness_bridge.md) |

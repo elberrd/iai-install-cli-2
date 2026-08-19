@@ -14,6 +14,11 @@ import {
   renderReport,
 } from '../fia-templates/scripts/fia-launch-check.mjs';
 import { digestSources } from '../fia-templates/scripts/wiki-check.mjs';
+import { defaultContract, saveUiContract } from '../fia-templates/scripts/ui-contract.mjs';
+
+function databaseUrl(scheme, user, password, host, database) {
+  return `${scheme}://${user}:${password}@${host}/${database}`;
+}
 
 // ── pure helpers ─────────────────────────────────────────────────────────────
 
@@ -39,7 +44,10 @@ test('detectRung: local → beta → production', () => {
   assert.equal(detectRung({ clerkKey: 'pk_test_x', vercelLinked: true }), 'beta');
   assert.equal(detectRung({ clerkKey: 'pk_live_x', vercelLinked: false }), 'production');
   // SQL stacks have no Clerk key — a production URL on an own domain is the live signal.
-  assert.equal(detectRung({ clerkKey: undefined, vercelLinked: true, prodUrl: 'https://app.example.com' }), 'production');
+  assert.equal(
+    detectRung({ clerkKey: undefined, vercelLinked: true, prodUrl: 'https://app.example.com' }),
+    'production',
+  );
   assert.equal(detectRung({ clerkKey: undefined, vercelLinked: true, prodUrl: null }), 'beta');
 });
 
@@ -108,17 +116,27 @@ function seedProject() {
   // .env.local with a secret leaking via NEXT_PUBLIC_*
   writeFileSync(
     join(root, '.env.local'),
-    ['CONVEX_DEPLOYMENT=dev:calm-otter-42', 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_abc', 'NEXT_PUBLIC_STRIPE_KEY=sk_live_oops'].join('\n'),
+    [
+      'CONVEX_DEPLOYMENT=dev:calm-otter-42',
+      'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_abc',
+      'NEXT_PUBLIC_STRIPE_KEY=sk_live_oops',
+    ].join('\n'),
   );
   writeFileSync(join(root, '.gitignore'), '.env.local\n');
   // convex/ with a raw mutation and an http.ts WITHOUT verify
   mkdirSync(join(root, 'convex', 'lib'), { recursive: true });
-  writeFileSync(join(root, 'convex', 'notes.ts'), 'export const list = query({ handler: async () => [] });\nexport const add = mutation({});\n');
+  writeFileSync(
+    join(root, 'convex', 'notes.ts'),
+    'export const list = query({ handler: async () => [] });\nexport const add = mutation({});\n',
+  );
   writeFileSync(join(root, 'convex', 'lib', 'auth.ts'), 'export const authedQuery = query;\n');
   writeFileSync(join(root, 'convex', 'http.ts'), 'export default http; // no signature verification\n');
   // UI with dangerouslySetInnerHTML
   mkdirSync(join(root, 'app'), { recursive: true });
-  writeFileSync(join(root, 'app', 'page.tsx'), 'export default () => <div dangerouslySetInnerHTML={{ __html: x }} />;\n');
+  writeFileSync(
+    join(root, 'app', 'page.tsx'),
+    'export default () => <div dangerouslySetInnerHTML={{ __html: x }} />;\n',
+  );
   execSync('git add -A && git commit -qm init', { cwd: root });
   return root;
 }
@@ -305,7 +323,10 @@ test('runLaunchChecks: auth in the stack expects the test-credentials roster', (
 
   // No auth in the stack — and no Clerk key in .env.local (the key alone is
   // a legit auth signal) → the check does not exist.
-  writeFileSync(join(aiDocs, 'stack.md'), '## Summary\n\n| Layer | Choice | Local docs |\n|---|---|---|\n| Backend & API | Convex | — |\n');
+  writeFileSync(
+    join(aiDocs, 'stack.md'),
+    '## Summary\n\n| Layer | Choice | Local docs |\n|---|---|---|\n| Backend & API | Convex | — |\n',
+  );
   writeFileSync(join(root, '.env.local'), 'CONVEX_DEPLOYMENT=dev:calm-otter-42\n');
   by = Object.fromEntries(runLaunchChecks(root).checks.map((c) => [c.id, c]));
   assert.equal(by.test_credentials, undefined);
@@ -321,7 +342,7 @@ function seedSqlProject() {
     join(root, 'package.json'),
     JSON.stringify({ name: 'x', scripts: { lint: 'true', typecheck: 'true', test: 'true', build: 'true' } }),
   );
-  writeFileSync(join(root, '.env.local'), 'DATABASE_URL=postgresql://u:p@x.neon.tech/db\n');
+  writeFileSync(join(root, '.env.local'), `DATABASE_URL=${databaseUrl('postgresql', 'u', 'p', 'x.neon.tech', 'db')}\n`);
   writeFileSync(join(root, '.gitignore'), '.env.local\n.env.production\n.vercel\n');
   const aiDocs = join(root, 'ai-docs');
   mkdirSync(aiDocs, { recursive: true });
@@ -430,11 +451,50 @@ test('registry_seeded/registry_planned: blind registry warns, planned rows warn,
   assert.equal(by.registry_seeded.status, 'pass');
   assert.equal(by.registry_planned.status, 'pass');
 
-  writeFileSync(regPath, registry([row('DataTable', 'installed'), row('Kanban', 'planned'), row('MultiSelect', 'planned')]));
+  writeFileSync(
+    regPath,
+    registry([row('DataTable', 'installed'), row('Kanban', 'planned'), row('MultiSelect', 'planned')]),
+  );
   by = Object.fromEntries(runLaunchChecks(root).checks.map((c) => [c.id, c]));
   assert.equal(by.registry_planned.status, 'fail');
   assert.equal(by.registry_planned.level, 'warn');
   assert.match(by.registry_planned.detail, /Kanban, MultiSelect/);
+});
+
+test('ui_contract: launch fails closed for UI without a contract and passes once validated', () => {
+  const root = seedProject();
+  let by = Object.fromEntries(runLaunchChecks(root).checks.map((c) => [c.id, c]));
+  assert.equal(by.ui_contract.status, 'fail');
+  assert.equal(by.ui_contract.level, 'blocker');
+  assert.match(by.ui_contract.fix, /\/ui-contract/);
+
+  saveUiContract(root, defaultContract('immersive-game'));
+  by = Object.fromEntries(runLaunchChecks(root).checks.map((c) => [c.id, c]));
+  assert.equal(by.ui_contract.status, 'pass');
+  assert.match(by.ui_contract.detail, /immersive-game/);
+  assert.equal(by.ui_kit_receipt.status, 'skip', 'a profile with no active shared kit needs no fake receipt');
+});
+
+test('ui_kit_receipt: installed registry prose cannot satisfy missing executable evidence', () => {
+  const root = seedProject();
+  saveUiContract(root, defaultContract('enterprise-admin'));
+  mkdirSync(join(root, 'ai-docs', 'components'), { recursive: true });
+  writeFileSync(
+    join(root, 'ai-docs', 'components', 'registry.md'),
+    [
+      '# Registry',
+      '<!-- registry:start -->',
+      '| DataTable | data | canonical | components/data-table.tsx | — | — | installed | — | every table |',
+      '<!-- registry:end -->',
+    ].join('\n'),
+  );
+  const by = Object.fromEntries(runLaunchChecks(root).checks.map((check) => [check.id, check]));
+  assert.equal(by.ui_contract.status, 'pass');
+  assert.equal(by.registry_seeded.status, 'pass');
+  assert.equal(by.ui_kit_receipt.status, 'fail');
+  assert.equal(by.ui_kit_receipt.level, 'blocker');
+  assert.match(by.ui_kit_receipt.detail, /receipt_missing/);
+  assert.match(by.ui_kit_receipt.fix, /\.agents\/scripts\/ui-kit\.mjs/);
 });
 
 test('theme_tokens: hardcoded hex in UI components warns, token-based UI passes', () => {
@@ -442,7 +502,10 @@ test('theme_tokens: hardcoded hex in UI components warns, token-based UI passes'
   mkdirSync(join(root, 'components', 'emails'), { recursive: true });
   writeFileSync(join(root, 'components', 'good.tsx'), 'export const G = () => <div className="text-primary" />;\n');
   // react-email templates inline styles by design — never flagged
-  writeFileSync(join(root, 'components', 'emails', 'welcome.tsx'), 'export const W = () => <div style={{ color: "#1a2b3c" }} />;\n');
+  writeFileSync(
+    join(root, 'components', 'emails', 'welcome.tsx'),
+    'export const W = () => <div style={{ color: "#1a2b3c" }} />;\n',
+  );
   let by = Object.fromEntries(runLaunchChecks(root).checks.map((c) => [c.id, c]));
   assert.equal(by.theme_tokens.status, 'pass');
 
@@ -534,7 +597,10 @@ test('wiki_fresh: a page whose every source is gone fails and is named', () => {
   // A page pointing only at paths that no longer exist can never go stale
   // again — it describes code that was deleted or renamed, which is the exact
   // drift the wiki exists to catch, and the worst thing to report as green.
-  writeFileSync(join(wiki, 'legacy.md'), '---\nupdated: 2026-08-17\nsources: app/gone.tsx\ndigest: abc123\n---\n# Legacy\n');
+  writeFileSync(
+    join(wiki, 'legacy.md'),
+    '---\nupdated: 2026-08-17\nsources: app/gone.tsx\ndigest: abc123\n---\n# Legacy\n',
+  );
   const { digest } = digestSources(root, ['app/page.tsx']);
   writeFileSync(join(wiki, 'ui.md'), `---\nupdated: 2026-08-17\nsources: app/page.tsx\ndigest: ${digest}\n---\n# UI\n`);
 

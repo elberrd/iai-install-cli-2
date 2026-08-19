@@ -1,7 +1,22 @@
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { phaseParams } from './fda-cli.mjs';
-import { artifactsExist, checkAcceptanceChecklist, checklistDrift } from './gates.mjs';
+import { artifactsExist, checkAcceptanceChecklist, checklistDrift, parseChecklistItems } from './gates.mjs';
+
+/**
+ * How many checkboxes the brief carried when the run started, or 0 when no
+ * baseline was recorded (a session from before this snapshot existed, or an
+ * unreadable brief). 0 means "no claim" — the gate then behaves exactly as it
+ * did before, never inventing a violation out of a missing baseline.
+ */
+function briefCheckboxBaseline(run) {
+  try {
+    const n = Number(readFileSync(join(run.sessionDir, 'brief_checkboxes'), 'utf8').trim());
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
 
 /**
  * The brief file behind the run's prompt. `resolvePrompt` inlines the file's
@@ -18,6 +33,27 @@ export function resolveBriefPath(run, promptArg) {
       const path = resolve(promptArg);
       if (existsSync(path) && statSync(path).isFile()) {
         writeFileSync(marker, path);
+        // How many checkboxes the brief carried BEFORE any agent touched it.
+        // The gate is skipped for a brief that legitimately has none, so
+        // without this snapshot "delete the Acceptance Criteria section" (or
+        // fence the boxes, or turn the list into a table) stands the gate down
+        // exactly like deleting the file used to. Recorded here — the earliest
+        // point in every FDA, before the builder runs.
+        //
+        // FIRST WRITER WINS. A resumed run is the SAME run, and `--resume` may
+        // legitimately re-pass the brief path; re-reading the baseline then
+        // would take it from a file the previous attempt already gutted, which
+        // is precisely the tampering this snapshot exists to catch. Ticking a
+        // box never changes the count, so keeping the original is also correct
+        // for an honest resume.
+        const baselineFile = join(run.sessionDir, 'brief_checkboxes');
+        if (!existsSync(baselineFile)) {
+          try {
+            writeFileSync(baselineFile, String(parseChecklistItems(readFileSync(path, 'utf8')).length));
+          } catch {
+            /* unreadable at start — the gate falls back to "no baseline known" */
+          }
+        }
         return path;
       }
     } catch {
@@ -30,7 +66,12 @@ export function resolveBriefPath(run, promptArg) {
   }
   try {
     const saved = readFileSync(marker, 'utf8').trim();
-    if (saved && existsSync(saved)) return saved;
+    // The recorded path is returned even when the file NO LONGER EXISTS: a
+    // brief that vanished mid-run (or between runs) must reach the checklist
+    // gate, which fails closed on it — returning null here would read as "the
+    // prompt was inline" and silently stand the gate down, making "delete the
+    // brief" a way to skip reconciliation.
+    if (saved) return saved;
   } catch {
     /* no marker — a pre-checklist session, or an inline prompt */
   }
@@ -57,10 +98,50 @@ export async function runChecklistGate(run, briefPath) {
         ph.log({ skipped: 'the prompt did not come from a brief file' });
         return { skip: true };
       }
+      // FAIL CLOSED on a vanished brief: the run STARTED from this file (the
+      // session marker says so), and a gate whose input disappeared must be
+      // loud, never silently absent — "delete the brief" cannot be a way to
+      // skip the checklist.
+      if (!existsSync(briefPath)) {
+        const gone = relative(run.repoRoot, briefPath);
+        // The commonest cause is not tampering: the task-sequencer ARCHIVES the
+        // active brief to ai-docs/todos/done/ when it prepares the next task,
+        // so an older run resumed afterwards finds it missing. `git checkout`
+        // is the wrong advice there — it either fails (the path no longer
+        // exists at HEAD) or resurrects an unticked duplicate. Name the file
+        // where it actually went.
+        const archived = join(dirname(dirname(briefPath)), 'todos', 'done', basename(briefPath));
+        const how = existsSync(archived)
+          ? `The task sequencer archived it to ${relative(run.repoRoot, archived)} — move it back (mv ${relative(run.repoRoot, archived)} ${gone}) and resume.`
+          : `Restore it (git checkout -- ${gone}) and resume.`;
+        throw new Error(
+          `the brief file this run started from is gone (${gone}) — a deleted brief is not a reconciled checklist. ${how}`,
+        );
+      }
       const report = checkAcceptanceChecklist(briefPath);
       if (!report) {
+        // No checkboxes NOW. Proportionality says a brief that never had any
+        // is nothing to reconcile — but a brief that HAD them and lost them is
+        // the same escape hatch as a deleted file, wearing a different hat.
+        const had = briefCheckboxBaseline(run);
+        if (had > 0) {
+          throw new Error(
+            `the brief's acceptance checklist disappeared during the run (${relative(run.repoRoot, briefPath)} started with ${had} checkbox(es) and now parses none) — ` +
+              'restore it; deleting, fencing or reformatting the boxes is not reconciling them',
+          );
+        }
         ph.log({ skipped: 'the brief has no checkboxes' });
         return { skip: true };
+      }
+      // Same rule for a checklist that merely SHRANK before the first check:
+      // checklist_2 already guards the reconciliation window, this guards the
+      // build window that precedes it.
+      const had = briefCheckboxBaseline(run);
+      if (had > report.items.length) {
+        throw new Error(
+          `the brief's acceptance checklist shrank during the run (${relative(run.repoRoot, briefPath)}: ${had} checkbox(es) at the start, ${report.items.length} now) — ` +
+            'restore the missing boxes; a removed box is not a ticked box',
+        );
       }
       ph.log({ unchecked: report.violations.length, of: report.items.length });
       // `items` (not just the count) rides along so checklist_2 can compare

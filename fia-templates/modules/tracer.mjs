@@ -89,6 +89,24 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
 );
 `;
 
+// Read-heavy diagnostics filter traces by FDA id or bounded time window. Keep
+// these indexes in normal DB creation/migration; read-only collectors must
+// never create them on demand.
+const INDEXES = [
+  `CREATE INDEX IF NOT EXISTS idx_sessions_evolution_window
+     ON sessions (COALESCE(ended_at, started_at), started_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_phases_evolution_fda
+     ON phases (fda_id, seq)`,
+  `CREATE INDEX IF NOT EXISTS idx_events_evolution_fda
+     ON events (fda_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_events_evolution_fda_type
+     ON events (fda_id, type, name)`,
+  `CREATE INDEX IF NOT EXISTS idx_envelopes_evolution_fda_created
+     ON envelopes (fda_id, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_gate_results_evolution_fda
+     ON gate_results (fda_id)`,
+];
+
 export class Tracer {
   constructor(dbPath, eventsJsonl) {
     mkdirSync(dirname(dbPath), { recursive: true });
@@ -101,6 +119,7 @@ export class Tracer {
     this.db.pragma('busy_timeout = 5000');
     this.db.exec(SCHEMA);
     this.#migrate();
+    this.#ensureIndexes();
   }
 
   /**
@@ -122,6 +141,16 @@ export class Tracer {
       }
     } catch {
       /* locked or read-only db — the run continues without the new columns */
+    }
+  }
+
+  #ensureIndexes() {
+    for (const statement of INDEXES) {
+      try {
+        this.db.exec(statement);
+      } catch {
+        /* partial legacy schema or locked DB — runtime writes still proceed */
+      }
     }
   }
 

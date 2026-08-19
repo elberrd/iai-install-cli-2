@@ -1,11 +1,11 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import * as fs from 'node:fs';
 import { createConsole } from './console.mjs';
 import { execute } from './agents.mjs';
 import { loadOrCreateBaseline, runChangedPaths } from './git-helper.mjs';
 import { nowIso } from './utils.mjs';
-import { stopPolicyOf, StopCondition } from './stop.mjs';
+import { stopPolicyOf, StopCondition, manualStopState } from './stop.mjs';
 import { OUTCOMES, classifyFailure, isTerminalOutcome, outcomeIsSuccess } from './outcome.mjs';
 
 /** The fda_*.mjs that is running, for the recovery lines finish() prints. */
@@ -156,7 +156,23 @@ export class Run {
    */
   #enforceStopConditions() {
     let stop = null;
-    if (this.stop.budget_minutes > 0) {
+    // The manual stop button is checked FIRST: an explicit human request
+    // outranks every automatic limit. Reading it fails closed (see stop.mjs) —
+    // an unreadable stop file stops the run too. Both paths are resolved
+    // against THIS run's repo, never the process cwd, and the canonical
+    // imp/data location is checked even when data_dir was moved.
+    const manual = manualStopState(
+      resolve(this.repoRoot, this.cfg.defaults?.data_dir || 'imp/data'),
+      this.repoRoot,
+    );
+    if (manual.stopped) {
+      stop = new StopCondition(
+        OUTCOMES.STOPPED_BY_REQUEST,
+        `a manual stop is armed (${manual.path})${manual.reason ? ` — ${manual.reason}` : ''} — ` +
+          'stopping before the next phase; nothing is lost',
+      );
+    }
+    if (!stop && this.stop.budget_minutes > 0) {
       const elapsed = (Date.now() - this.startedAtMs) / 60000;
       if (elapsed >= this.stop.budget_minutes) {
         stop = new StopCondition(

@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 /** FDA Bug — plan → failing reproduction (valid RED) → fix → green suite → commit. */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { runFda, phaseParams } from './modules/fda-cli.mjs';
 import { artifactsExist, filesNonEmpty, validateRedReason, parseSpecLine, checkSpecCoverage, checkSpecDiagram } from './modules/gates.mjs';
 import { resolveBriefPath, runChecklistGate } from './modules/checklist.mjs';
 import { runUiGate } from './modules/ui-gate.mjs';
-import { runTests, runFocalTests, asEnvelope } from './modules/quality.mjs';
+import { runTestsForBrief, runFocalTests, asEnvelope } from './modules/quality.mjs';
+import { floorPath } from './modules/floor.mjs';
+import { runSpecDeliveryClose } from './modules/spec-lifecycle.mjs';
 import { OUTCOMES } from './modules/outcome.mjs';
 import { changedContentSignature, createRepairTracker } from './modules/stop.mjs';
 import * as git from './modules/git-helper.mjs';
@@ -129,7 +131,45 @@ await runFda(
       run.runPhase(
         phaseParams(`test_${n}`, 'code', 'quality', 'Run the test suite — a known command executed by code, not an agent'),
         async (ph) => {
-          const result = await runTests(run);
+          // runTestsForBrief, not runTests: a bug fix must clear the regression
+          // floor like any other full-suite run (modules/floor.mjs) — deleting
+          // or skipping the tests that keep going red is the most tempting way
+          // to "fix" a bug. A bug brief never carries `Kind: foundation`, so
+          // this stays the same single test command plus the floor pass.
+          let result = await runTestsForBrief(run, prompt);
+          // The reproduction is this FDA's whole premise, and the regression
+          // floor cannot defend it: the floor only ratchets on a GREEN suite,
+          // while the reproduction exists precisely while the suite is RED —
+          // so a repair round that DELETES the repro produces a green suite
+          // whose counts match the old floor exactly, and the run would close
+          // accepted with its own proof gone. Verified here, in code, on every
+          // green round: the files must still be on disk AND still pass.
+          if (result.passed) {
+            const missing = redFiles.filter((f) => !existsSync(resolve(run.repoRoot, f)));
+            const focal = missing.length ? null : await runFocalTests(run, redFiles);
+            if (missing.length || !focal.passed) {
+              const why = missing.length
+                ? `the reproduction test is gone from the tree: ${missing.join(', ')} — restore it; never delete or weaken the test that proved the bug`
+                : 'the reproduction test does not pass after the fix — the reported defect is still there';
+              result = {
+                ...result,
+                passed: false,
+                checks: [
+                  ...result.checks,
+                  {
+                    name: 'repro',
+                    command: 'reproduction intact (imp/fda_bug.mjs)',
+                    returncode: 1,
+                    passed: false,
+                    duration_seconds: 0,
+                    output_artifact: focal?.artifacts?.[0] || '',
+                    output_tail: why,
+                  },
+                ],
+                failures: [...result.failures, `repro: ${why}`],
+              };
+            }
+          }
           ph.log({ passed: result.passed, checks: result.checks.length });
           // No-progress detection. The signature is CONTENT-addressed (failing
           // check names plus `path:hash` for everything this run changed), so a
@@ -224,6 +264,10 @@ await runFda(
       // modules/ui-gate.mjs).
       await runUiGate(run, prompt);
 
+      // Planning close-out is code, not agent memory: the last successful
+      // task linked to a spec stamps its Delivery Gate and Status: done.
+      const specClose = await runSpecDeliveryClose(run, prompt, briefPath);
+
       await run.runPhase(
         phaseParams('commit', 'code', 'git', 'Commit only after the reproduction is fixed and the suite is green'),
         async (ph) => {
@@ -237,6 +281,10 @@ await runFda(
               ...(previous.changed_files || []),
               ...(previous.artifacts || []),
               ...builderDeclaredFiles(run),
+              ...(specClose.changed_files || []),
+              // The regression floor rises on a green suite (modules/floor.mjs)
+              // and rides the SAME commit as the work that raised it.
+              floorPath(run.cfg?.defaults?.data_dir),
             ]),
           ];
           const message = previous.commit_message || `fia(${run.fdaId}): ${previous.summary}`;

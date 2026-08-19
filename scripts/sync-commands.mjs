@@ -79,9 +79,12 @@ function renderCommand(name) {
   const { frontmatter: claudeFmRaw, body: rawBody } = splitFrontmatter(readFileSync(srcPath, 'utf8'));
   const claudeFm = parseFrontmatterMap(claudeFmRaw);
 
-  let body = rawBody;
+  // Global engine substitutions establish the Cursor vocabulary first. A
+  // command overlay can then restore intentional cross-engine paths (for
+  // example Claude's compatibility symlink) without a later global pass
+  // rewriting that exception again.
+  let body = applyReplacements(rawBody, globalReplace, { optional: true });
   if (overlay.replace?.length) body = applyReplacements(body, overlay.replace);
-  body = applyReplacements(body, globalReplace, { optional: true });
   if (overlay.append) body += overlay.append;
 
   const header = buildCursorFrontmatter(name, claudeFm, overlay);

@@ -12,7 +12,9 @@ Focus/flags: $@
 
 In this order:
 
-1. Preconditions: runnable app with UI code; read `ai-docs/stack.md` and
+1. Preconditions: runnable app with UI code; validate
+   `ai-docs/ui/contract.json` via `node .agents/scripts/ui-contract.mjs check
+   --json` (missing/invalid → stop and run `/ui-contract`); read `ai-docs/stack.md` and
    `ai-docs/components/registry.md` (missing/empty = the blind-registry state
    this fixes). Open the log: `node imp/scripts/decision-log.mjs open kit
    --topic "design system audit"`.
@@ -20,7 +22,8 @@ In this order:
    reusable component the code has, real paths; record duplicates, add NO
    `planned` rows yet.
 3. Page: `ui-component-page` — create/update `/ui-components` from the registry.
-4. Gap audit → `ai-docs/components/kit-report.md`, three lists vs core-kit.md:
+4. Gap audit → `ai-docs/components/kit-report.md`, three actionable lists vs
+   the contract-applicable core-kit.md:
    missing needs; below contract (audit the DataTable item by item — fuzzy
    multi-word search with yellow highlights, header menu on click AND
    right-click, per-column type-adapted filters, a single Filter control +
@@ -29,7 +32,9 @@ In this order:
    skeleton/empty/no-results; Combobox popover width = trigger; calendar
    caption jumps month/year; pointer cursor; `/ui-components` one component
    per card — design-system `references/interaction.md` — with file/line
-   evidence); duplicates without default/alternative roles. Each finding gets
+   evidence); duplicates without default/alternative roles. Add a fourth
+   non-actionable block with `SKIP <rule-id> — <reason>` for every deterministic
+   contract skip; never offer a skipped capability as an improvement. Each actionable finding gets
    a recommendation and a rough size. `--report-only` → present, close the log
    ("report only"), stop.
 5. Decisions: present the report grouped; ONE question at a time with a
