@@ -26,7 +26,7 @@
  * present. Every path here fails OPEN — a missing lock, unreadable stdin or
  * an internal error never blocks a tool and never breaks a session.
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -210,7 +210,17 @@ export async function runCli(argv, { root = process.cwd(), env = process.env, in
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
-const isMain = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+// realpath both sides: Node realpaths the ESM entry for import.meta.url, so a
+// symlinked invocation path would otherwise make the CLI a silent no-op.
+const isMain = (() => {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
+  } catch {
+    return import.meta.url === pathToFileURL(resolve(entry)).href;
+  }
+})();
 if (isMain) {
   process.exit(await runCli(process.argv.slice(2)));
 }

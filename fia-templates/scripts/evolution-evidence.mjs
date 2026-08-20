@@ -16,7 +16,7 @@ import { spawnSync } from 'node:child_process';
 import { closeSync, existsSync, lstatSync, opendirSync, openSync, readSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { isMainModule } from '../modules/utils.mjs';
 import { parse as parseYaml } from 'yaml';
 import { activeFdaLock } from './fda-lock.mjs';
 import { piSessionsDirFor } from './pi-sessions.mjs';
@@ -1157,10 +1157,19 @@ function commitRecord(root, sha, attribution, confidence, gaps) {
     if (path) files.push({ status, path });
   }
   const filesByPath = new Map(files.map((file) => [file.path, file]));
+  // --numstat prints renames in brace form ('src/{old.js => new.js}' or
+  // 'old => new'), which never equals the --name-status new path — expand to
+  // the post-rename path before the lookup so renamed files keep their counts.
+  const numstatPath = (raw) => {
+    const withBraces = raw.replace(/\{([^{}]*) => ([^{}]*)\}/g, (_m, _from, to) => to);
+    const collapsed = withBraces.replace(/\/\//g, '/');
+    const arrow = /^(.*) => (.*)$/.exec(collapsed);
+    return arrow ? arrow[2] : collapsed;
+  };
   for (const line of (numstat || '').split('\n')) {
     if (!line) continue;
     const [added, deleted, ...pathParts] = line.split('\t');
-    const file = filesByPath.get(pathParts.join('\t'));
+    const file = filesByPath.get(numstatPath(pathParts.join('\t')));
     if (!file) continue;
     file.additions = added === '-' ? null : Number(added);
     file.deletions = deleted === '-' ? null : Number(deleted);
@@ -1934,7 +1943,7 @@ function collectPi(paths, since, until, gaps) {
     if (bytesRead + file.size > MAX_PI_BYTES) {
       addGap(
         gaps,
-        `Pi byte budget exhausted after ${bytesRead} bytes; ${files.length - index} session file(s) were not read`,
+        `Pi byte budget exhausted after ${bytesRead} bytes; ${Math.min(files.length, MAX_PI_SESSIONS) - index} session file(s) were not read`,
       );
       break;
     }
@@ -2104,7 +2113,7 @@ export function runCli(argv, options = {}) {
   return 0;
 }
 
-const isMain = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+const isMain = isMainModule(import.meta.url);
 if (isMain) {
   try {
     process.exitCode = runCli(process.argv.slice(2));

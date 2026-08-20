@@ -30,7 +30,7 @@
  * All subcommands accept --dir <project root> (default: cwd).
  * Timestamps honor IAI_DECISION_LOG_NOW (same override the decision log uses, for tests).
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { now, oneLine, parseFrontmatter } from './decision-log.mjs';
@@ -267,5 +267,15 @@ export function main(argv) {
   fail('usage: stack-research <open|log|close|status> …  (see the header of this file)');
 }
 
-const isMain = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+// realpath both sides: Node realpaths the ESM entry for import.meta.url, so a
+// symlinked invocation path would otherwise make the CLI a silent no-op.
+const isMain = (() => {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
+  } catch {
+    return import.meta.url === pathToFileURL(resolve(entry)).href;
+  }
+})();
 if (isMain) main(process.argv.slice(2));

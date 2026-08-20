@@ -278,6 +278,11 @@ export const CLERK_JWT_TEMPLATE = {
   lifetime: 3600,
 };
 
+// The installer always uses the tested Clerk CLI release. A global binary may
+// be older (and the 1.x → 3.x command surface changed substantially), so using
+// npx with an exact version makes installs and resumes reproducible.
+export const CLERK_CLI_VERSION = '3.1.0';
+
 // live2 (multi-tenant) uses the SAME simple template: organizations belong to
 // the APP (Convex tables — organizations/memberships), not to Clerk. The JWT
 // only authenticates identity; the active organization comes from
@@ -420,7 +425,7 @@ export const ADDON_NOTES = {
   asaas:
     'Asaas: set ASAAS_API_KEY, ASAAS_VALUE, ASAAS_WEBHOOK_TOKEN, and ASAAS_ENV (production to hit the real API; without it the sandbox is used) on Convex (npx convex env set ...) and create the webhook pointing to <deployment>.convex.site/asaas-webhook. Sandbox: https://sandbox.asaas.com · API key: Minha Conta → Integrações → API.',
   'clerk-billing':
-    'Clerk Billing: enable Billing in the Clerk dashboard and create the plans — the /dashboard/billing page already renders the PricingTable.',
+    'Clerk Billing: enabled by the installer when selected. Create the plans in the Clerk dashboard — /dashboard/billing already renders the PricingTable.',
 };
 
 // ── Per-addon tooling: official skills + official CLI ────────────────────────
@@ -847,7 +852,8 @@ export const KNOWN_SERVICE_KEYS = [
 // the app).
 export const CLERK_WEBHOOK = {
   route: '/clerk-users-webhook',
-  secretEnv: 'CLERK_WEBHOOK_SECRET',
+  secretEnv: 'CLERK_WEBHOOK_SIGNING_SECRET',
+  legacySecretEnv: 'CLERK_WEBHOOK_SECRET',
   events: ['user.created', 'user.updated', 'user.deleted'],
 };
 
@@ -881,8 +887,8 @@ export const CLERK_ROUTING_DEFAULTS = {
   NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL: '/',
 };
 
-// Env vars copied from .env.local to the Vercel project (production) during
-// the optional deploy step. CONVEX_DEPLOYMENT is deliberately absent — it's a
+// Env vars copied from .env.local to Vercel Preview during the optional quick
+// deploy. CONVEX_DEPLOYMENT is deliberately absent — it's a
 // CLI-only var, not needed at runtime.
 export const DEPLOY_ENV_KEYS = [
   'NEXT_PUBLIC_CONVEX_URL',

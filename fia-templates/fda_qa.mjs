@@ -63,7 +63,8 @@ await runFda(
           throw new Error(
             `ui kit receipt incomplete before browser QA: ${kitReceipt.errors
               .map((error) => error.code)
-              .join(', ')}`,
+              .join(', ')}\n` +
+              'Recover: `node .agents/scripts/ui-kit.mjs verify --target . --json` re-inspects the selected implementations and re-stamps ai-docs/ui/kit-receipt.json (legitimate edits to an alternate entrypoint need exactly this); a missing receipt means the kit was never installed — run `node .agents/scripts/ui-kit.mjs install --target . --json` (brownfield: /kit) first.',
           );
         }
         return {

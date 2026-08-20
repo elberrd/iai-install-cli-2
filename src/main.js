@@ -158,7 +158,7 @@ export async function main(flags = {}) {
     ['Keys — activate chosen integrations', () => setupServiceKeys(ctx), 'convex'],
     ['Integrations — official skills and CLIs', () => setupIntegrations(ctx), 'core'],
     ['Git — commit and GitHub (optional)', () => setupGithub(ctx), 'core'],
-    ['Vercel — quick deploy (optional)', () => setupDeploy(ctx), 'core'],
+    ['Vercel — Preview deploy (optional)', () => setupDeploy(ctx), 'core'],
   ];
 
   // `tailSteps(mode)` completes the pipeline once the mode is known.

@@ -55,6 +55,7 @@ const POSITIVES = {
     '}',
     '',
   ].join('\n'),
+  'proxy.ts': "import { createRouteMatcher } from '@clerk/nextjs/server';\n",
   'convex/messages.ts': [
     "import { mutation } from './_generated/server';",
     'export const send = mutation({',
@@ -172,6 +173,11 @@ const NEGATIVES = {
     'export const m = new Map();',
     '',
   ].join('\n'),
+  'proxy.ts': [
+    "import { clerkMiddleware } from '@clerk/nextjs/server';",
+    'export default clerkMiddleware();',
+    '',
+  ].join('\n'),
 };
 
 test('near-miss negatives produce zero findings', () => {
@@ -199,6 +205,7 @@ const NEGATIVE_FIXTURES = Object.freeze({
   child_process_shell_true: 'app/safe-spawn.ts',
   http_url: 'app/safe-urls.ts',
   missing_auth_check: 'app/api/safe/route.ts',
+  clerk_route_matcher: 'proxy.ts',
   convex_missing_args_validator: 'convex/safe.ts',
   hardcoded_secret_literal: 'app/safe-misc.ts',
 });
@@ -483,6 +490,7 @@ test('SEVERITIES and the rule ids are a frozen, stable contract', () => {
       'child_process_shell_true',
       'http_url',
       'missing_auth_check',
+      'clerk_route_matcher',
       'convex_missing_args_validator',
       'hardcoded_secret_literal',
     ],

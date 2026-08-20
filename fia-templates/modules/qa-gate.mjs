@@ -400,7 +400,7 @@ export function formatQaReport({
     '## Results',
     `- E2E (Playwright): ${skipped ? 'skipped' : e2ePassed ? 'passed' : 'failed'}`,
     `- Design audit: ${skipped ? 'skipped' : auditPassed ? 'passed' : 'failed'}`,
-    ...(kitReceipt ? [`- UI kit receipt: ${kitReceipt.ok ? 'verified' : 'failed'}`] : []),
+    ...(kitReceipt ? [`- UI kit receipt: ${kitReceipt.outcome === 'skip' ? 'not required' : kitReceipt.ok ? 'verified' : 'failed'}`] : []),
     '',
   ];
   const contract = explicitContract || scopeUiContracts.get(scope);
@@ -531,7 +531,7 @@ export function authorPrompt(scope, { routes = [], credentialsHint = '', contrac
       '- Apply and remove filters; compact removable filter chips remain in a stable reserved lane, Clear filters resets them all, and toolbar height is identical before, during, and after filtering.',
       '- Exercise column visibility, pagination/truthful count summary, selection/actions when permitted, and loading/empty/no-results/error/long-content states.',
       canonicalTableSelected(contract)
-        ? '- Canonical preset receipt: inspect the call site; advancedControls is omitted (its default is false), and prove no advanced-only UI is rendered while every base header sort/filter/hide/clear action remains available.'
+        ? '- Canonical preset receipt: any base-only call site passes advancedControls={false} explicitly and renders no advanced-only UI while keeping every base header sort/filter/hide/clear action; when the product has no base-only call site (all tables professional), note that instead of inventing one.'
         : '- Selected implementation receipt: prove its base configuration does not enable advanced-only UI while every base header sort/filter/hide/clear action remains available; do not demand FIA canonical component names or props.',
     );
   }
@@ -541,15 +541,16 @@ export function authorPrompt(scope, { routes = [], credentialsHint = '', contrac
       '',
       'Advanced DataTable:',
       canonicalTableSelected(contract)
-        ? '- Canonical preset receipt: inspect the call site and require advancedControls={true}; this prop is passed only because data_table.advanced_controls is APPLY.'
+        ? '- Canonical preset receipt: inspect the professional call site; advancedControls is omitted (default true) or explicitly true because data_table.advanced_controls is APPLY.'
         : "- Selected implementation receipt: require its explicit advanced-mode configuration only because data_table.advanced_controls is APPLY; do not demand the canonical advancedControls prop.",
       '- Exercise the ordered grouping lane: reorder/remove its chips, add with + Level only to a maximum of three levels, and expand/collapse individual groups plus all groups through semantic aria-expanded controls.',
       '- Assert each group badge and the result summary use the truthful leaf-record count. Collapse and expand groups and prove the summary never uses group rows or currently expanded leaf DOM rows.',
       '- Through the same accessible header menu, prove advanced group/ungroup, pin/unpin, move, sizing, and density actions; none may appear when this rule is SKIP.',
       '- Change every supported versioned per-user view field (search, filters, sort, grouping, visibility, order, widths, pinning, density and page size), reload to prove persistence, invoke Restore defaults, reload again, and prove the complete schema-default view survives.',
+      '- For canonical tables, prove persistence is default-on, uses a stable tableId plus authenticated user/tenant scope, discards stale column references, retains session state when localStorage is denied, and Restore clears durable and fallback stores.',
       '- When header drag reorder is enabled, prove its dedicated column-drag handle, insertion indicator, legal drop, cancel/rollback, pinned/utility constraints, and menu and keyboard fallback. Dragging the label must not steal sort/menu activation.',
       '- Exercise empty, one-row, many-row, long-label, grouped, resized, and horizontally scrolled states with a sticky header, without clipping menus or moving controls outside their owner.',
-      '- For large/unknown remote data, prove server-side sorting, filtering, and pagination operate over the full result set and use backend totals. Permit virtualization only for many already-loaded rows; never accept it as a reason to download an unbounded set or replace the selected implementation\'s data model.',
+      '- For large/unknown remote data, prove server-side sorting, filtering, and pagination operate over the full result set and use backend totals. If grouping is exposed, grouping/expanded state reaches the backend and it returns an already-grouped hierarchy with truthful full-set leaf counts; without that explicit adapter, grouping must be unavailable, never page-local. Permit virtualization only for many already-loaded rows; never accept it as a reason to download an unbounded set or replace the selected implementation\'s data model.',
     );
   }
 
@@ -629,7 +630,7 @@ const QA_AUDIT_RUBRIC = Object.freeze([
   {
     ruleId: 'data_table.advanced_controls',
     requirement:
-      "Advanced actions appear only when this rule applies and the selected implementation's explicit advanced configuration is active. Evidence proves the ordered grouping lane (+ Level, maximum three), aria-expanded groups and truthful leaf-record count independent of expanded DOM leaves; compatible group/ungroup, pin/unpin, move, sizing and density actions; versioned per-user view state persists after reload, Restore defaults is invoked, then another reload proves the complete reset; optional reorder uses a dedicated column-drag handle, insertion indicator, cancel/rollback and menu/keyboard fallback; a sticky header stays contained; server-side sorting, filtering, and pagination use full-set backend totals for large/unknown data, while virtualization is limited to many already-loaded rows.",
+      "Advanced actions appear only when this rule applies and the selected implementation's explicit advanced configuration is active. Evidence proves the ordered grouping lane (+ Level, maximum three), aria-expanded groups and truthful leaf-record count independent of expanded DOM leaves; compatible group/ungroup, pin/unpin, move, sizing and density actions; default-on versioned per-user view state uses stable table/user/tenant scope, survives unavailable browser storage and persists after reload, Restore defaults is invoked, then another reload proves the complete reset; optional reorder uses a dedicated column-drag handle, insertion indicator, cancel/rollback and menu/keyboard fallback; a sticky header stays contained; server-side sorting, filtering, and pagination use full-set backend totals for large/unknown data, and remote grouping uses grouping/expanded query state plus a backend-provided hierarchy and truthful full-set leaf counts or remains unavailable, while virtualization is limited to many already-loaded rows.",
   },
   {
     ruleId: 'components.kanban',
@@ -657,14 +658,14 @@ export function auditPrompt(scope, { artifactDir, e2eSummary = '', routes = [], 
     canonicalSpecific.push({
       ruleId: 'components.data_table',
       requirement:
-        'Canonical preset receipt proves the shared table is the FIA TanStack DataTable and base call sites omit advancedControls (default false).',
+        'Canonical preset receipt proves the shared table is the FIA TanStack DataTable and base-only call sites pass advancedControls={false}.',
     });
   }
   if (canonicalTableSelected(contract) && ruleApplies(plan, 'data_table.advanced_controls')) {
     canonicalSpecific.push({
       ruleId: 'data_table.advanced_controls',
       requirement:
-        'Canonical preset receipt proves advanced call sites pass advancedControls={true} only while the advanced rule is APPLY.',
+        'Canonical preset receipt proves professional call sites omit advancedControls (default true) or pass true only while the advanced rule is APPLY.',
     });
   }
   return [

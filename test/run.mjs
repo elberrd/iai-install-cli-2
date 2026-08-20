@@ -17,5 +17,10 @@ const files = readdirSync(testDir)
   .sort()
   .map((f) => join(testDir, f));
 
-const result = spawnSync(process.execPath, ['--test', ...files], { stdio: 'inherit' });
+// Several suites create local servers and child processes. Running the files in
+// parallel can make Node's test-runner IPC fail nondeterministically under that
+// load, so keep the portable `npm test` entry deterministic.
+const result = spawnSync(process.execPath, ['--test', '--test-concurrency=1', ...files], {
+  stdio: 'inherit',
+});
 process.exit(result.status ?? 1);

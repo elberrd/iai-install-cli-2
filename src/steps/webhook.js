@@ -18,6 +18,11 @@ function extractSvixUrl(stdout) {
   return m ? m[0] : null;
 }
 
+export function isValidWebhookSecret(value) {
+  // Svix signing secrets are "whsec_" + STANDARD base64 (may contain +, / and =).
+  return /^whsec_[A-Za-z0-9+/=_-]{16,}$/.test(String(value || '').trim());
+}
+
 /**
  * Optional step: help wire the Clerk → Convex user-sync webhook. The endpoint
  * URL and signing secret cannot be created via the Clerk API (dashboard-only),
@@ -46,11 +51,12 @@ export async function setupWebhook(ctx) {
   if (go == null) {
     ui.note(
       [
-        'Optional: sync users from Clerk to Convex (the `users` table) via',
-        'webhook. The template already ships the receiver (convex/http.ts).',
+        'The app creates/updates the signed-in user on first load even without',
+        'a webhook. This optional endpoint keeps external profile changes in',
+        'sync and removes users deleted in Clerk.',
         '',
-        'The endpoint and the signing secret CANNOT be created via API (dashboard',
-        'only), so this step is semi-automatic — and you can skip it.',
+        'The endpoint and signing secret are created in Clerk/Svix, so this',
+        'step is semi-automatic and can be completed later.',
       ].join('\n'),
       'Clerk → Convex webhook (optional)',
     );
@@ -104,7 +110,10 @@ export async function setupWebhook(ctx) {
   const secret = String(
     await ui.password({
       message: 'Paste the Signing Secret (whsec_…) — empty to skip:',
-      validate: (v) => (!v || /^whsec_/.test(v.trim()) ? undefined : 'Must start with whsec_'),
+      validate: (v) =>
+        !v || isValidWebhookSecret(v)
+          ? undefined
+          : 'Invalid signing secret. It must be the complete whsec_ value from Clerk.',
     }),
   ).trim();
 
@@ -117,9 +126,15 @@ export async function setupWebhook(ctx) {
   // Document the value locally either way (gitignored): if the Convex set
   // fails, .env.local is where the full secret survives — the terminal only
   // ever shows a masked prefix (never the whole secret in clear text).
+  // Both names are set on purpose: current templates read the canonical
+  // CLERK_WEBHOOK_SIGNING_SECRET (with a legacy fallback), but projects
+  // generated from older template versions read only CLERK_WEBHOOK_SECRET —
+  // the dual write keeps every vintage working.
   await upsertEnvVar(join(dir, ENV_FILE), CLERK_WEBHOOK.secretEnv, secret);
+  await upsertEnvVar(join(dir, ENV_FILE), CLERK_WEBHOOK.legacySecretEnv, secret);
   const set = await run('npx', ['convex', 'env', 'set', CLERK_WEBHOOK.secretEnv, secret], { cwd: dir });
-  if (set.ok) {
+  const setLegacy = await run('npx', ['convex', 'env', 'set', CLERK_WEBHOOK.legacySecretEnv, secret], { cwd: dir });
+  if (set.ok && setLegacy.ok) {
     ui.success('Clerk → Convex webhook configured.');
     ctx.webhook = true;
   } else {
@@ -129,6 +144,7 @@ export async function setupWebhook(ctx) {
         `I couldn't set the signing secret (${masked}) in Convex.`,
         `The full value is saved in ${ENV_FILE}. Run in the project folder:`,
         `  npx convex env set ${CLERK_WEBHOOK.secretEnv} <the ${CLERK_WEBHOOK.secretEnv} value from ${ENV_FILE}>`,
+        `  npx convex env set ${CLERK_WEBHOOK.legacySecretEnv} <same value>`,
       ].join('\n'),
     );
   }
@@ -136,12 +152,15 @@ export async function setupWebhook(ctx) {
 
 function howToLater(endpoint, events = CLERK_WEBHOOK.events) {
   return [
-    'Whenever you want to switch on the user sync:',
+    'First authenticated load already syncs the active user. To also receive',
+    'external profile updates and deletions:',
     '',
     '1) Clerk Dashboard → Configure → Webhooks → Add Endpoint',
     `2) URL: ${endpoint || 'https://<your-deployment>.convex.site' + CLERK_WEBHOOK.route}`,
     `3) Events: ${events.join(', ')}`,
     '4) Copy the Signing Secret and run in the project folder:',
     `   npx convex env set ${CLERK_WEBHOOK.secretEnv} whsec_...`,
+    `   npx convex env set ${CLERK_WEBHOOK.legacySecretEnv} whsec_...`,
+    `   (${CLERK_WEBHOOK.secretEnv} is canonical; older projects read only ${CLERK_WEBHOOK.legacySecretEnv} — setting both covers every version)`,
   ].join('\n');
 }

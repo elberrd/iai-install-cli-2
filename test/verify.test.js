@@ -39,6 +39,37 @@ test('collectFindings: clean project → zero errors', async () => {
   assert.deepEqual(errors, []);
 });
 
+test('collectFindings: deprecated Clerk route matcher is a warning (templates still ship it)', async () => {
+  const dir = await fixture({
+    'package.json': JSON.stringify({ name: 'my-app' }),
+    'iai.config.json': JSON.stringify({ createdWith: 'impactus', addons: [] }),
+    '.env.local': ENV_OK,
+    'proxy.ts': "import { createRouteMatcher } from '@clerk/nextjs/server';\n",
+  });
+  const findings = await collectFindings(dir);
+  assert.ok(
+    findings.some((finding) => finding.level === 'warn' && finding.msg.includes('createRouteMatcher')),
+  );
+  assert.deepEqual(findings.filter((f) => f.level === 'error'), []);
+});
+
+test('collectFindings: createRouteMatcher inside the stamped runtime is never flagged', async () => {
+  // The installer stamps imp/scripts/security-scan.mjs, which names the
+  // deprecated API in its own patterns — a pristine install must stay clean.
+  const dir = await fixture({
+    'package.json': JSON.stringify({ name: 'my-app' }),
+    'iai.config.json': JSON.stringify({ createdWith: 'impactus', addons: [] }),
+    '.env.local': ENV_OK,
+    'imp/scripts/security-scan.mjs': 'const p = /\\bcreateRouteMatcher\\b/;\n',
+    '.claude/skills/design-system/scripts/check.mjs': '// createRouteMatcher is deprecated\n',
+  });
+  const findings = await collectFindings(dir);
+  assert.deepEqual(
+    findings.filter((f) => f.msg.includes('createRouteMatcher') && f.level !== 'ok'),
+    [],
+  );
+});
+
 test('collectFindings: leftover manifest + orphan marker + missing env → errors', async () => {
   const dir = await fixture({
     'package.json': JSON.stringify({ name: 'my-app' }),

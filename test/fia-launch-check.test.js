@@ -42,7 +42,33 @@ test('looksLikeSecret: catches secret-key prefixes, ignores public ones', () => 
 test('detectRung: local → beta → production', () => {
   assert.equal(detectRung({ clerkKey: undefined, vercelLinked: false }), 'local');
   assert.equal(detectRung({ clerkKey: 'pk_test_x', vercelLinked: true }), 'beta');
-  assert.equal(detectRung({ clerkKey: 'pk_live_x', vercelLinked: false }), 'production');
+  assert.equal(
+    detectRung({
+      clerkKey: 'pk_live_x',
+      clerkSecretKey: 'sk_live_x',
+      convexProduction: true,
+      webhookSecret: 'whsec_x',
+      prodUrl: 'https://app.example.com',
+      vercelLinked: true,
+      usesClerk: true,
+      usesConvex: true,
+    }),
+    'production',
+  );
+  assert.equal(
+    detectRung({
+      clerkKey: 'pk_live_x',
+      clerkSecretKey: 'sk_test_x',
+      convexProduction: true,
+      webhookSecret: 'whsec_x',
+      prodUrl: 'https://app.example.com',
+      vercelLinked: true,
+      usesClerk: true,
+      usesConvex: true,
+    }),
+    'beta',
+    'a partial/mixed production setup must never be reported as production',
+  );
   // SQL stacks have no Clerk key — a production URL on an own domain is the live signal.
   assert.equal(
     detectRung({ clerkKey: undefined, vercelLinked: true, prodUrl: 'https://app.example.com' }),
@@ -166,6 +192,45 @@ test('runLaunchChecks: flags the planted defects and summarizes correctly', () =
   assert.equal(by.tasks_done.status, 'skip', 'no ai-docs');
   assert.ok(report.summary.blockers >= 2, 'public secret + webhook without verify');
   assert.ok(report.summary.passes >= 3);
+});
+
+test('runLaunchChecks: Clerk production blocks dev keys, missing prod Convex, webhook and domain', () => {
+  const root = seedProject();
+  mkdirSync(join(root, '.vercel'), { recursive: true });
+  writeFileSync(join(root, '.vercel', 'project.json'), '{"projectId":"x"}');
+  const report = runLaunchChecks(root, { backupsDir: join(root, 'no-backups') });
+  const by = Object.fromEntries(report.checks.map((c) => [c.id, c]));
+  assert.equal(report.rung, 'beta');
+  for (const id of ['clerk_keys', 'clerk_production_webhook', 'production_domain', 'convex_production']) {
+    assert.equal(by[id].status, 'fail', `${id} must block incomplete production`);
+    assert.equal(by[id].level, 'production', `${id} is a production-rung requirement, not a beta publish blocker`);
+  }
+  // Production requirements are counted apart: a healthy beta project must be
+  // able to reach zero blockers (loop-health, --strict, /launch depend on it).
+  assert.ok(report.summary.productionGaps >= 4, 'the four open requirements land in productionGaps');
+
+  writeFileSync(
+    join(root, '.env.production.local'),
+    [
+      'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_live_complete',
+      'CLERK_SECRET_KEY=sk_live_complete',
+      'CLERK_WEBHOOK_SIGNING_SECRET=whsec_completeproduction',
+      'CONVEX_DEPLOY_KEY=prod:complete',
+      'NEXT_PUBLIC_APP_URL=https://app.example.com',
+    ].join('\n'),
+  );
+  const complete = runLaunchChecks(root, { backupsDir: join(root, 'no-backups') });
+  const completeBy = Object.fromEntries(complete.checks.map((c) => [c.id, c]));
+  assert.equal(complete.rung, 'production');
+  for (const id of ['clerk_keys', 'clerk_production_webhook', 'production_domain', 'convex_production']) {
+    assert.equal(completeBy[id].status, 'pass', `${id} is required for the production rung`);
+    assert.equal(completeBy[id].fix, undefined, `${id} must not carry a fix on pass`);
+  }
+  // Informational details (the detected URL) are fine; failure text is not.
+  for (const id of ['clerk_keys', 'clerk_production_webhook', 'convex_production']) {
+    assert.equal(completeBy[id].detail, undefined, `${id} must not carry a failure detail on pass`);
+  }
+  assert.equal(complete.summary.productionGaps, 0);
 });
 
 test('runLaunchChecks: dirty tree and committed .env.local become blockers', () => {

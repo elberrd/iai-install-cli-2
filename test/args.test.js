@@ -43,6 +43,16 @@ test('parseArgs: --keys and --tenancy', () => {
   assert.equal(bad.errors.length, 1);
 });
 
+test('parseArgs: deterministic Clerk app flags are valid and mutually exclusive', () => {
+  const app = parseArgs(['--clerk-app', 'app_2abcXYZ']);
+  assert.equal(app.flags.clerkApp, 'app_2abcXYZ');
+  assert.equal(app.errors.length, 0);
+
+  assert.equal(parseArgs(['--new-clerk-app']).flags.newClerkApp, true);
+  assert.ok(parseArgs(['--clerk-app', 'not-an-app']).errors.length > 0);
+  assert.ok(parseArgs(['--clerk-app', 'app_2abcXYZ', '--new-clerk-app']).errors.length > 0);
+});
+
 test('parseArgs: --template-ref (branch on the gated path); --template no longer exists', () => {
   const ref = parseArgs(['--template-ref', 'feat/nova-feature']);
   assert.equal(ref.flags.templateRef, 'feat/nova-feature');
@@ -144,7 +154,7 @@ test('parseArgs: --stack is a value flag (semantics live in lib/stack.js)', () =
 
 test('helpText: mentions the main flags', () => {
   const h = helpText();
-  for (const flag of ['--yes', '--shadcn-block', '--update-deps', '--push', '--deploy', '--template-id', '--harness', '--stack']) {
+  for (const flag of ['--yes', '--shadcn-block', '--update-deps', '--push', '--deploy', '--template-id', '--clerk-app', '--new-clerk-app', '--harness', '--stack']) {
     assert.ok(h.includes(flag), `help should mention ${flag}`);
   }
 });

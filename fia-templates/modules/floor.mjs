@@ -65,7 +65,7 @@ export function parsePassedCount(outputText) {
     // whitespace only, so the match cannot wander onto the next line.
     /^[^\S\n]*Tests[:\s][^\n]*?(\d+)\s+passed\b/im,
     /^#\s*pass\s+(\d+)\b/im, // node:test TAP summary
-    /(\d+)\s+passing\b/, // mocha
+    /^[^\S\n]*(\d+)\s+passing\b/m, // mocha summary line — anchored so app output ('imported 2026 passing entries') never stamps a garbage floor
     // pytest / generic "N passed" — never a `Test Files`/`Test Suites` census.
     /^(?![^\n]*Test (?:Files|Suites))[^\n]*?(?:^|[\s=])(\d+)\s+passed\b/im,
   ];

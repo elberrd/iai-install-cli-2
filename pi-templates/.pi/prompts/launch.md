@@ -14,7 +14,8 @@ This command PUBLISHES. Before any irreversible or public step (creating a
 repository, deploy, DNS, live key), say what will happen and wait for my "yes".
 
 1. `node imp/scripts/fia-launch-check.mjs --json` → show me the current rung
-   (local / beta / production) and a short summary: blockers ✗, warnings !, ok ✓.
+   (local / beta / production) and a short summary: blockers ✗, production
+   requirements ▲ (gate only the production rung), warnings !, ok ✓.
    If `qa_evidence` warns, suggest `/qa <milestone>` before treating milestones
    as truly done.
 2. Blockers first (Step 0–1 of the cookbook): quality via
@@ -27,6 +28,10 @@ repository, deploy, DNS, live key), say what will happen and wait for my "yes".
 4. Climb one rung at a time (Step 3 = beta on Vercel, Step 4 = production with
    a domain) — secrets always in MY terminal, never in the chat. At the end of
    each rung: smoke test on the real URL and a record in `ai-docs/launch.md`.
+   The ordinary Impactus deploy is Preview-only. Production must fail closed
+   unless Clerk uses a matching `pk_live_`/`sk_live_` pair, Convex is the
+   Production deployment, `CLERK_WEBHOOK_SIGNING_SECRET` is configured, and
+   the final own domain is active. Never promote `pk_test_`/`sk_test_`.
 
 ALWAYS finish with the **How to test** section (public URL, what to check in
 3–6 items) + the next rung, if any. If I'm already in production, run the

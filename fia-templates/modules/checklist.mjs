@@ -4,18 +4,31 @@ import { phaseParams } from './fda-cli.mjs';
 import { artifactsExist, checkAcceptanceChecklist, checklistDrift, parseChecklistItems } from './gates.mjs';
 
 /**
+ * In-process copy of each session's checkbox baseline. The on-disk snapshot
+ * lives under the gitignored data dir, where the permission snapshot cannot
+ * see writes — so a builder could zero the FILE undetected. The count is
+ * therefore also latched in memory the moment it is computed (same process as
+ * the gate); the gate trusts whichever claim is LARGER, since honest work
+ * never shrinks the count. A --resume in a fresh process falls back to the
+ * file — the in-run tampering window is the one this closes.
+ */
+const BASELINE_MEMO = new Map();
+
+/**
  * How many checkboxes the brief carried when the run started, or 0 when no
  * baseline was recorded (a session from before this snapshot existed, or an
  * unreadable brief). 0 means "no claim" — the gate then behaves exactly as it
  * did before, never inventing a violation out of a missing baseline.
  */
 function briefCheckboxBaseline(run) {
+  let fromFile = 0;
   try {
     const n = Number(readFileSync(join(run.sessionDir, 'brief_checkboxes'), 'utf8').trim());
-    return Number.isFinite(n) && n > 0 ? n : 0;
+    fromFile = Number.isFinite(n) && n > 0 ? n : 0;
   } catch {
-    return 0;
+    fromFile = 0;
   }
+  return Math.max(BASELINE_MEMO.get(run.sessionDir) ?? 0, fromFile);
 }
 
 /**
@@ -49,7 +62,9 @@ export function resolveBriefPath(run, promptArg) {
         const baselineFile = join(run.sessionDir, 'brief_checkboxes');
         if (!existsSync(baselineFile)) {
           try {
-            writeFileSync(baselineFile, String(parseChecklistItems(readFileSync(path, 'utf8')).length));
+            const count = parseChecklistItems(readFileSync(path, 'utf8')).length;
+            writeFileSync(baselineFile, String(count));
+            BASELINE_MEMO.set(run.sessionDir, count);
           } catch {
             /* unreadable at start — the gate falls back to "no baseline known" */
           }

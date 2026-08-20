@@ -177,7 +177,7 @@ export const UI_RULES = deepFreeze({
     contextual: false,
     waivable: true,
     description:
-      'Opt-in advanced tables add multi-level grouping, pinning, sizing, density, reorder, versioned per-user persistence with Restore, sticky headers, server-side scale, and virtualization only when this rule applies; a base table does not activate them implicitly.',
+      'Professional tables add multi-level grouping, pinning, sizing, density, reorder, versioned per-user persistence with Restore, sticky headers, server-side scale, and virtualization when this rule applies; a base-only decision must disable them explicitly.',
   },
   'components.kanban': {
     category: 'component',
@@ -896,6 +896,16 @@ export function updateUiCapability(contract, name, enabled) {
   if (enabled === true && name === 'kanban') {
     setCapability('dragAndDrop', true, 'required_by_kanban');
   }
+  if (enabled === true && name === 'dataTables' && contract.capabilities.dataTables === false) {
+    // Professional default — but only while the contract still permits the
+    // advanced controls. An explicit waived/not_applicable decision on
+    // data_table.advanced_controls stands: enabling the base table must not
+    // force a capability the validator will (rightly) reject.
+    const advancedStatus = contract.rules?.['data_table.advanced_controls']?.status;
+    if (advancedStatus === 'optional' || advancedStatus === 'required') {
+      setCapability('advancedDataTableControls', true, 'professional_default_for_dataTables');
+    }
+  }
   if (enabled === true && name === 'advancedDataTableControls') {
     setCapability('dataTables', true, 'required_by_advancedDataTableControls');
   }
@@ -1504,7 +1514,18 @@ function cli(argv) {
   throw new UiContractError(`Unknown command: ${command}`);
 }
 
-const isMain = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+const isMain = (() => {
+  // realpath both sides: Node realpaths the ESM entry for import.meta.url, so
+  // a symlinked invocation path (macOS /tmp, linked checkouts) would otherwise
+  // silently skip the CLI — a fail-closed gate must never no-op with exit 0.
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
+  } catch {
+    return import.meta.url === pathToFileURL(resolve(entry)).href;
+  }
+})();
 if (isMain) {
   try {
     process.exitCode = cli(process.argv.slice(2));

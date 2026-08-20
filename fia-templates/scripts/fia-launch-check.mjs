@@ -6,9 +6,8 @@
  *
  * Rungs:
  *   local      — never published (no Vercel link)
- *   beta       — published on a vercel.app URL (still on dev keys/URLs)
- *   production — live keys detected (pk_live_) or, on stacks without Clerk,
- *                a production URL on the project's own domain
+ *   beta       — linked/published on Vercel, but not all production signals
+ *   production — own domain plus a complete live auth/backend/webhook set
  *
  * Stack-aware: the ai-docs/stack.md manifest decides which checks apply.
  * Convex/Clerk/Vercel checks only run when the stack declares them (or their
@@ -24,13 +23,13 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { readPlanTasks, readPlanSpecs } from './plan-docs.mjs';
 import { qaEvidenceGaps } from '../modules/qa-gate.mjs';
 import { hasSourcesGone, runWikiCheck } from './wiki-check.mjs';
 import { runSecurityScan } from './security-scan.mjs';
 import { validateUiContract } from './ui-contract.mjs';
 import { verifyUiKitReceipt } from '../modules/ui-kit-receipt.mjs';
+import { isMainModule } from '../modules/utils.mjs';
 
 const MAX_SRC_FILES = 400; // security greps stay cheap even on big projects
 
@@ -55,11 +54,27 @@ export function looksLikeSecret(value) {
 }
 
 /** Which rung the project is on, from deterministic signals. */
-export function detectRung({ clerkKey, vercelLinked, prodUrl }) {
-  if (String(clerkKey || '').startsWith('pk_live_')) return 'production';
-  // Stacks without Clerk have no pk_live_ signal — a production URL on the
-  // project's own domain is the equivalent "really live" indicator.
-  if (prodUrl) return 'production';
+export function detectRung({
+  clerkKey,
+  clerkSecretKey,
+  convexProduction,
+  webhookSecret,
+  vercelLinked,
+  prodUrl,
+  usesClerk = Boolean(clerkKey),
+  usesConvex = false,
+}) {
+  if (usesClerk) {
+    const liveKeys =
+      String(clerkKey || '').startsWith('pk_live_') &&
+      String(clerkSecretKey || '').startsWith('sk_live_');
+    if (liveKeys && prodUrl && webhookSecret && (!usesConvex || convexProduction)) {
+      return 'production';
+    }
+  } else if (prodUrl) {
+    // Stacks without Clerk use an own-domain URL as the live signal.
+    return 'production';
+  }
   if (vercelLinked) return 'beta';
   return 'local';
 }
@@ -241,8 +256,30 @@ export function runLaunchChecks(root = process.cwd(), opts = {}) {
     ['NEXT_PUBLIC_APP_URL', 'NEXT_PUBLIC_SITE_URL', 'BETTER_AUTH_URL', 'APP_URL', 'SITE_URL']
       .map((k) => prodEnv[k] || env[k])
       .find(ownDomain) || null;
+  const productionClerkKey =
+    prodEnv.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || (clerkKey.startsWith('pk_live_') ? clerkKey : '');
+  const localClerkSecret = env.CLERK_SECRET_KEY || '';
+  const productionClerkSecret =
+    prodEnv.CLERK_SECRET_KEY || (localClerkSecret.startsWith('sk_live_') ? localClerkSecret : '');
+  const productionWebhookSecret =
+    prodEnv.CLERK_WEBHOOK_SIGNING_SECRET || prodEnv.CLERK_WEBHOOK_SECRET || '';
+  // Production markers count only from the production env mirror: a prod:
+  // CONVEX_DEPLOYMENT inside .env.local is the misconfiguration
+  // convex_dev_local warns about, never a green production signal.
+  const productionConvex = Boolean(
+    prodEnv.CONVEX_DEPLOY_KEY || /^(?:prod|production):/.test(prodEnv.CONVEX_DEPLOYMENT || ''),
+  );
 
-  const rung = detectRung({ clerkKey, vercelLinked, prodUrl: usesClerk ? null : prodUrl });
+  const rung = detectRung({
+    clerkKey: productionClerkKey,
+    clerkSecretKey: productionClerkSecret,
+    convexProduction: productionConvex,
+    webhookSecret: productionWebhookSecret,
+    vercelLinked,
+    prodUrl,
+    usesClerk,
+    usesConvex,
+  });
 
   // ── Versioning ──
   const inRepo = git(root, ['rev-parse', '--is-inside-work-tree']) === 'true';
@@ -434,7 +471,7 @@ export function runLaunchChecks(root = process.cwd(), opts = {}) {
       .map((dir) => join(root, dir))
       .filter((dir) => existsSync(dir));
     const uiFiles = uiRoots.reduce(
-      (count, dir) => count + listFiles(dir, ['.tsx', '.jsx', '.vue', '.svelte']).length,
+      (count, dir) => count + listFiles(dir, ['.tsx', '.jsx', '.vue', '.svelte', '.astro']).length,
       0,
     );
     const frontendDeclared = /\|\s*Frontend\s*\|/i.test(stackMd || '');
@@ -820,7 +857,7 @@ export function runLaunchChecks(root = process.cwd(), opts = {}) {
 
   // ── Secrets ──
   if (inRepo) {
-    const tracked = (git(root, ['ls-files', '.env', '.env.local', '.env.production', '.env.development']) || '')
+    const tracked = (git(root, ['ls-files', '.env', '.env.local', '.env.production', '.env.production.local', '.env.development', '.env.development.local']) || '')
       .split('\n')
       .filter(Boolean);
     add(
@@ -961,10 +998,10 @@ export function runLaunchChecks(root = process.cwd(), opts = {}) {
       'Security',
       'webhook_verify',
       'blocker',
-      /\.verify\s*\(/.test(httpTs) ? 'pass' : 'fail',
+      /(?:\.verify|\bverifyWebhook)\s*\(/.test(httpTs) ? 'pass' : 'fail',
       'Webhooks verify their signature',
       null,
-      'verify the signature (Svix/Stripe) over the RAW body before any JSON.parse',
+      'verify the signature (official Clerk helper / Stripe) over the RAW body before any JSON.parse',
     );
 
   // ── Production ──
@@ -1012,15 +1049,53 @@ export function runLaunchChecks(root = process.cwd(), opts = {}) {
         'normal — production is published via npx convex deploy',
       );
   }
-  if (clerkKey)
+  if (usesClerk) {
+    const livePair =
+      productionClerkKey.startsWith('pk_live_') && productionClerkSecret.startsWith('sk_live_');
     add(
       'Production',
       'clerk_keys',
-      'info',
-      'pass',
-      clerkKey.startsWith('pk_live_') ? 'Clerk in PRODUCTION (pk_live)' : 'Clerk in DEV (pk_test)',
-      null,
-      clerkKey.startsWith('pk_live_') ? null : 'real production requires a prod Clerk instance (your own domain)',
+      'production',
+      livePair ? 'pass' : 'fail',
+      'Clerk Production uses a matching pk_live_/sk_live_ pair',
+      livePair ? null : 'development or incomplete Clerk key pair',
+      livePair
+        ? null
+        : 'configure both live keys in Vercel Production AND record them in .env.production.local (gitignored) so this check can see them — pk_test_/sk_test_ stay in local/Preview and the explicit beta rung',
+    );
+    const prodWebhookOk = productionWebhookSecret.startsWith('whsec_');
+    add(
+      'Production',
+      'clerk_production_webhook',
+      'production',
+      prodWebhookOk ? 'pass' : 'fail',
+      'Clerk Production webhook signing secret configured',
+      prodWebhookOk ? null : productionWebhookSecret ? 'invalid signing-secret format' : 'not found in production env metadata',
+      prodWebhookOk
+        ? null
+        : 'create the webhook in the Clerk production instance, set CLERK_WEBHOOK_SIGNING_SECRET on Convex Production (npx convex env set … --prod), and record it in .env.production.local (gitignored) so this check can see it',
+    );
+    add(
+      'Production',
+      'production_domain',
+      'production',
+      prodUrl ? 'pass' : 'fail',
+      'Production URL uses the final own domain',
+      prodUrl || 'no own-domain URL in .env.production(.local)',
+      prodUrl ? null : 'attach the domain, then record NEXT_PUBLIC_APP_URL (or NEXT_PUBLIC_SITE_URL) in .env.production.local',
+    );
+  }
+  if (usesConvex)
+    add(
+      'Production',
+      'convex_production',
+      'production',
+      productionConvex ? 'pass' : 'fail',
+      'Convex Production deployment is explicit',
+      productionConvex ? null : 'no production deploy key/deployment marker found',
+      productionConvex
+        ? null
+        : 'configure CONVEX_DEPLOY_KEY in Vercel Production or record a prod: CONVEX_DEPLOYMENT in .env.production.local',
     );
   if (!usesClerk && (usesSql || declared)) {
     // The production signal for SQL stacks (Better Auth + Neon/Supabase).
@@ -1100,11 +1175,16 @@ export function runLaunchChecks(root = process.cwd(), opts = {}) {
     backups.length ? 'rehearse a RESTORE once (on a test deployment) — an untested backup is not a backup' : backupFix,
   );
 
-  const summary = { blockers: 0, warns: 0, passes: 0, skips: 0 };
+  // Production-rung requirements (level 'production') fail closed for the
+  // production rung but are NOT publish blockers for a beta/preview — they
+  // get their own bucket so `--strict`, /launch and loop-health stay green on
+  // a healthy dev/beta project.
+  const summary = { blockers: 0, productionGaps: 0, warns: 0, passes: 0, skips: 0 };
   for (const c of checks) {
     if (c.status === 'pass') summary.passes++;
     else if (c.status === 'skip') summary.skips++;
     else if (c.level === 'blocker') summary.blockers++;
+    else if (c.level === 'production') summary.productionGaps++;
     else summary.warns++;
   }
   return { rung, checks, summary, root };
@@ -1114,13 +1194,14 @@ export function runLaunchChecks(root = process.cwd(), opts = {}) {
 
 const RUNG_LABEL = {
   local: 'LOCAL — the app has never been published',
-  beta: 'BETA LIVE — published on Vercel (still on dev keys/URLs)',
-  production: 'PRODUCTION — live keys/domain detected',
+  beta: 'BETA/PREVIEW — linked on Vercel; production requirements are not complete',
+  production: 'PRODUCTION — live keys, backend, webhook, and own domain detected',
 };
 
 /** Human report. Pure string building — easy to test. */
 export function renderReport(report) {
-  const glyph = (c) => (c.status === 'pass' ? '✓' : c.status === 'skip' ? '–' : c.level === 'blocker' ? '✗' : '!');
+  const glyph = (c) =>
+    c.status === 'pass' ? '✓' : c.status === 'skip' ? '–' : c.level === 'blocker' ? '✗' : c.level === 'production' ? '▲' : '!';
   const lines = [];
   lines.push('Launch readiness — report (nothing was published by this command)');
   lines.push(`Current rung: ${RUNG_LABEL[report.rung] || report.rung}`);
@@ -1134,20 +1215,26 @@ export function renderReport(report) {
     if (c.status === 'fail' && c.fix) lines.push(`      → ${c.fix}`);
   }
   const s = report.summary;
-  lines.push('', `Result: ${s.passes} ok · ${s.blockers} blocker(s) · ${s.warns} warning(s) · ${s.skips} n/a`);
+  const prodGaps = s.productionGaps || 0;
+  lines.push(
+    '',
+    `Result: ${s.passes} ok · ${s.blockers} blocker(s) · ${prodGaps} production requirement(s) open (▲) · ${s.warns} warning(s) · ${s.skips} n/a`,
+  );
   lines.push(
     s.blockers > 0
       ? 'Fix the blockers (✗) before publishing. /launch (in pi) walks you through each one.'
       : report.rung === 'production'
         ? 'All green on the essentials. Run this report again after every big change.'
-        : 'No blockers — /launch (in pi) takes you to the next rung.',
+        : prodGaps > 0
+          ? `No blockers for a beta/preview publish. ${prodGaps} production requirement(s) (▲) stay open until the production rung — /launch Step 4 resolves them.`
+          : 'No blockers — /launch (in pi) takes you to the next rung.',
   );
   return lines.join('\n');
 }
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
-const isMain = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+const isMain = isMainModule(import.meta.url);
 if (isMain) {
   const argv = process.argv.slice(2);
   const dirIx = argv.indexOf('--dir');

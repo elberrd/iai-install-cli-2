@@ -12,7 +12,7 @@
 // Usage: node imp/scripts/env-preflight.mjs [--json] [--dir <root>]
 // Exit 0 = every required key present (or nothing declared); 1 = keys missing.
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseEnvFile, stackServices } from './fia-launch-check.mjs';
@@ -34,7 +34,7 @@ const RULES = [
     service: 'clerk',
     when: (s) => s.has('clerk'),
     keys: ['NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY', 'CLERK_SECRET_KEY'],
-    fix: 'create the app at https://dashboard.clerk.com → API keys → the engineer pastes both keys into .env.local (dashboard-only — a human step)',
+    fix: 'run the Impactus installer — or manually: `npx -y clerk@3.1.0 auth login`, then `npx -y clerk@3.1.0 link`, then `npx -y clerk@3.1.0 env pull --instance dev --file .env.local` to link a dev app and write both keys',
   },
   {
     service: 'database',
@@ -117,7 +117,17 @@ export function renderPreflight(report) {
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
-const isMain = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+// realpath both sides: Node realpaths the ESM entry for import.meta.url, so a
+// symlinked invocation path would otherwise make the CLI a silent no-op.
+const isMain = (() => {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
+  } catch {
+    return import.meta.url === pathToFileURL(resolve(entry)).href;
+  }
+})();
 if (isMain) {
   const argv = process.argv.slice(2);
   const dirIx = argv.indexOf('--dir');

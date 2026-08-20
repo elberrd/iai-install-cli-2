@@ -291,7 +291,7 @@ test('runUiGate: a base-only DataTable does not activate the advanced table rubr
   assert.match(reviewerPrompt, /compact removable filter chips/i);
   assert.match(reviewerPrompt, /Clear filters/i);
   assert.match(reviewerPrompt, /sort.*hide.*reset/i);
-  assert.match(reviewerPrompt, /advancedControls.*(?:omitted|default false)/i);
+  assert.match(reviewerPrompt, /advancedControls=\{false\}/i);
   assert.match(reviewerPrompt, /no advanced-only/i);
   assert.match(reviewerPrompt, /SKIP data_table\.advanced_controls/);
   assert.doesNotMatch(
@@ -315,7 +315,7 @@ test('runUiGate: advanced DataTable rubric requires truthful grouped counts and 
 
   assert.equal(await runUiGate(run, UI_BRIEF), null);
   assert.match(reviewerPrompt, /APPLY data_table\.advanced_controls/);
-  assert.match(reviewerPrompt, /advancedControls=\{true\}/i);
+  assert.match(reviewerPrompt, /advancedControls.*(?:omitted|default true|pass true)/i);
   assert.match(reviewerPrompt, /ordered grouping lane/i);
   assert.match(reviewerPrompt, /leaf-record counts.*never expanded DOM leaves/i);
   assert.match(reviewerPrompt, /Restore defaults survives reload/i);
