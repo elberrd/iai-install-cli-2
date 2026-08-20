@@ -34,6 +34,7 @@ import {
   SERVICES,
 } from '../config.js';
 import { MARKER_HINT } from '../lib/addons.js';
+import { validateClerkKeyPair } from '../lib/clerk.js';
 import * as ui from '../lib/ui.js';
 
 // Keys that EVERY full installation writes to .env.local.
@@ -48,6 +49,9 @@ const CORE_ENV_KEYS = [
 const SKILLS_LOCK_FILE = 'skills-lock.json';
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.next', '_generated', 'public']);
+// Trees the installer itself stamps (agent harness + FIA runtime) — never app
+// code, so deprecated-API scans must not walk them.
+const RUNTIME_DIRS = new Set(['imp', '.claude', '.agents', '.cursor', '.pi', 'ai-docs']);
 const TEXT_EXT = /\.(ts|tsx|js|jsx|mjs|mts|cjs|json|yml|yaml|md|css|example|txt)$/;
 
 /**
@@ -142,6 +146,14 @@ export async function collectFindings(dir) {
       if (env[key]) ok(`${key} set`);
       else error(`${key} empty/missing in ${ENV_FILE} — the app will not start without it.`);
     }
+    if (env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && env.CLERK_SECRET_KEY) {
+      const pair = validateClerkKeyPair(
+        env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+        env.CLERK_SECRET_KEY,
+      );
+      if (pair.ok) ok(`Clerk keys form a matching ${pair.environment} pair`);
+      else error(`${pair.reason} Pull both keys from the same Clerk instance.`);
+    }
     if (chosen) {
       for (const svc of SERVICES) {
         if (!svc.when?.addon || !chosen.includes(svc.when.addon)) continue;
@@ -159,6 +171,23 @@ export async function collectFindings(dir) {
         }
       }
     }
+  }
+
+  // App code only: the stamped agent/FIA runtime mentions the API by name
+  // (security-scan patterns), so those trees must never trip this check.
+  const deprecatedClerk = await filesContaining(dir, 'createRouteMatcher', {
+    codeOnly: true,
+    skipDirs: RUNTIME_DIRS,
+  });
+  if (deprecatedClerk.length > 0) {
+    // Warning (not error) while the shipped templates still use the API — a
+    // pristine install must not report itself broken. Escalate to error once
+    // live1/live2 migrate to auth.protect().
+    warn(
+      `deprecated Clerk createRouteMatcher found in ${deprecatedClerk.slice(0, 5).join(', ')} — protect each server resource with auth.protect() instead.`,
+    );
+  } else {
+    ok('Clerk resource protection: no deprecated createRouteMatcher usage');
   }
 
   // 4. Installation
@@ -241,6 +270,11 @@ function sample(names, max = 5) {
 
 /** Scan the tree for ANY leftover addon marker. */
 async function filesWithMarkers(root) {
+  return filesContaining(root, MARKER_HINT);
+}
+
+/** Scan bounded text files for a literal contract marker or deprecated API. */
+async function filesContaining(root, needle, { codeOnly = false, skipDirs = null } = {}) {
   const hits = [];
   async function walk(dirPath, relPath) {
     const entries = await readdir(dirPath, { withFileTypes: true });
@@ -248,14 +282,16 @@ async function filesWithMarkers(root) {
       const full = join(dirPath, entry.name);
       const rel = relPath ? `${relPath}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
+        if (skipDirs && !relPath && skipDirs.has(entry.name)) continue;
         if (!SKIP_DIRS.has(entry.name)) await walk(full, rel);
         continue;
       }
-      if (!TEXT_EXT.test(entry.name) && entry.name !== '.env.example') continue;
+      if (codeOnly && !/\.(?:ts|tsx|js|jsx|mjs|mts|cjs)$/.test(entry.name)) continue;
+      if (!codeOnly && !TEXT_EXT.test(entry.name) && entry.name !== '.env.example') continue;
       const info = await stat(full);
       if (info.size > 1024 * 1024) continue;
       const content = await readFile(full, 'utf8');
-      if (content.includes(MARKER_HINT)) hits.push(rel);
+      if (content.includes(needle)) hits.push(rel);
     }
   }
   await walk(root, '');

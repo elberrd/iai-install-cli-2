@@ -154,7 +154,7 @@ test(
   },
 );
 
-test('professional DataTable base chrome is not hidden behind the advanced opt-in', { skip }, () => {
+test('professional DataTable base chrome remains available with the explicit compact opt-out', { skip }, () => {
   const core = readHarness('.claude', 'skills', 'design-system', 'references', 'core-kit.md');
   const interaction = readHarness('.claude', 'skills', 'design-system', 'references', 'interaction.md');
   const frontend = readHarness('.claude', 'skills', 'frontend-profissional', 'references', 'tabelas.md');
@@ -186,7 +186,7 @@ test('professional DataTable base chrome is not hidden behind the advanced opt-i
   }
 });
 
-test('advancedControls is a deterministic DataTable call-site opt-in', { skip }, () => {
+test('advancedControls is professional by default with a deterministic compact opt-out', { skip }, () => {
   const sources = [
     ['core kit', readHarness('.claude', 'skills', 'design-system', 'references', 'core-kit.md')],
     ['table wiring', readHarness('.claude', 'skills', 'design-system', 'references', 'tables.md')],
@@ -201,19 +201,17 @@ test('advancedControls is a deterministic DataTable call-site opt-in', { skip },
   for (const [name, text] of sources) {
     const normalized = text.replace(/\s+/g, ' ');
     assert.match(normalized, /advancedControls/i, `${name} lost the explicit advanced prop`);
-    assert.match(
-      normalized,
-      /advancedControls[\s\S]{0,240}(?:only when|only while)[\s\S]{0,160}(?:APPLY|applies)|(?:APPLY|applies)[\s\S]{0,240}advancedControls/i,
-      `${name} no longer gates advancedControls on the contract decision`,
-    );
+    assert.match(normalized, /default(?:s to)?\s*`?true/i, `${name} lost the professional default`);
+    assert.match(normalized, /base-only[\s\S]{0,220}advancedControls=\{false\}/i, `${name} lost the compact opt-out`);
   }
 
   const tables = sources.find(([name]) => name === 'table wiring')[1];
   assert.match(tables, /advancedControls=\{true\}/);
-  assert.match(tables, /omit[^.]+advancedControls[^.]+default false/i);
+  assert.match(tables, /advancedControls[^.]+default `true`/i);
+  assert.match(tables, /base-only[^.]+advancedControls=\{false\}/i);
   assert.match(
     tables.replace(/\s+/g, ' '),
-    /default false[^.]+(?:group|pin)[^.]+(?:sizing|density)[^.]+persistence[^.]+sticky/i,
+    /explicit false[^.]+(?:group|pin)[^.]+(?:resize|density)[^.]+persistence[^.]+sticky/i,
   );
 });
 

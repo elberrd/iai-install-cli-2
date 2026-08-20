@@ -22,8 +22,14 @@ and skipped; `optional` + `true` was explicitly activated by an approved need.
 Write a confirmed boolean only through
 `node .agents/scripts/ui-contract.mjs capability --name <capability> --enabled true|false --json`.
 Enabling `kanban` also enables `dragAndDrop`; enabling
-`advancedDataTableControls` also enables `dataTables`. A conflicting disable is
-rejected atomically: disable the consumer first.
+`advancedDataTableControls` also enables `dataTables`; a false→true
+`dataTables` enable also turns on `advancedDataTableControls` (the
+professional default — it fires only while the advanced-controls rule is
+`optional`/`required`, never over a waived/not_applicable decision, and an
+explicit disable afterwards records the opt-out). Because the write is
+atomic, preview every cascaded boolean to the engineer BEFORE running the
+command. A conflicting disable is rejected atomically: disable the consumer
+first.
 
 1. Read PRD, stack, optional architecture/routes, existing contract and recent
    `ui-contract` decision logs.

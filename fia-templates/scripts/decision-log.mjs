@@ -49,7 +49,7 @@
  *   - Recommendation: Convex
  *   - Answer: Convex (accepted)
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -445,5 +445,15 @@ export function main(argv) {
   fail('usage: decision-log <open|log|note|close|find|latest|list> …  (see the header of this file)');
 }
 
-const isMain = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+// realpath both sides: Node realpaths the ESM entry for import.meta.url, so a
+// symlinked invocation path would otherwise make the CLI a silent no-op.
+const isMain = (() => {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
+  } catch {
+    return import.meta.url === pathToFileURL(resolve(entry)).href;
+  }
+})();
 if (isMain) main(process.argv.slice(2));

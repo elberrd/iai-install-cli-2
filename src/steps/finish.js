@@ -173,7 +173,7 @@ export async function finish(ctx) {
       ctx.fiaInstalled
         ? fiaNeedsLogin
           ? `FIA: installed — last step: run \`${agentCmd(ctx)}\` and type /login openai-codex (only that login)`
-          : `FIA: installed — run \`${agentCmd(ctx)}\` and use /fia, /map, /task, /goal, /qa, /evolve (plan: npm run plan · agents: npm run agents · viewer: npm run fda:viewer · terminal dashboard: npm run tui)`
+          : `FIA: installed — run \`${agentCmd(ctx)}\` and use /fia, /map, /task, /goal, /qa, /ui-contract, /evolve (plan: npm run plan · agents: npm run agents · viewer: npm run fda:viewer · terminal dashboard: npm run tui)`
         : null,
       ctx.fiaInstalled
         ? 'Codex outage? `imp handoff` continues your newest Pi conversation in the `claude` CLI.'
@@ -355,28 +355,14 @@ export async function finish(ctx) {
     'Next steps',
   );
 
-  ui.note(
-    [
-      'ALWAYS use http://localhost:3000 (avoid the network IP, e.g. 192.168.x.x —',
-      'Clerk in dev expects localhost).',
-      '',
-      'If the login screen keeps loading/loops, or you see a 431 error /',
-      '"instance keys do not match": those are cookies from a PREVIOUS Clerk',
-      'instance stored on this localhost. Each installation creates a new Clerk',
-      'app, and the browser still has the old app\'s cookie — hence the loop.',
-      '',
-      'Fix: open an incognito window (Cmd/Ctrl+Shift+N) OR clear the localhost',
-      'cookies (DevTools → Application → Cookies → localhost → Clear) and reload.',
-    ].join('\n'),
-    'Login — read this if it gets stuck',
-  );
+  ui.info('Use http://localhost:3000 for local Clerk development (not the network IP).');
 
   const start = ctx.flags?.yes
     ? false
     : await ui.confirm({ message: 'Start Next.js now (npm run dev)?', initialValue: false });
   if (start) {
     ui.info('Tip: run `npm run dev:convex` in another terminal for backend hot-reload. Ctrl+C stops it.');
-    ui.info('Login stuck/looping? Use an incognito window or clear the localhost cookies.');
+    ui.info('If login later shows 431/instance mismatch, clear localhost cookies or use an incognito window.');
     await runInherit('npm', ['run', 'dev'], { cwd: ctx.dir });
   }
 

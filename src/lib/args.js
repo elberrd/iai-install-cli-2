@@ -10,6 +10,7 @@ const VALUE_FLAGS = new Map([
   ['--dir', 'dir'],
   ['--template-ref', 'templateRef'], // template branch/tag (on the gated download)
   ['--template-id', 'templateId'], // id from the TEMPLATES catalog (live1 | live2 | …)
+  ['--clerk-app', 'clerkApp'], // deterministic Clerk application selection (app_...)
   ['--update-deps', 'updateDeps'], // none | safe
   ['--shadcn-preset', 'shadcnPreset'],
   ['--shadcn-block', 'shadcnBlock'], // "sidebar-07", "dashboard-01,login-01" or "none"
@@ -50,6 +51,7 @@ const BOOL_FLAGS = new Map([
   ['--private', 'private'],
   ['--skip-shadcn', 'skipShadcn'],
   ['--skip-webhook', 'skipWebhook'],
+  ['--new-clerk-app', 'newClerkApp'], // force a new Clerk application instead of reusing one
   ['--skip-storage', 'skipStorage'],
   ['--skip-github', 'skipGithub'],
   ['--skip-deploy', 'skipDeploy'],
@@ -142,6 +144,12 @@ export function parseArgs(argv) {
   if (positionals.length > 1) errors.push(`Extra arguments ignored: ${positionals.slice(1).join(' ')}`);
 
   if (flags.public && flags.private) errors.push('Use --public OR --private, not both.');
+  if (flags.clerkApp && flags.newClerkApp) {
+    errors.push('Use --clerk-app OR --new-clerk-app, not both.');
+  }
+  if (flags.clerkApp && !/^app_[A-Za-z0-9]+$/.test(flags.clerkApp)) {
+    errors.push('--clerk-app must be a Clerk application ID (app_...).');
+  }
   if (flags.updateDeps && !['none', 'safe'].includes(flags.updateDeps)) {
     errors.push('--update-deps accepts: none | safe');
   }
@@ -251,6 +259,8 @@ Options:
   --template-id <id>       Catalog template: live1 (default) | live2
   --template-ref <branch>  Template branch/tag on the gated download (test
                            branches as a student)
+  --clerk-app <app_id>     Reuse and link this exact Clerk application
+  --new-clerk-app          Always create a new Clerk application
 
   --update-deps <mode>     Update dependencies after the download:
                            none (keep) | safe (npm update — patch/minor)
@@ -286,7 +296,7 @@ Options:
   --push | --no-push       Create the repo on GitHub and push (or not)
   --skip-github            Skips commit + GitHub
 
-  --deploy | --no-deploy   Deploy to Vercel at the end (or not)
+  --deploy | --no-deploy   Deploy to Vercel Preview at the end (or not)
   --skip-deploy            Same as --no-deploy
 
   --no-harness             (only with --mode full) installs the template WITHOUT the harness

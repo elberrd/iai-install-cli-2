@@ -34,7 +34,7 @@
  *         computing the rolling sha1 by hand is not a thing an agent can do.
  */
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parse as parseYaml } from 'yaml';
@@ -648,7 +648,17 @@ export function renderStamp(result) {
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
-const isMain = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+// realpath both sides: Node realpaths the ESM entry for import.meta.url, so a
+// symlinked invocation path would otherwise make the CLI a silent no-op.
+const isMain = (() => {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
+  } catch {
+    return import.meta.url === pathToFileURL(resolve(entry)).href;
+  }
+})();
 if (isMain) {
   const argv = process.argv.slice(2);
   const dirIx = argv.indexOf('--dir');

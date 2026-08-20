@@ -4,7 +4,13 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stateDirPath } from '../src/lib/state-dir.js';
-import { hasStateMarker, LEGACY_STATE_MARKER, STATE_MARKER } from '../src/steps/project.js';
+import {
+  hasStateMarker,
+  LEGACY_STATE_MARKER,
+  readInstallState,
+  STATE_MARKER,
+  updateInstallState,
+} from '../src/steps/project.js';
 
 const makeHome = () => mkdtempSync(join(tmpdir(), 'impactus-state-home-'));
 
@@ -50,4 +56,17 @@ test('hasStateMarker: accepts the current AND the pre-rebrand marker name', () =
   const legacy = mkdtempSync(join(tmpdir(), 'impactus-marker-'));
   writeFileSync(join(legacy, LEGACY_STATE_MARKER), '{}\n');
   assert.equal(hasStateMarker(legacy), true, 'an install started by the old CLI still resumes');
+});
+
+test('install recovery marker merges Clerk provenance without losing existing fields', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'impactus-install-state-'));
+  writeFileSync(join(root, STATE_MARKER), JSON.stringify({ version: 'old', startedAt: 'then' }));
+
+  await updateInstallState(root, { clerkAppCreatedByInstaller: 'app_alpha1' });
+
+  assert.deepEqual(await readInstallState(root), {
+    version: 'old',
+    startedAt: 'then',
+    clerkAppCreatedByInstaller: 'app_alpha1',
+  });
 });

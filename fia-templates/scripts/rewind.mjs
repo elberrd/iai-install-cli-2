@@ -28,7 +28,7 @@
  */
 import Database from 'better-sqlite3';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, realpathSync, rmSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { activeFdaLock } from './fda-lock.mjs';
@@ -502,7 +502,17 @@ function flagValue(argv, flag) {
   return ix !== -1 && argv[ix + 1] !== undefined ? argv[ix + 1] : undefined;
 }
 
-const isMain = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+// realpath both sides: Node realpaths the ESM entry for import.meta.url, so a
+// symlinked invocation path would otherwise make the CLI a silent no-op.
+const isMain = (() => {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
+  } catch {
+    return import.meta.url === pathToFileURL(resolve(entry)).href;
+  }
+})();
 if (isMain) {
   const argv = process.argv.slice(2);
   const root = resolve(flagValue(argv, '--dir') ?? process.cwd());

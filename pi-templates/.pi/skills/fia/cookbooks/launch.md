@@ -51,10 +51,14 @@ Clerk's) require one.
 
 ## Step 0 — Read the facts
 
-Run the checker, show a short summary (rung + blockers + warns). Every
-**blocker** must be resolved before publishing: fix code via FDA, fix git via
-commands, fix leaked env keys IMMEDIATELY (untrack + ROTATE the exposed key —
-a secret that ever hit git history is burned).
+Run the checker, show a short summary (rung + blockers + production
+requirements + warns). Every **blocker** (✗) must be resolved before
+publishing ANY rung: fix code via FDA, fix git via commands, fix leaked env
+keys IMMEDIATELY (untrack + ROTATE the exposed key — a secret that ever hit
+git history is burned). **Production requirements** (▲ — live Clerk keys,
+production Convex, production webhook secret, own domain) gate only the
+production rung (Step 4): they stay open during an explicit beta and that is
+fine — never block a beta publish on them.
 
 ## Step 1 — Gate: ready (work, git, CI)
 
@@ -122,7 +126,11 @@ follows it.
    issuer, while Clerk is still dev), plus addon keys (Resend, Stripe test…).
 4. **Webhook** (when the project uses it): Clerk dashboard → Webhooks → add
    endpoint `https://<prod-deployment>.convex.site/clerk-users-webhook` →
-   copy signing secret → `npx convex env set CLERK_WEBHOOK_SECRET … --prod`.
+   copy signing secret →
+   `npx convex env set CLERK_WEBHOOK_SIGNING_SECRET … --prod` AND
+   `npx convex env set CLERK_WEBHOOK_SECRET … --prod` (canonical + legacy:
+   projects from older template versions read only the legacy name — setting
+   both covers every version).
 5. **Deploy**: confirm, then `vercel deploy --prod --yes`. The template's
    `vercel.json` build (`npx convex deploy --cmd 'npm run build'`) pushes the
    functions to production and builds against the prod URL in one shot.
@@ -158,7 +166,9 @@ when that runbook is missing — never improvise around it; have `/stack`
 generate the doc first.
 
 Auth dev keys work on the vercel.app URL with a "development" banner and a
-user cap (Clerk) — fine for a beta; say so honestly and point at the next rung.
+user cap (Clerk) — fine for an explicit beta; say so honestly and point at the
+next rung. The ordinary Impactus installer deploys an even safer Vercel
+Preview backed by Convex dev and never writes these keys to Production.
 
 ## Step 4 — Rung PRODUCTION (own domain, live keys)
 
@@ -170,16 +180,18 @@ R2 CORS with the domain, and the same payments flow below.)
 
 1. **Domain on Vercel**: project → Domains → add; apply the DNS records shown;
    wait until it turns green.
-2. **Clerk production instance**: Clerk dashboard → Create production instance
-   (it clones the dev config). Add the DNS records Clerk asks for. VERIFY the
-   `convex` JWT template exists in the production instance (recreate with the
-   same claims if not — login breaks without it). Copy `pk_live_` /
-   `sk_live_`.
+2. **Clerk production instance**: after confirmation, run
+   `npx -y clerk@3.1.0 --mode human deploy` from the linked project (or use the
+   Clerk dashboard). Complete its domain/DNS/OAuth handoff. VERIFY the `convex`
+   JWT template exists with `aud: "convex"` and lifetime 3600 seconds. Copy
+   the resulting `pk_live_` / `sk_live_` only in your own terminal.
 3. **Swap keys**: replace the two Clerk vars on Vercel (production) with the
    live keys; `npx convex env set CLERK_JWT_ISSUER_DOMAIN <prod-issuer> --prod`
    (now `clerk.<domain>`); recreate the webhook in the PRODUCTION Clerk
    instance pointing at the same convex.site URL → new secret →
-   `npx convex env set CLERK_WEBHOOK_SECRET … --prod`.
+   `npx convex env set CLERK_WEBHOOK_SIGNING_SECRET … --prod` and
+   `npx convex env set CLERK_WEBHOOK_SECRET … --prod` (both names, see beta
+   Step 3).
 4. **Payments live mode** (when applicable): activate the Stripe/Asaas
    account, live keys into the Convex prod deployment, a NEW live-mode
    webhook + secret, and confirm idempotency once more. Never reuse test
@@ -191,6 +203,16 @@ R2 CORS with the domain, and the same payments flow below.)
    backup whenever real data grows (in Claude Code, `/sv`; from Pi, the export
    command from `ai-docs/apis/<tech>.md`), `npm run launch:check` after big
    changes, a weekly look at Sentry.
+
+Before the production deploy, re-run `npm run launch:check`. The production
+rung is allowed only when all four signals are present together: matching
+`pk_live_`/`sk_live_`, explicit Convex Production, the production webhook
+signing secret, and the final own-domain URL. The checker reads those signals
+from the local, gitignored `.env.production.local` — after each remote step,
+have the student record the value there too (the two live Clerk keys, the
+production `whsec_`, `CONVEX_DEPLOY_KEY`, `NEXT_PUBLIC_APP_URL`), otherwise
+the report cannot turn green. Any `pk_test_`/`sk_test_` in the Production
+target is a hard stop, not a warning.
 
 ## Failure etiquette
 

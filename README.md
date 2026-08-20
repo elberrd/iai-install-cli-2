@@ -107,6 +107,8 @@ npx impactus --whoami          # subscription status
 npx impactus --logout          # revoke + remove the local token
 npx impactus --verify --dir .  # audit an installed project (read-only)
 npx impactus --update-runtime --dir .  # re-stamp imp/ + .pi/ from a newer CLI
+npx impactus my-app --clerk-app app_... # deterministically reuse this Clerk app
+npx impactus my-app --new-clerk-app     # force a fresh Clerk app
 
 npm i -g impactus              # installs the `imp` launcher:
 imp init                       # install into the current folder (same as npx impactus)
@@ -126,6 +128,47 @@ imp notify                     # run-end pings (webhook/Slack/Discord/Telegram);
 imp settings                   # where every machine setting comes from (read-only)
 ```
 
+### Clerk and deployment safety
+
+The installer always invokes the tested `npx -y clerk@3.1.0 --mode agent`
+binary—never a global or floating Clerk CLI. It signs in with `clerk auth
+login`, reuses the app already linked to the project before considering an
+exact-name match, and creates a new app only when selection is unambiguous.
+`--clerk-app <app_id>` and `--new-clerk-app` are mutually exclusive; in
+`--yes`, duplicate exact names stop with an instruction to pass the app ID.
+
+Provisioning pulls development keys, proves that publishable key, secret key,
+issuer, and selected development instance agree, reconciles the `convex` JWT
+template (`aud: "convex"`, 3600 seconds), enables Clerk Billing when selected,
+and ends with read-only `clerk doctor --json --spotlight`. Reused apps show the
+configuration diff before any mutation; unattended installs stop when such a
+change needs approval.
+
+The installer's quick deploy is always a **Vercel Preview** (`vercel deploy
+--yes`). Development Clerk keys and Convex dev variables are sent only to the
+`preview` target. Production belongs to `/launch`, which requires a matching
+`pk_live_`/`sk_live_` pair, explicit Convex Production, the production webhook
+secret, and the final domain. Test keys are a hard stop in that flow.
+
+`CLERK_WEBHOOK_SIGNING_SECRET` is the canonical webhook variable; the
+templates' `convex/http.ts` reads it with a legacy `CLERK_WEBHOOK_SECRET`
+fallback, and the installer sets BOTH names so projects generated from older
+template versions keep working. The webhook is optional for first access —
+both templates sync the signed-in user on first load via `users.ensure` — and
+it is what keeps external profile changes and deletions in sync. Existing
+projects are not rewritten automatically—follow
+[the manual Clerk migration guide](./CLERK_MIGRATION.md).
+
+The development-key banner and Clerk telemetry notice are expected locally and
+in Preview. Telemetry stays at Clerk's default; opt out explicitly with
+`npx -y clerk@3.1.0 telemetry disable` or `CLERK_TELEMETRY_DISABLED=1`.
+Cookie cleanup is only relevant after a 431 error, a login loop, or switching
+the localhost project to another Clerk instance. New templates protect each
+resource with `auth.protect()` and ship no `createRouteMatcher`; projects
+installed from older template versions may still see the deprecation as a
+warning in `--verify` and the security scan — follow the migration guide to
+clear it.
+
 ### Inside `pi` (run `imp`) — plan and automate
 
 | Command | What it does |
@@ -144,7 +187,7 @@ imp settings                   # where every machine setting comes from (read-on
 | `/onboarding [focus?] [--report-only]` | Existing project, first run: chains `/absorb` → `/stack` → `/kit` in one guided pass — ends ready for `/idea` or `/feature`. Interrupted tours resume where they stopped; `--report-only` defers the design-system decisions. |
 | `/absorb [focus]` | Existing project → as-built PRD, map, conventions, stack manifest, component registry and the maintained `ai-docs/wiki/` (pages agents read instead of re-reading the code). |
 | `/kit` | Design-system audit of existing code: as-built registry, `/ui-components`, gap report vs the core kit (including interaction contracts: yellow search highlight, Combobox width, calendar month/year jump, Filter + chips, one component per card), then approved design-only tasks. |
-| `/ui-contract [profile\|show\|review]` | Chooses the deterministic UI product profile, capability applicability, and implementation per shell/navigation/theme/table/Kanban surface. An explicit existing/specified library or custom component wins for its named surface and resolves through a concrete local entrypoint; an unrelated package cannot claim every surface. If nothing detailed was requested, the versioned `fia-universal` kit is the fallback. Optional capabilities change atomically with `capability --name <capability> --enabled true\|false` (Kanban enables drag-and-drop; advanced tables enable base tables; conflicting disables fail without writing); quality invariants cannot be waived. |
+| `/ui-contract [profile\|show\|review]` | Chooses the deterministic UI product profile, capability applicability, and implementation per shell/navigation/theme/table/Kanban surface. An explicit existing/specified library or custom component wins for its named surface and resolves through a concrete local entrypoint; an unrelated package cannot claim every surface. If nothing detailed was requested, the versioned `fia-universal` kit is the fallback. Optional capabilities change atomically with `capability --name <capability> --enabled true\|false` (Kanban enables drag-and-drop; advanced tables enable base tables; enabling tables also turns on the professional advanced controls unless the contract waived them — disable explicitly to opt out; conflicting disables fail without writing); quality invariants cannot be waived. |
 | `/component`, `/theme`, `/design`, `/example` | Design system: add a component (register + isolated `/ui-components` card), change colors/fonts, redesign from references, register an external reference. |
 | `/launch` | Go live — public beta and production, with readiness gates. |
 | `/qa [scope?]` | Browser QA at milestone/spec/task — Playwright e2e, responsive check, design audit, durable report. |

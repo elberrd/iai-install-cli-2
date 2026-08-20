@@ -438,15 +438,37 @@ function recordEngineFailure(run, phase, agent, agentDir, error) {
   return marker;
 }
 
+// Verbatim failure output stays inline up to this budget; beyond it the
+// builder is pointed at the on-disk command logs (already in artifacts).
+const ENVELOPE_FAILURES_BUDGET = 8000;
+
 /**
  * Trim a previous-phase envelope to the fields the next agent actually needs.
  * Full envelopes can carry verbose plan text; the builder only consumes the
  * summary, artifacts list, and notes — passing the rest inflates every turn.
+ * Quality envelopes are the exception: `failures` IS the repair round's
+ * feedback channel ("Fix every failure below" points at it), so it survives
+ * the trim — capped, with the overflow redirected to the artifact logs.
  */
 function trimEnvelope(envelope) {
   if (!envelope) return null;
-  const { summary, artifacts, notes_for_next_agent, changed_files, status } = envelope;
-  return { status, summary, artifacts, changed_files, notes_for_next_agent };
+  const { summary, artifacts, notes_for_next_agent, changed_files, status, failures } = envelope;
+  const trimmed = { status, summary, artifacts, changed_files, notes_for_next_agent };
+  if (Array.isArray(failures) && failures.length) {
+    const kept = [];
+    let used = 0;
+    for (const failure of failures) {
+      const text = String(failure);
+      if (used + text.length > ENVELOPE_FAILURES_BUDGET && kept.length) {
+        kept.push(`(+${failures.length - kept.length} more failure(s) — full output in the artifact logs above)`);
+        break;
+      }
+      kept.push(used + text.length > ENVELOPE_FAILURES_BUDGET ? `${text.slice(0, ENVELOPE_FAILURES_BUDGET)}\n… (truncated — full output in the artifact logs above)` : text);
+      used += text.length;
+    }
+    trimmed.failures = kept;
+  }
+  return trimmed;
 }
 
 export async function execute(run, phase, call) {

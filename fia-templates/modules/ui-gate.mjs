@@ -11,7 +11,7 @@ import {
 } from '../scripts/ui-contract.mjs';
 
 /** Component/page files — the surfaces the UI-conformance rubric applies to. */
-export const FRONTEND_FILE = /\.(tsx|jsx|vue|svelte|css|scss|sass|less)$/i;
+export const FRONTEND_FILE = /\.(tsx|jsx|vue|svelte|astro|css|scss|sass|less)$/i;
 
 /**
  * The default UI-conformance contract, mirrored from the harness's
@@ -54,7 +54,7 @@ const UI_RUBRIC = [
   {
     ruleId: 'data_table.advanced_controls',
     requirement:
-      "Advanced actions appear only when this rule applies and are activated through the selected implementation's explicit advanced configuration; when the rule is skipped, none leak into the base surface. The ordered grouping lane exposes removable/reorderable chips and + Level to a maximum of three; semantic aria-expanded groups and summaries use truthful leaf-record counts, never expanded DOM leaves. The accessible header menu adds compatible group/ungroup, pin/unpin, move, sizing and density actions. Versioned per-user view persistence covers search/filter/sort/grouping/visibility/order/width/pinning/density/page size, and Restore defaults survives reload. Optional header reorder uses a dedicated column-drag handle, insertion indicator, cancel/rollback and menu/keyboard fallback. A sticky header remains contained. Large/unknown data uses server-side sorting, filtering, and pagination with backend totals; virtualization is only for many already-loaded rows.",
+      "Advanced actions appear only when this rule applies and are activated through the selected implementation's explicit advanced configuration; when the rule is skipped, none leak into the base surface. The ordered grouping lane exposes removable/reorderable chips and + Level to a maximum of three; semantic aria-expanded groups and summaries use truthful leaf-record counts, never expanded DOM leaves. The accessible header menu adds compatible group/ungroup, pin/unpin, move, sizing and density actions. Versioned per-user view persistence is default-on for professional tables, uses stable table/user/tenant scope, covers search/filter/sort/grouping/visibility/order/width/pinning/density/page size, tolerates unavailable browser storage, and Restore defaults survives reload. Optional header reorder uses a dedicated column-drag handle, insertion indicator, cancel/rollback and menu/keyboard fallback. A sticky header remains contained. Large/unknown data uses server-side sorting, filtering, and pagination with backend totals; remote grouping additionally requires grouping/expanded query state plus a backend-provided hierarchy and truthful leaf counts, and is unavailable without that adapter. Virtualization is only for many already-loaded rows.",
   },
   {
     ruleId: 'quality.error_recovery',
@@ -130,12 +130,12 @@ function canonicalSpecificRequirements(contract, decisions) {
   const table = resolveUiImplementation(contract, 'data_table');
   if (decisions.get('components.data_table')?.applicable && table.isCanonical) {
     requirements.push(
-      '[rule id: components.data_table] Canonical preset receipt: the shared DataTable uses the FIA canonical TanStack implementation. Base call sites omit advancedControls (default false).',
+      '[rule id: components.data_table] Canonical preset receipt: the shared DataTable uses the FIA canonical TanStack implementation. A base-only call site passes advancedControls={false}; the professional default is true.',
     );
   }
   if (decisions.get('data_table.advanced_controls')?.applicable && table.isCanonical) {
     requirements.push(
-      '[rule id: data_table.advanced_controls] Canonical preset receipt: applicable advanced call sites pass advancedControls={true}; no base-only call site passes it.',
+      '[rule id: data_table.advanced_controls] Canonical preset receipt: applicable professional call sites omit advancedControls (default true) or pass true; base-only call sites pass false.',
     );
   }
   return requirements;
@@ -202,11 +202,22 @@ export async function runUiGate(run, prompt) {
         ph.log({ skipped: 'the run changed no frontend component files' });
         return { skip: true };
       }
+      // The greenfield Foundation task (Kind: foundation) runs BEFORE /theme,
+      // the UI contract and the Task 02 kit install — its scaffold .tsx files
+      // must not deadlock on a contract/receipt that only later tasks create.
+      // (Kind: kit stays audited: that run writes the receipt itself.)
+      if (/^Kind:\s*foundation\b/im.test(String(prompt || ''))) {
+        ph.log({ skipped: 'Kind: foundation brief — the UI contract and kit receipt land in later sequence steps' });
+        return { skip: true };
+      }
       const contract = loadUiContract(run.repoRoot, { required: true });
       const kitReceipt = verifyUiKitReceipt(run.repoRoot, contract);
       if (kitReceipt.required && !kitReceipt.ok) {
         const codes = kitReceipt.errors.map((error) => error.code).join(', ');
-        throw new Error(`ui kit receipt incomplete: ${codes}`);
+        throw new Error(
+          `ui kit receipt incomplete: ${codes}\n` +
+            'Recover: `node .agents/scripts/ui-kit.mjs verify --target . --json` re-inspects the selected implementations and re-stamps ai-docs/ui/kit-receipt.json (legitimate edits to an alternate entrypoint need exactly this); a missing receipt means the kit was never installed — run `node .agents/scripts/ui-kit.mjs install --target . --json` (brownfield: /kit) first.',
+        );
       }
       const rulePlan = uiGateRulePlan(contract, prompt);
       for (const result of rulePlan.filter((item) => !item.applicable)) {

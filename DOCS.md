@@ -214,7 +214,7 @@ template declares them in `requires` — see §4.4 and `src/lib/pipeline.js`).
 | 19 | **Keys — activate integrations** | `steps/service-keys.js` | See §6.1 — AI prompts, `--keys`, webhooks via API |
 | 20 | **Integrations — skills and CLIs** | `steps/integrations.js` | See §6 |
 | 21 | Git + GitHub | `steps/github.js` | Private/public repo, push |
-| 22 | Vercel deploy | `steps/deploy.js` | Optional (demo with dev creds) |
+| 22 | Vercel Preview deploy | `steps/deploy.js` | Optional (dev credentials stay in Preview) |
 | 23 | Harness | `steps/harness.js` | Merge without overwriting anything (always) |
 | 24 | Stack — manifest and docs | `steps/stack-docs.js` | `ai-docs/stack.md` + stack block in `AGENTS.md` |
 | 25 | FIA — Pi + FDAs | `steps/fia.js` | Stamps `imp/` + `.pi/`, npm scripts, SQLite + the runtime manifest (§14.2) |
@@ -409,34 +409,56 @@ Step behaviors worth knowing:
   (`.convex.cloud` → `.convex.site`). `finalizeConvex` publishes the
   functions after Clerk (also regenerates `convex/_generated`); its failure
   is only a warning ("run `npx convex dev`").
-- **Clerk** — 100% automatic: resolves the `clerk` CLI (global → `npm i -g
-  clerk` → `npx -y clerk@latest`, agent mode via `CLERK_MODE=agent`), logs
-  in, creates or reuses an app, pulls the dev-instance keys into `.env.local`
-  (normalized to `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` + `CLERK_SECRET_KEY`),
-  creates the `convex` JWT template (`{"name":"convex","claims":{"aud":
-  "convex"},"lifetime":3600}` — `convex/auth.config.ts` pins that exact
-  name/aud; API fallback + manual note if the CLI path fails), derives the
-  issuer FROM the publishable key (base64 payload — no API round-trip) and
-  sets `CLERK_JWT_ISSUER_DOMAIN` on the Convex deployment. The Clerk account
-  email becomes the super-admin (`SUPERADMIN_EMAILS` on Convex).
+- **Clerk** — deterministic provisioning through the pinned
+  `npx -y clerk@3.1.0 --mode agent` (no global install/floating version).
+  Authentication uses `clerk auth login`; `whoami --json`, `apps ... --json`
+  and the API responses are parsed structurally. Selection precedence is
+  `--new-clerk-app` → `--clerk-app <app_id>` → the valid project link stored
+  by Clerk → one exact-name app → interactive choice/create. Duplicate exact
+  names abort under `--yes`, preventing duplicate apps. The CLI pulls the dev
+  keys, validates the pk/sk environment and proves the secret key resolves to
+  the selected development instance, then reconciles the `convex` JWT template
+  (`{"name":"convex","claims":{"aud":"convex"},"lifetime":3600}`). A
+  new app is reconciled automatically; a reused app shows the diff and needs
+  confirmation (`--yes` fails closed). Clerk Billing is enabled when selected.
+  The issuer derived from the verified publishable key is written as
+  `CLERK_JWT_ISSUER_DOMAIN` on Convex, the Clerk account email seeds
+  `SUPERADMIN_EMAILS`, and read-only `clerk doctor --json --spotlight` closes
+  the step. `--fix` is never automatic.
 - **Webhook** — semi-automatic by necessity (endpoint + signing secret are
   dashboard-only in Clerk): the CLI mints the Svix dashboard URL via the
   Clerk API, prints exactly what to paste
   (`https://<name>.convex.site/clerk-users-webhook`, events `user.created`,
   `user.updated`, `user.deleted`), captures the `whsec_` secret (written to
-  `.env.local` FIRST, then `npx convex env set CLERK_WEBHOOK_SECRET`).
+  `.env.local` FIRST, then set on Convex under BOTH names —
+  `CLERK_WEBHOOK_SIGNING_SECRET` (the canonical name, which the templates'
+  `convex/http.ts` now reads with a legacy fallback) and the legacy
+  `CLERK_WEBHOOK_SECRET`, kept so projects generated from older template
+  versions (which read only the legacy name) stay working. Both templates
+  sync the signed-in user on first load via `users.ensure`, so the webhook is
+  optional for signup; it is what keeps external profile changes and
+  deletions in sync.
 - **GitHub** — commit `feat: project configured by impactus (Convex +
   Clerk + shadcn/ui)`; a lefthook/eslint rejection shows the lint output and
   the documented escape hatch `LEFTHOOK=0 git commit -m "initial setup"`
   (never misblamed on git identity). Push runs `gh repo create <name>
   --private|--public --source=. --remote=origin --push`.
-- **Deploy** — `vercel link --yes --project <slug>`, then an **additive** env
+- **Deploy** — `vercel link --yes --project <slug>`, then an **additive Preview-only** env
   sync (only missing keys are added; existing Vercel values are kept, with a
   note when they differ from `.env.local`; values travel via stdin, never
   argv; `CONVEX_DEPLOYMENT` is deliberately not copied — CLI-only var), then
-  `vercel deploy --prod --yes`. The URL uses the DEV Convex backend and DEV
-  Clerk keys — a demo; the real production promotion is `/launch` (FIA) or
-  the printed manual checklist.
+  `vercel deploy --yes`. The URL uses the DEV Convex backend and DEV Clerk
+  keys, all scoped to Vercel `preview`; the installer never copies them to
+  Production. `/launch` is the explicit production promotion and blocks until
+  matching `pk_live_`/`sk_live_`, Convex Production, a production webhook and
+  the final own domain are present.
+
+Clerk's development-key and telemetry notices are expected locally and in
+Preview. Telemetry keeps the official default; opt out with
+`npx -y clerk@3.1.0 telemetry disable`, `CLERK_TELEMETRY_DISABLED=1`, or the
+standard `DO_NOT_TRACK=1`. Cookie cleanup is troubleshooting only for a 431,
+login loop, or an intentional instance switch. Existing apps follow
+`CLERK_MIGRATION.md`; no codemod is applied.
 
 ## 4. Philosophy: maximal template, guided removal
 
@@ -946,7 +968,7 @@ Design system and references:
 | --- | --- |
 | `/component <name + URL/cmd or custom entrypoint> \| list \| sync` | The legal entry path for a UI component: a library component supplies its URL/install command; a project-origin/custom component supplies a confirmed project-relative entrypoint and needs neither. For closed UI surfaces, the UI contract is updated first and outranks registry roles. Then dedupe, inspect/research, install or create, adapt to theme/i18n/a11y, register, and add an isolated `/ui-components` card. `sync` reconciles registry ↔ code ↔ page; `list` prints the registry by category. |
 | `/theme [hint\|accept?]` | Visual identity behind a side-by-side preview: ~7-question interview (colors, dark/light, typography, shape, interaction patterns), preserves the UI contract's selected theme library/custom entrypoint, generates its full project-native token set (WCAG AA contrast is a blocker), renders Current × Proposed with REAL registry components, and only applies through that implementation's native provider/files after explicit approval. Canonical `fia-universal` on Next.js maps this to `next/font` + `app/globals.css`; other stacks do not inherit those APIs. `accept` records a conscious "keep the default" decision — enough to satisfy the theme gate. |
-| `/ui-contract [profile\|show\|review]` | Creates or reviews schema-v3 `ai-docs/ui/contract.json`: one confirmed product profile resolves app shell, breadcrumb, System/Light/Dark, DataTable/advanced controls and Kanban to `required`, `optional`, `not_applicable` or a scoped `waived`, and records the implementation for each surface. An explicit existing/specified library or custom component always wins for its named surface and must resolve through a concrete local entrypoint; a package is not treated as proof that it implements unrelated surfaces. With no detailed choice, `fia-universal` is the deterministic fallback. A capability boolean changes atomically with `capability --name <capability> --enabled true\|false`; dependency enables cascade safely and conflicting disables fail without writing. Every skip keeps a reason; responsive/containment/keyboard/focus/recovery/drag-quality invariants cannot be waived. |
+| `/ui-contract [profile\|show\|review]` | Creates or reviews schema-v3 `ai-docs/ui/contract.json`: one confirmed product profile resolves app shell, breadcrumb, System/Light/Dark, DataTable/advanced controls and Kanban to `required`, `optional`, `not_applicable` or a scoped `waived`, and records the implementation for each surface. An explicit existing/specified library or custom component always wins for its named surface and must resolve through a concrete local entrypoint; a package is not treated as proof that it implements unrelated surfaces. With no detailed choice, `fia-universal` is the deterministic fallback. A capability boolean changes atomically with `capability --name <capability> --enabled true\|false`; the false→true `dataTables` transition also enables its professional advanced controls (only while the advanced-controls rule is `optional`/`required` — a waived/not_applicable decision stands), while explicitly disabling the advanced capability afterwards records a compact opt-out that an idempotent base-table reassertion preserves. Other dependency enables cascade safely and conflicting disables fail without writing. Every skip keeps a reason; responsive/containment/keyboard/focus/recovery/drag-quality invariants cannot be waived. |
 | `/design <images + description>` | Layout redesign from reference images: structure/hierarchy/density/motion come from the reference, colors/fonts/components stay OURS (theme + registry only). Contained scope applies directly; broad scope becomes roadmap tasks. Uses the Impeccable skill for motion when installed. |
 | `/example <url> [notes] \| list` | Registers an external reference on the example shelf: reads the source (never registers from a URL alone), pins license + commit, writes `ai-docs/examples/<slug>/NOTES.md` (mandatory `## What NOT to take`) + a registry row. GPL-family/unknown licenses are never copied verbatim. |
 | `/kit [focus?] [--report-only]` | Brownfield design-system audit: as-built registry rows → `/ui-components` page → **gap report** vs the core kit (`kit-report.md`: missing needs, below-contract items with file/line evidence — the DataTable contract audited item by item, plus Combobox overlay width, yellow search highlight, calendar month/year caption, pointer cursor, and one-component-per-card isolation from `references/interaction.md` — duplicates without roles) → engineer approves → delta spec + `Kind: kit` design-only tasks with one checkbox per contract item. Changes no component and no screen itself. |
@@ -1410,7 +1432,7 @@ as disproportionate.
   review, so the reviewer audits the ticks against the diff. Prompts that are
   not brief files, and briefs without checkboxes, skip the gate.
 - **UI-conformance gate**: a run that changed frontend component files
-  (`.tsx/.jsx/.vue/.svelte` vs the run baseline) gets a dedicated audit
+  (`.tsx/.jsx/.vue/.svelte/.astro`, plus stylesheet files, vs the run baseline) gets a dedicated audit
   phase before it may close. `ui_scope` (code) decides deterministically
   whether the gate arms: an explicit `Surface:` line without `ui` in the
   brief stands it down, otherwise changed frontend files arm it. `ui_check`
@@ -1545,9 +1567,11 @@ older project.
 **Launch readiness** — `npm run launch:check` (`node
 imp/scripts/fia-launch-check.mjs [--json] [--strict] [--dir <p>]`). Read-only
 red/green report — it never publishes anything. Detects the current rung
-(`local` → `beta` when `.vercel/project.json` exists → `production` when a
-`pk_live_` Clerk key or an own-domain production URL is found) and runs 32
-stack-aware checks across six sections:
+(`local` → `beta` when `.vercel/project.json` exists → `production` only when
+the full stack is ready). Clerk + Convex projects need matching
+`pk_live_`/`sk_live_`, explicit Convex Production, the production webhook
+secret and an own-domain production URL; SQL stacks use the own-domain signal.
+The checker runs stack-aware checks across six sections:
 
 - **Versioning**: git repo (blocker), clean tree (blocker), remote, pushed,
   CI green (via `gh`), CI workflow present.
@@ -1574,7 +1598,8 @@ stack-aware checks across six sections:
   file cap, because a partial scan that reports "clean" is the worst failure
   mode there is. Webhook signature verification in `convex/http.ts` (blocker).
 - **Production**: Vercel linked, `convex deploy` in the build command, dev
-  deployment noted, Clerk dev vs live keys, production URL, and the
+  deployment noted, blocker checks for Clerk live key pair, Convex Production,
+  `CLERK_WEBHOOK_SIGNING_SECRET` and final domain, plus the
   `automations_runbook` **blocker** when the manifest declares an external
   automations layer (e.g. Modal) without a Production runbook.
 - **Operations**: error monitoring (Sentry), a database backup existing
@@ -2274,6 +2299,10 @@ the design system deterministic instead:
   Kanban to `required`, `optional`, `not_applicable` or a scoped `waived`;
   each capability boolean records real activation, so `optional` + `false`
   stays dormant while `optional` + `true` is built only after approval.
+  Enabling `dataTables` atomically enables professional advanced controls by
+  default; compact/base-only mode exists only after the explicit follow-up
+  decision `advancedDataTableControls=false`. Reasserting an already-enabled
+  base DataTable is idempotent and does not erase that compact opt-out.
   Independently, each surface resolves to an existing library, a specified
   library, a custom project path, or the `fia-universal` fallback. Explicit
   user/project choices always win and keep the same behavioral/quality
@@ -2309,15 +2338,19 @@ the design system deterministic instead:
   visibility, pagination/count, row selection + bulk-actions bar, row-click
   edit, skeleton/empty/no-results/error/long-content states. When
   `data_table.advanced_controls`
-  separately applies, canonical-adapter call sites pass `advancedControls={true}` only when that
-  rule is APPLY; the optional prop defaults to false and base call sites omit
-  `advancedControls`. Omitted/default false exposes no grouping, pinning,
+  separately applies, canonical-adapter call sites omit `advancedControls` or pass
+  `true`; the optional prop defaults to true. A base-only call site passes
+  `advancedControls={false}` explicitly. Explicit false exposes no grouping, pinning,
   move/reorder, sizing/density, persistence/Restore or sticky-header UI while
   retaining base header sort/filter/hide/clear. The opt-in adds the ordered grouping lane, truthful leaf-record
-  counts, pinning, sizing/density, versioned per-user view persistence + full
-  Restore defaults across reload, optional accessible header drag reorder,
-  sticky header, and the
-  server-side/virtualization scale contract. Cross-cutting interaction contracts
+  counts, pinning, sizing/density, default-on versioned view persistence scoped
+  by stable table/user/tenant identity (with stale-state sanitization, session
+  fallback when browser storage is unavailable, and full Restore defaults
+  across reload), optional accessible header drag reorder, and sticky header.
+  The remote scale contract sends sorting/filtering/grouping/expanded/pagination
+  state to the backend; grouped mode requires a backend-provided hierarchy and
+  truthful leaf counts, otherwise grouping is unavailable rather than page-local.
+  Cross-cutting interaction contracts
   (pointer cursor, yellow `<mark>` on any typed search, Combobox popover as
   wide as the trigger, calendar caption that jumps month and year,
   `/ui-components` one-component-per-card) live in
@@ -3026,6 +3059,9 @@ Services
                            own organizations in Convex — per-organization
                            data/billing, roles/permissions, /admin with org
                            management)
+  --clerk-app <app_id>     Reuse/link this exact Clerk application
+  --new-clerk-app          Force a new Clerk application (mutually exclusive
+                           with --clerk-app)
   --skip-webhook           No Clerk → Convex webhook (there is no positive
                            --webhook flag: it needs a dashboard action, so it
                            can only be turned on interactively)
@@ -3035,7 +3071,7 @@ Services
   --public | --private     Visibility (default: private)
   --push | --no-push       Create remote repo and push (or not)
   --skip-github            Not even a local commit in that step
-  --deploy | --no-deploy   Vercel deploy at the end
+  --deploy | --no-deploy   Vercel Preview deploy at the end
   --skip-deploy            Same as --no-deploy
   --no-harness             (full mode only) template WITHOUT the harness
   --skip-harness           Same as --no-harness

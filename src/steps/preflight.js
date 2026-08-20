@@ -445,7 +445,7 @@ async function ensureVercel(pms, flags = {}, ctx = {}) {
       ctx,
       pending: {
         title: 'Install the Vercel CLI and deploy',
-        fix: 'npm install -g vercel && vercel login, then in the project folder: vercel link --yes && vercel deploy --prod',
+        fix: 'npm install -g vercel && vercel login, then in the project folder: vercel link --yes && vercel deploy --yes (Preview; use /launch for Production)',
         why: 'The quick deploy will be skipped in this install.',
       },
     });
@@ -467,7 +467,7 @@ async function ensureVercel(pms, flags = {}, ctx = {}) {
   // impossible under --yes. Skip the deploy instead of killing the run.
   const vercelAuthPending = {
     title: 'Log in to the Vercel CLI and deploy',
-    fix: 'run `vercel login` (or set VERCEL_TOKEN), then in the project folder: vercel link --yes && vercel deploy --prod',
+    fix: 'run `vercel login` (or set VERCEL_TOKEN), then in the project folder: vercel link --yes && vercel deploy --yes (Preview; use /launch for Production)',
     why: 'The quick deploy will be skipped in this install.',
   };
   if (flags.yes) {

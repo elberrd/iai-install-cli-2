@@ -20,7 +20,7 @@
  *                                [--config imp/fia.config.yaml] [--once] [--no-alt]
  */
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import React from 'react';
@@ -1515,7 +1515,17 @@ Keys:  1-6 tabs · Tab cycle · ↑↓/j/k move · Enter open (run timeline, or 
 Mouse: click a tab to switch (same as 1-6, no Enter) · click a list row ·
        click a selected run to open it · wheel scrolls`;
 
-const isMain = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+// realpath both sides: Node realpaths the ESM entry for import.meta.url, so a
+// symlinked invocation path would otherwise make the CLI a silent no-op.
+const isMain = (() => {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
+  } catch {
+    return import.meta.url === pathToFileURL(resolve(entry)).href;
+  }
+})();
 if (isMain) {
   const args = process.argv.slice(2);
   const flag = (name) => {

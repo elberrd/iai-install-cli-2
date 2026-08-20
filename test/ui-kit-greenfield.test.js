@@ -225,7 +225,11 @@ function compileInstalledKit(root, receipt, manifest) {
       '',
       'type Row = { id: string; title: string };',
       'const rows: Row[] = [{ id: "task-1", title: "Verify canonical kit" }];',
-      'const columns: ColumnDef<Row>[] = [{ accessorKey: "title", header: "Title" }];',
+      'const columns: ColumnDef<Row>[] = [{ accessorKey: "title", header: () => <span data-custom-header>Title</span> }];',
+      'type RemoteRow =',
+      '  | { kind: "group"; id: string; label: string; leafCount: number; children: RemoteRow[] }',
+      '  | { kind: "leaf"; id: string; title: string };',
+      'const remoteColumns: ColumnDef<RemoteRow>[] = [{ id: "title", accessorFn: (row) => row.kind === "leaf" ? row.title : row.label, header: "Remote title" }];',
       '',
       'export default function KitSmokePage() {',
       '  return (',
@@ -236,7 +240,22 @@ function compileInstalledKit(root, receipt, manifest) {
       '        breadcrumb={<Breadcrumb items={[{ label: "Home", href: "/" }, { label: "Kit" }]} />}',
       '        actions={<ThemeToggle />}',
       '      />',
-      '      <DataTable columns={columns} data={rows} getRowId={(row) => row.id} />',
+      '      <DataTable tableId="kit-smoke" persistence={{ userId: "smoke-user", tenantId: "smoke-tenant" }} columns={columns} data={rows} getRowId={(row) => row.id} />',
+      '      <DataTable',
+      '        tableId="kit-server-smoke"',
+      '        columns={remoteColumns}',
+      '        data={[] as RemoteRow[]}',
+      '        getRowId={(row) => row.id}',
+      '        server={{',
+      '          totalRows: 0, filteredRows: 0, pageCount: 0, onQueryChange: () => {},',
+      '          groupingAdapter: {',
+      '            getSubRows: (row) => row.kind === "group" ? row.children : undefined,',
+      '            isGroupRow: (row) => row.kind === "group",',
+      '            getGroupLabel: (row) => row.kind === "group" ? row.label : "",',
+      '            getLeafCount: (row) => row.kind === "group" ? row.leafCount : 1,',
+      '          },',
+      '        }}',
+      '      />',
       '      <Kanban',
       '        columns={[',
       '          { id: "todo", title: "To do" },',
@@ -327,6 +346,7 @@ function compileInstalledKit(root, receipt, manifest) {
   assert.match(smokeHtml, />Done<\//, 'Kanban empty target column did not render in the production artifact');
   assert.match(smokeHtml, /aria-label="0 items"/, 'Kanban target column was not verifiably empty');
   assert.match(smokeHtml, />Verify canonical kit<\//, 'Kanban card did not render in the production artifact');
+  assert.match(smokeHtml, /data-custom-header/, 'custom DataTable header content did not render');
 
   const sources = installedTypeScriptFiles(root, receipt, manifest);
   assert.ok(sources.length >= 5, 'the compiler must cover every installed TS/TSX asset');
@@ -813,3 +833,39 @@ test(
     }
   },
 );
+
+test('UI kit plan honors a Next.js stack declared only in ai-docs/stack.md (pre-foundation greenfield)', { skip }, () => {
+  // Bare package.json: no next/react yet — the foundation scaffold has not
+  // run. The wrapper's stack gate reads ai-docs/stack.md and endorses the
+  // canonical adapter itself; the kit then supplies next/react via added deps.
+  const root = mkdtempSync(join(tmpdir(), 'impactus-stackmd-'));
+  writeFileSync(
+    join(root, 'package.json'),
+    `${JSON.stringify({ name: 'stackmd', private: true, version: '0.0.0', type: 'module' }, null, 2)}\n`,
+  );
+  mkdirSync(join(root, 'ai-docs', 'ui'), { recursive: true });
+  writeFileSync(join(root, 'ai-docs', 'stack.md'), '# Stack\n\n| Frontend | Next.js 16 (App Router) |\n');
+  writeContract(root, activeContract());
+  const plan = runKit(root, 'plan');
+  assert.equal(plan.status, 0, plan.stderr || plan.stdout);
+  assert.equal(plan.json.status, 'ready');
+  const added = plan.json.packageJson.added.map((dependency) => dependency.name);
+  assert.ok(added.includes('next'), 'the kit plan brings next into package.json');
+});
+
+test('UI kit receipt is portable — no machine-absolute path survives in the committed artifact', { skip }, () => {
+  const root = project('portable-receipt');
+  writeContract(root, activeContract());
+  const install = runKit(root, 'install');
+  assert.equal(install.status, 0, install.stderr || install.stdout);
+  const receipt = JSON.parse(readFileSync(join(root, 'ai-docs', 'ui', 'kit-receipt.json'), 'utf8'));
+  assert.equal(receipt.project, undefined, 'the absolute project path is dropped');
+  const serialized = JSON.stringify(receipt);
+  assert.ok(!serialized.includes(root), 'no field embeds the machine-absolute project path');
+  assert.ok(!serialized.includes(realpathSync(root)), 'no field embeds the resolved project path either');
+  for (const list of Object.values(receipt.files ?? {})) {
+    for (const file of list) {
+      assert.equal(file.sourcePath, undefined, 'installer source paths are stripped');
+    }
+  }
+});

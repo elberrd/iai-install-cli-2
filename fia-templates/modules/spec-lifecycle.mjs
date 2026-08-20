@@ -20,7 +20,14 @@ function metaLine(md, names) {
 }
 
 function taskNumbers(value) {
-  return [...String(value || '').matchAll(/\b(\d{1,4})\b/g)].map((m) => m[1].padStart(2, '0'));
+  // Only comma/space-separated bare ids count. A prose aside on the Tasks line
+  // ('Tasks: 01, 02 (re-scoped for the 2026 launch)') must not mint phantom
+  // linked tasks that block the spec's auto-close forever.
+  return String(value || '')
+    .split(/[,;]/)
+    .map((token) => token.trim())
+    .filter((token) => /^#?\d{1,4}$/.test(token))
+    .map((token) => token.replace(/^#/, '').padStart(2, '0'));
 }
 
 function statusIsDone(md) {

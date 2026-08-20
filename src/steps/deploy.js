@@ -6,19 +6,21 @@ import { run } from '../lib/proc.js';
 import { getEnvVar } from '../lib/env-file.js';
 import { parseEnvFile } from './verify.js';
 import { toolPending } from './preflight.js';
+import { validateClerkKeyPair } from '../lib/clerk.js';
 import * as ui from '../lib/ui.js';
+
+export const QUICK_DEPLOY_TARGET = 'preview';
+export const QUICK_DEPLOY_ARGS = ['deploy', '--yes'];
 
 /**
  * Optional final step: quick deploy to Vercel.
  *
  * "Quick" means: link (or create) the Vercel project, copy the runtime env
- * vars from .env.local into the production environment, and ship a production
- * deployment straight from the local folder (no git integration needed).
+ * vars from .env.local into Vercel Preview, and ship a preview deployment
+ * straight from the local folder (no git integration needed).
  *
- * Caveat stated to the user: this deploy points at the *dev* Convex deployment
- * and *dev* Clerk keys — perfect to show the app running on a real URL. For a
- * real production setup (prod Convex deployment + prod Clerk instance) we
- * print the exact follow-up instructions.
+ * Production is deliberately excluded: dev Convex and pk_test_/sk_test_ keys
+ * must never be copied to Vercel Production. `/launch` owns that promotion.
  *
  * Flags: --deploy / --no-deploy / --skip-deploy; --yes skips (deploy is opt-in).
  */
@@ -51,12 +53,11 @@ export async function setupDeploy(ctx) {
     } else {
       ui.note(
         [
-          'I can publish the app to Vercel right now (quick deploy, straight from this folder).',
+          'I can publish a Vercel Preview right now, straight from this folder.',
           'You get a public https://…vercel.app URL in about a minute.',
           '',
-          'This deploy uses the DEV Convex backend and DEV Clerk keys —',
-          'perfect for a demo. The "real" production instructions come',
-          'at the end.',
+          'This Preview uses the DEV Convex backend and DEV Clerk keys.',
+          'Production stays isolated and is promoted later through /launch.',
         ].join('\n'),
         'Deploy to Vercel (optional)',
       );
@@ -84,14 +85,23 @@ export async function setupDeploy(ctx) {
   }
   ui.success('Project linked.');
 
-  // ── 2. Copy runtime env vars from .env.local → production ─────────────────
+  // ── 2. Copy runtime env vars from .env.local → Preview ────────────────────
   // Additive on purpose: a re-run must NOT delete-and-recreate what is already
   // on Vercel (the person may have edited values in the dashboard). Only the
   // MISSING keys are added; existing ones are kept — with a heads-up when the
   // remote value differs from .env.local.
-  ui.step('Sending environment variables to Vercel (production)…');
+  // Fail closed on the KEYS (nothing is sent to Vercel), but never abort the
+  // install over this optional step — degrade like every other branch here.
+  const clerkKeys = await previewClerkKeys(join(dir, ENV_FILE));
+  if (!clerkKeys.ok) {
+    ui.warn(`Skipping the quick deploy: ${clerkKeys.reason}`);
+    ui.note(howToLater(slug, fiaPlanned), 'How to deploy later');
+    return;
+  }
+
+  ui.step('Sending development environment variables to Vercel Preview…');
   const envLocal = join(dir, ENV_FILE);
-  const existing = await fetchVercelProdEnv(dir);
+  const existing = await fetchVercelPreviewEnv(dir);
   let sent = 0;
   let kept = 0;
   for (const key of DEPLOY_ENV_KEYS) {
@@ -104,48 +114,48 @@ export async function setupDeploy(ctx) {
       }
       continue;
     }
-    const add = await run('vercel', ['env', 'add', key, 'production'], { cwd: dir, input: value });
+    const add = await run('vercel', ['env', 'add', key, QUICK_DEPLOY_TARGET], { cwd: dir, input: value });
     if (add.ok) sent++;
     else if (/already exist/i.test(add.stderr + add.stdout)) kept++; // listing failed but the var is there — keep it
     else ui.warn(`Could not set ${key} on Vercel — configure it in the dashboard later.`);
   }
   ui.success(`${sent} variable(s) added on Vercel${kept ? ` (${kept} already there — kept)` : ''}.`);
 
-  // ── 3. Production deployment ───────────────────────────────────────────────
+  // ── 3. Preview deployment ──────────────────────────────────────────────────
   const deploy = await ui.spin(
-    'Running the production deploy (vercel deploy --prod)…',
-    () => run('vercel', ['deploy', '--prod', '--yes'], { cwd: dir }),
+    'Running the Preview deploy (vercel deploy --yes)…',
+    () => run('vercel', QUICK_DEPLOY_ARGS, { cwd: dir }),
     'Deploy sent.',
   );
   if (deploy.ok) {
     const url = deploy.stdout.trim().split('\n').pop();
     ctx.deployUrl = url || null;
     ui.success(`App is live: ${url}`);
-    ui.note(prodChecklist(fiaPlanned), 'For real production (when the time comes)');
+    ui.note(prodChecklist(fiaPlanned), 'Promote to production later');
   } else {
     ui.warn(
       [
         'The deploy failed. Detail:',
         `  ${(deploy.stderr || deploy.stdout).trim().split('\n').slice(-3).join('\n  ')}`,
         '',
-        'Try it manually in the project folder:  vercel deploy --prod',
+        'Try it manually in the project folder:  vercel deploy --yes',
       ].join('\n'),
     );
   }
 }
 
 /**
- * Existing production env vars on Vercel, as { KEY: value | undefined }.
+ * Existing Preview env vars on Vercel, as { KEY: value | undefined }.
  * `env pull` gives names AND values (so divergence can be reported); if it
  * fails (older CLI, permissions), fall back to `env ls` for names only.
  * Returns null when neither works — the caller then just tries to add.
  */
-async function fetchVercelProdEnv(dir) {
+export async function fetchVercelPreviewEnv(dir) {
   const tmpFile = join(tmpdir(), `impactus-vercel-env-${Date.now()}-${Math.random().toString(36).slice(2)}.env`);
   try {
     const pull = await run(
       'vercel',
-      ['env', 'pull', tmpFile, '--environment', 'production', '--yes'],
+      ['env', 'pull', tmpFile, '--environment', QUICK_DEPLOY_TARGET, '--yes'],
       { cwd: dir, sensitiveOutput: true },
     );
     if (pull.ok) return parseEnvFile(await readFile(tmpFile, 'utf8'));
@@ -154,7 +164,7 @@ async function fetchVercelProdEnv(dir) {
   } finally {
     await rm(tmpFile, { force: true }).catch(() => {});
   }
-  const ls = await run('vercel', ['env', 'ls', 'production'], { cwd: dir });
+  const ls = await run('vercel', ['env', 'ls', QUICK_DEPLOY_TARGET], { cwd: dir });
   if (!ls.ok) return null;
   const out = {};
   for (const key of DEPLOY_ENV_KEYS) {
@@ -167,34 +177,52 @@ function howToLater(slug, fiaPlanned) {
   return [
     ...(fiaPlanned
       ? [
-          'When you want to publish, the guided path is `/launch` (inside `pi`):',
-          'it checks readiness and security and climbs rung by rung (beta → production).',
+          'For a Preview, run now; for production use `/launch` inside `pi`.',
+          'It validates live Clerk keys, production Convex and domain readiness.',
           '',
           'Or manually, in the project folder:',
         ]
-      : ['When you want to publish, run in the project folder:']),
+      : ['For a Preview, run in the project folder:']),
     `  vercel link --yes --project ${slug}`,
-    '  vercel env add CONVEX_DEPLOY_KEY production        # Production key from the Convex dashboard',
-    '  vercel env add NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY production   # plus the other vars from .env.local',
-    '  vercel deploy --prod',
+    // The manual route must mirror the automated one: every runtime key the
+    // quick deploy would copy (routing URLs included), not just the big three.
+    ...DEPLOY_ENV_KEYS.map((key) => `  vercel env add ${key} preview`),
+    '  vercel deploy --yes',
+    '',
+    'Do not copy those dev values to Production. Use `/launch` for pk_live_/sk_live_.',
   ].join('\n');
 }
 
 function prodChecklist(fiaPlanned) {
   if (!fiaPlanned) {
     return [
-      'The quick deploy uses the DEV Clerk instance. For real production you',
-      'will need: the production Convex deployment (CONVEX_DEPLOY_KEY from the',
-      'Convex dashboard), the prod Clerk instance (pk_live_ keys) and your own',
-      'domain — all set via `vercel env` and the dashboards.',
+      'This URL is a Preview backed by development Clerk and Convex.',
+      'Production requires production Convex, Clerk pk_live_/sk_live_, a',
+      'production webhook signing secret and the final domain.',
     ].join('\n');
   }
   return [
-    'The quick deploy uses the DEV Clerk instance. For real production, run',
+    'This quick deploy is Preview-only. For production, run',
     '`/launch` inside `pi`: it walks you through the security checklist, the',
     'production Convex deployment (CONVEX_DEPLOY_KEY), the prod Clerk instance',
     '(pk_live_) and your own domain — one rung at a time, logging everything in ai-docs/launch.md.',
     '',
     'Readiness at any time (read-only): npm run launch:check',
   ].join('\n');
+}
+
+/** Fail closed if the quick deploy is not using a matching dev Clerk key pair. */
+export async function previewClerkKeys(envPath) {
+  const pk = await getEnvVar(envPath, 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY');
+  const sk = await getEnvVar(envPath, 'CLERK_SECRET_KEY');
+  const pair = validateClerkKeyPair(pk, sk);
+  if (!pair.ok) return pair;
+  if (pair.environment !== 'test') {
+    return {
+      ok: false,
+      environment: pair.environment,
+      reason: 'Quick deploy is Preview-only and requires pk_test_/sk_test_. Use /launch for production keys.',
+    };
+  }
+  return pair;
 }

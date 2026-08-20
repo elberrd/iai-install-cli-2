@@ -77,14 +77,21 @@ export function runCli(argv, { root = process.cwd() } = {}) {
   }
 
   // Default verb: ARM. Idempotent — pressing an already-pressed button is fine.
+  // Written to EVERY candidate (configured data_dir AND canonical imp/data),
+  // matching the reader contract in modules/stop.mjs: a config whose parsed
+  // data_dir drifts from what the runner resolves must never produce a button
+  // that reports ARMED while runs keep going.
   const reason = String(flagValue(argv, '--reason') || '').trim();
   const path = manualStopPath(dataDir);
-  try {
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify({ requested_at: new Date().toISOString(), reason }, null, 2));
-  } catch (err) {
-    console.error(`could not write ${path}: ${err?.message || err}`);
-    return 1;
+  for (const dir of candidates) {
+    const target = manualStopPath(dir);
+    try {
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, JSON.stringify({ requested_at: new Date().toISOString(), reason }, null, 2));
+    } catch (err) {
+      console.error(`could not write ${target}: ${err?.message || err}`);
+      return 1;
+    }
   }
   if (json) {
     console.log(JSON.stringify({ armed: true, reason, path, active_run: lock }));

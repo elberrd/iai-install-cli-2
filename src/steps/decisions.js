@@ -293,7 +293,7 @@ async function askVisibility(previous) {
 
 async function askDeploy(previous) {
   return await ui.confirm({
-    message: 'Deploy to Vercel at the end? (https://…vercel.app URL using the DEV backend)',
+    message: 'Deploy a Vercel Preview at the end? (https://…vercel.app URL using the DEV backend)',
     initialValue: previous?.deploy ?? false,
   });
 }
@@ -339,7 +339,7 @@ function showSummary(ctx) {
     `Files          ${d.storage === 'r2' ? 'Cloudflare R2 (recommended — guided setup during the install)' : 'Convex Storage (zero configuration)'}`,
     `Clerk webhook  ${d.webhook ? 'yes — will ask for a dashboard action' : 'no (can be turned on later)'}`,
     `GitHub         ${d.push ? `publish as "${d.repoName}" (${d.visibility === 'public' ? 'public' : 'private'})` : 'not publishing now'}`,
-    `Vercel deploy  ${d.deploy ? 'yes — public URL at the end' : 'no'}`,
+    `Vercel Preview ${d.deploy ? 'yes — public Preview URL at the end' : 'no'}`,
     `FIA            ${d.fia ? 'yes — Pi + FDAs + fia skill' : 'no'}`,
     `Impeccable     ${d.impeccable ? 'yes — /impeccable design skill' : 'no'}`,
   ];

@@ -30,7 +30,7 @@
  *                                      [--fail-on high|medium|low]
  */
 
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -177,6 +177,27 @@ export const RULES = Object.freeze([
     fix: 'Resolve the caller (auth() / getAuth() / the session) at the top of the handler and reject when there is none.',
   },
   {
+    id: 'clerk_route_matcher',
+    severity: 'medium',
+    title: 'Clerk route protection depends on deprecated path classification',
+    // Proxy/middleware files live at the project root — or under src/ when
+    // the project uses the src/ layout (both are official Next.js locations).
+    roots: Object.freeze([
+      'proxy.ts',
+      'middleware.ts',
+      'proxy.js',
+      'middleware.js',
+      'src/proxy.ts',
+      'src/middleware.ts',
+      'src/proxy.js',
+      'src/middleware.js',
+    ]),
+    exts: SOURCE_EXTS,
+    basenamePattern: /^(?:proxy|middleware)\.(?:ts|js)$/,
+    pattern: /\bcreateRouteMatcher\b/,
+    fix: 'Remove createRouteMatcher and call auth.protect() inside every protected server resource.',
+  },
+  {
     id: 'convex_missing_args_validator',
     // Convex validates nothing by itself: a function without `args:` accepts
     // whatever the client sends. File-level veto, mirroring the launch check's
@@ -221,6 +242,14 @@ function isDir(path) {
     return statSync(path).isDirectory();
   } catch {
     /* missing root — the scan simply has less ground to cover */
+    return false;
+  }
+}
+
+function isFile(path) {
+  try {
+    return statSync(path).isFile();
+  } catch {
     return false;
   }
 }
@@ -279,8 +308,9 @@ export function listSourceFiles(
     }
   };
   for (const r of roots) {
-    const dir = join(resolve(root), r);
-    if (isDir(dir)) walk(dir, 0);
+    const target = join(resolve(root), r);
+    if (isDir(target)) walk(target, 0);
+    else if (isFile(target) && exts.some((x) => target.endsWith(x))) out.push(target);
   }
   return out.sort((a, b) => {
     const x = a.replaceAll('\\', '/');
@@ -341,10 +371,10 @@ export function runSecurityScan(root = process.cwd(), opts = {}) {
   let truncated = false;
 
   for (const group of groups.values()) {
-    const dirs = [...group.roots].filter((r) => isDir(join(root, r)));
-    if (!dirs.length) continue;
+    const paths = [...group.roots].filter((r) => isDir(join(root, r)) || isFile(join(root, r)));
+    if (!paths.length) continue;
     available = true;
-    const files = listSourceFiles(root, { roots: dirs, exts: group.exts, maxFiles });
+    const files = listSourceFiles(root, { roots: paths, exts: group.exts, maxFiles });
     if (files.length >= maxFiles) truncated = true;
     for (const file of files) {
       const text = readIf(file);
@@ -503,7 +533,17 @@ function flagValue(argv, flag) {
   return ix !== -1 && argv[ix + 1] !== undefined ? argv[ix + 1] : undefined;
 }
 
-const isMain = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+// realpath both sides: Node realpaths the ESM entry for import.meta.url, so a
+// symlinked invocation path would otherwise make the CLI a silent no-op.
+const isMain = (() => {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
+  } catch {
+    return import.meta.url === pathToFileURL(resolve(entry)).href;
+  }
+})();
 if (isMain) {
   const argv = process.argv.slice(2);
   const root = resolve(flagValue(argv, '--dir') ?? process.cwd());

@@ -27,6 +27,22 @@ export function hasStateMarker(dir) {
   return existsSync(join(dir, STATE_MARKER)) || existsSync(join(dir, LEGACY_STATE_MARKER));
 }
 
+/** Read the crash-recovery metadata without ever making resume itself fail. */
+export async function readInstallState(dir) {
+  try {
+    const value = JSON.parse(await readFile(join(dir, STATE_MARKER), 'utf8'));
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Merge durable, non-secret provisioning receipts into the recovery marker. */
+export async function updateInstallState(dir, patch) {
+  const current = await readInstallState(dir);
+  await writeFile(join(dir, STATE_MARKER), JSON.stringify({ ...current, ...patch }, null, 2) + '\n', 'utf8');
+}
+
 // ── Prompt: target folder (its name IS the project name) ────────────────────
 
 export async function promptProject(flags = {}) {
@@ -318,11 +334,12 @@ export async function copyTemplateTree(srcDir, destDir, { protect = [] } = {}) {
 async function writeStateMarker(ctx) {
   try {
     const pkg = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8'));
-    await writeFile(
-      join(ctx.dir, STATE_MARKER),
-      JSON.stringify({ version: pkg.version, startedAt: new Date().toISOString(), mode: ctx.mode ?? 'full' }, null, 2) + '\n',
-      'utf8',
-    );
+    const current = await readInstallState(ctx.dir);
+    await updateInstallState(ctx.dir, {
+      version: pkg.version,
+      startedAt: current.startedAt ?? new Date().toISOString(),
+      mode: ctx.mode ?? 'full',
+    });
   } catch {
     /* non-fatal */
   }

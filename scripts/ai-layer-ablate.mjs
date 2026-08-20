@@ -423,7 +423,17 @@ function usage() {
   ].join('\n');
 }
 
-const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const isMain = (() => {
+  // realpath the entry: Node realpaths the ESM main for import.meta.url, so a
+  // symlinked invocation path would silently skip the CLI with exit 0.
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return realpathSync(entry) === fileURLToPath(import.meta.url);
+  } catch {
+    return resolve(entry) === fileURLToPath(import.meta.url);
+  }
+})();
 if (isMain) {
   try {
     const opts = parseArgs(process.argv.slice(2));

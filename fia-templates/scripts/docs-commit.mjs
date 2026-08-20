@@ -22,6 +22,7 @@
  *   node imp/scripts/docs-commit.mjs --message "…" [--json] [--dir <project root>]
  */
 import { isAbsolute, relative, resolve } from 'node:path';
+import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { commitPaths } from '../modules/git-helper.mjs';
 import { activeFdaLock } from './fda-lock.mjs';
@@ -81,5 +82,15 @@ export function main(argv) {
   console.log(sha ? `${sha.slice(0, 7)}  ${message}  (${committed.length} path${committed.length === 1 ? '' : 's'})` : 'nothing to commit — ai-docs/ is clean');
 }
 
-const isMain = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+// realpath both sides: Node realpaths the ESM entry for import.meta.url, so a
+// symlinked invocation path would otherwise make the CLI a silent no-op.
+const isMain = (() => {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
+  } catch {
+    return import.meta.url === pathToFileURL(resolve(entry)).href;
+  }
+})();
 if (isMain) main(process.argv.slice(2));

@@ -17,8 +17,13 @@ drag geometry/alternatives when drag exists are never optional.
 After confirmation, record a capability boolean only with the atomic
 `capability --name <capability> --enabled true|false` command. Enabling
 `kanban` safely enables `dragAndDrop`; enabling
-`advancedDataTableControls` safely enables `dataTables`. Conflicting disables
-are rejected without changing the contract.
+`advancedDataTableControls` safely enables `dataTables`; a false→true
+`dataTables` enable also turns on `advancedDataTableControls` as the
+professional default (only while the contract's advanced-controls rule is
+`optional`/`required`; a waived/not_applicable decision stands) — preview that
+cascade to the engineer BEFORE running the command, and record an explicit
+disable afterwards to opt out. Conflicting disables are rejected without
+changing the contract.
 
 Applicability and implementation are independent. Preserve an explicit
 existing/specified library or custom project component; never replace it with

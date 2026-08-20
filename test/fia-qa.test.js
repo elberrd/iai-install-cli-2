@@ -290,7 +290,7 @@ test('base DataTable QA never inherits advanced grouping, pinning, or reorder re
     /compact removable filter chips/i,
     /Clear filters/i,
     /sort.*hide.*reset/i,
-    /advancedControls.*(?:omitted|default false)/i,
+    /advancedControls=\{false\}/i,
     /no advanced-only/i,
   ]) {
     assert.match(authored, requirement);
@@ -310,7 +310,7 @@ test('base DataTable QA never inherits advanced grouping, pinning, or reorder re
   assert.match(audit, /one Filter control/i);
   assert.match(audit, /compact removable filter chips/i);
   assert.match(audit, /Shift\+F10/i);
-  assert.match(audit, /advancedControls.*(?:omitted|default false)/i);
+  assert.match(audit, /advancedControls=\{false\}/i);
   assert.match(audit, /no advanced-only/i);
   assert.doesNotMatch(
     audit,
@@ -388,7 +388,7 @@ test('advanced DataTable QA proves enterprise view state, truthful counts, and r
 
   for (const requirement of [
     /Advanced DataTable:/,
-    /advancedControls=\{true\}/i,
+    /advancedControls.*(?:omitted|default true|explicitly true)/i,
     /ordered grouping lane/i,
     /\+ Level/,
     /maximum of three levels/i,

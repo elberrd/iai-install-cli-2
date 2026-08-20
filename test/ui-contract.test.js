@@ -17,6 +17,7 @@ import {
   resolveUiImplementation,
   saveUiContract,
   selectUiImplementations,
+  updateUiCapability,
   validateUiContract,
 } from '../fia-templates/scripts/ui-contract.mjs';
 
@@ -364,6 +365,55 @@ test('advanced table controls have a dedicated activation and depend on the base
   assert.equal(resolveUiRuleApplicability(invalid, 'data_table.advanced_controls').applicable, true);
 });
 
+test('enabling a DataTable selects professional controls by default and compact mode is an explicit opt-out', () => {
+  const initial = defaultContract('operational-saas');
+  const professional = updateUiCapability(initial, 'dataTables', true);
+
+  assert.deepEqual(professional.changes, [
+    { name: 'dataTables', from: false, to: true, reason: 'requested' },
+    {
+      name: 'advancedDataTableControls',
+      from: false,
+      to: true,
+      reason: 'professional_default_for_dataTables',
+    },
+  ]);
+  assert.equal(resolveUiRuleApplicability(professional.contract, 'components.data_table').applicable, true);
+  assert.equal(resolveUiRuleApplicability(professional.contract, 'data_table.advanced_controls').applicable, true);
+
+  const compact = updateUiCapability(professional.contract, 'advancedDataTableControls', false);
+  assert.deepEqual(compact.changes, [
+    { name: 'advancedDataTableControls', from: true, to: false, reason: 'requested' },
+  ]);
+  assert.equal(resolveUiRuleApplicability(compact.contract, 'components.data_table').applicable, true);
+  assert.equal(resolveUiRuleApplicability(compact.contract, 'data_table.advanced_controls').applicable, false);
+
+  const repeatedBaseEnable = updateUiCapability(compact.contract, 'dataTables', true);
+  assert.deepEqual(repeatedBaseEnable.changes, []);
+  assert.equal(repeatedBaseEnable.contract.capabilities.dataTables, true);
+  assert.equal(repeatedBaseEnable.contract.capabilities.advancedDataTableControls, false);
+});
+
+test('the professional-default cascade respects an explicit waiver/not_applicable on advanced controls', () => {
+  // A recorded base-only decision (the exact override the cookbook sanctions)
+  // must not make enabling the base table impossible: the cascade stands down
+  // and the update stays valid, leaving advanced controls off.
+  for (const rule of [
+    { status: 'waived', reason: 'product_owner_exception', waiver: { approvedBy: 'owner', scope: 'all tables' } },
+    { status: 'not_applicable', reason: 'custom_product_decision' },
+  ]) {
+    const contract = defaultContract('custom');
+    contract.rules['components.data_table'] = { status: 'optional', reason: 'custom_product_decision' };
+    contract.rules['data_table.advanced_controls'] = rule;
+    contract.capabilities.dataTables = false;
+    contract.capabilities.advancedDataTableControls = false;
+    const enabled = updateUiCapability(contract, 'dataTables', true);
+    assert.deepEqual(enabled.changes, [{ name: 'dataTables', from: false, to: true, reason: 'requested' }]);
+    assert.equal(enabled.contract.capabilities.advancedDataTableControls, false);
+    assert.equal(validateUiContract(enabled.contract).outcome, 'PASS');
+  }
+});
+
 test('validation fails closed for omitted and invented rules', () => {
   const missing = defaultContract('custom');
   delete missing.rules['quality.keyboard_access'];
@@ -499,6 +549,7 @@ test('CLI implementation atomically updates only the requested surface', () => {
     readdirSync(join(root, 'ai-docs', 'ui')).some((name) => name.endsWith('.tmp')),
     false,
   );
+
 });
 
 test('CLI implementation supports explicit canonical and library surface choices', () => {
@@ -591,6 +642,50 @@ test('CLI capability atomically enables optional capabilities with their safe de
     readdirSync(join(root, 'ai-docs', 'ui')).some((name) => name.endsWith('.tmp')),
     false,
   );
+
+  const tableRoot = temporaryProject();
+  execFileSync(process.execPath, [SCRIPT, 'init', '--profile', 'operational-saas', '--dir', tableRoot, '--json'], {
+    encoding: 'utf8',
+  });
+  const professionalTable = JSON.parse(
+    execFileSync(
+      process.execPath,
+      [SCRIPT, 'capability', '--name', 'dataTables', '--enabled', 'true', '--dir', tableRoot, '--json'],
+      { encoding: 'utf8' },
+    ),
+  );
+  assert.deepEqual(professionalTable.changes, [
+    { name: 'dataTables', from: false, to: true, reason: 'requested' },
+    {
+      name: 'advancedDataTableControls',
+      from: false,
+      to: true,
+      reason: 'professional_default_for_dataTables',
+    },
+  ]);
+  const compactTable = JSON.parse(
+    execFileSync(
+      process.execPath,
+      [SCRIPT, 'capability', '--name', 'advancedDataTableControls', '--enabled', 'false', '--dir', tableRoot, '--json'],
+      { encoding: 'utf8' },
+    ),
+  );
+  assert.deepEqual(compactTable.changes, [
+    { name: 'advancedDataTableControls', from: true, to: false, reason: 'requested' },
+  ]);
+  assert.equal(loadUiContract(tableRoot, { required: true }).capabilities.dataTables, true);
+
+  const repeatedBaseEnable = JSON.parse(
+    execFileSync(
+      process.execPath,
+      [SCRIPT, 'capability', '--name', 'dataTables', '--enabled', 'true', '--dir', tableRoot, '--json'],
+      { encoding: 'utf8' },
+    ),
+  );
+  assert.deepEqual(repeatedBaseEnable.changes, []);
+  const repeatedContract = loadUiContract(tableRoot, { required: true });
+  assert.equal(repeatedContract.capabilities.dataTables, true);
+  assert.equal(repeatedContract.capabilities.advancedDataTableControls, false);
 });
 
 test('CLI capability rejects conflicting disables without changing the contract', () => {
