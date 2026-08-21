@@ -27,6 +27,11 @@
  * Read-only except for `set` and `clear`, and both refuse while THAT run holds
  * the FDA lock — a verdict about a run still in progress is a guess.
  *
+ * `set` also enforces the per-run RECOVERY BUDGET (VERDICT_SET_CAP): each run
+ * gets that many verdicts ever, counted in a durable ledger that `clear` never
+ * resets. The refusal is the STOP a goal-mode recovery loop cannot talk its
+ * way past; granting more is a human act (delete the ledger file by hand).
+ *
  * Usage:
  *   node imp/scripts/verdict.mjs set <fda_id> --missing "…" [--missing "…"]…
  *                                             [--redo <phase>]… [--note "…"] [--json]
@@ -40,10 +45,27 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import { readFileSync } from 'node:fs';
-import { clearRunVerdict, readRunVerdict, writeRunVerdict } from '../modules/continuation.mjs';
+import {
+  VERDICT_HISTORY_FILE,
+  appendVerdictHistory,
+  clearRunVerdict,
+  readRunVerdict,
+  readVerdictHistory,
+  writeRunVerdict,
+} from '../modules/continuation.mjs';
 import { activeFdaLock } from './fda-lock.mjs';
 
 const SAFE_ID = /^[a-zA-Z0-9_-]+$/;
+
+/**
+ * Recovery budget: how many verdicts may ever be SET for one run. This is the
+ * code-enforced ceiling behind goal mode's "recover while making progress"
+ * rule — an agent that keeps naming new gaps gets this many bounded resumes,
+ * then the run needs a human. The count lives in the run's verdict history
+ * ledger, which `clear` never resets; granting more recoveries is a deliberate
+ * human act (delete the ledger file), not a flag an agent can pass.
+ */
+export const VERDICT_SET_CAP = 4;
 
 /** `defaults.data_dir` from the student's roster, or the shipped default. */
 export function dataDirOf(root, configPath = 'imp/fia.config.yaml') {
@@ -242,6 +264,20 @@ export function main(argv) {
     );
   }
 
+  // The recovery budget. Checked at set time — not at resume time — because the
+  // set IS the recovery decision, and refusing here is what turns "never loop
+  // forever" from a prompt instruction into a property of the system.
+  const history = readVerdictHistory(sessionDir);
+  if (history.length >= VERDICT_SET_CAP) {
+    console.error(
+      `Run ${fdaId} has spent its recovery budget: ${history.length}/${VERDICT_SET_CAP} verdicts already recorded.`,
+    );
+    console.error('This ceiling is enforced in code so a recovery loop can never run away on its own.');
+    console.error('A human decides now: fix it by hand, skip the task, or split it into smaller tasks.');
+    console.error(`To deliberately grant more recoveries, delete: ${join(sessionDir, VERDICT_HISTORY_FILE)}`);
+    return 1;
+  }
+
   mkdirSync(sessionDir, { recursive: true });
   const verdict = writeRunVerdict(sessionDir, {
     fda_id: fdaId,
@@ -250,10 +286,12 @@ export function main(argv) {
     redo,
     note: flagValue(argv, '--note') || '',
   });
+  const spent = appendVerdictHistory(sessionDir, verdict).length;
   if (json) console.log(JSON.stringify(verdict, null, 2));
   else {
     console.log(`Verdict recorded for run ${fdaId} — ${verdict.missing.length} item(s) of missing work.`);
     if (verdict.redo.length) console.log(`Phases to re-run: ${verdict.redo.join(', ')}`);
+    console.log(`Recovery budget: ${spent}/${VERDICT_SET_CAP} used.`);
     console.log(`Apply it:  node imp/<the same fda_*.mjs> --fda-id ${fdaId} --resume`);
   }
   return 0;

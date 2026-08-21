@@ -1854,6 +1854,14 @@ node imp/fda_sdlc.mjs --fda-id <fda_id> --resume
 - `verdict show <fda_id> [--json]` reads one back, `verdict clear <fda_id>` drops
   it, and `set` refuses while THAT run still holds the FDA lock — a verdict about
   a run in progress is a guess. Alias: `npm run fda:verdict`.
+- `set` also enforces the per-run **recovery budget**: at most 4 verdicts per
+  run, counted in `verdict_history.json` next to the verdict — a ledger that
+  `clear` never resets, because a consumed recovery still spent budget. This is
+  the code-enforced ceiling behind goal mode's "recover while making progress"
+  rule: the orchestrating agent repairs each NEW gap without asking permission,
+  and the refusal here is the STOP it cannot talk its way past. Granting more
+  recoveries is a deliberate human act (delete the ledger file by hand), not a
+  flag an agent can pass.
 
 **Rollout matters here**: `imp/fia.config.yaml` is student-owned and
 `--update-runtime` never rewrites it (§14.2). Every existing project therefore
@@ -2446,7 +2454,7 @@ update_roster.
 | `/prd` | `[focus?]` | Quick reviewer opinion on the PRD — never edits it. |
 | `/map` | `[notes?]` | Runs a conditional architecture checkpoint before planning; consequential decisions land in optional `architecture.md`, while simple plans skip it. Then PRD → `map.yaml` + screens-routes + issues/task-master + specs + registry seed + `/ui-components` + milestones; ends by opening the Plan page. |
 | `/task` | `[number\|description?]` | ONE task: the task-sequencer writes the brief (enforcing the theme and env gates); exact `Mode: prototype` → `fda_prototype`, otherwise `fda_plan_build_test` (bigger/riskier normal work → `fda_sdlc`). On first failure: one automatic recovery (re-run / repair once); if that also fails: `npm run fda:phases -- <id>`, resume with `--fda-id <id> --resume`. |
-| `/goal` | `[limit?] [--light]` | All unblocked tasks to done, one FDA per task (never batched), gates inside the loop, human-only steps handled MID-goal; `Mode: prototype` selects `fda_prototype` per brief, otherwise `--light` selects `fda_plan_build_test` and the default is `fda_sdlc`; every completed milestone automatically runs blocking `fda_qa` before the next milestone; ends with the app RUNNING + "How to test", then `/launch`. |
+| `/goal` | `[limit?] [--light]` | All unblocked tasks to done, one FDA per task (never batched), gates inside the loop, human-only steps handled MID-goal; `Mode: prototype` selects `fda_prototype` per brief, otherwise `--light` selects `fda_plan_build_test` and the default is `fda_sdlc`; on failure it recovers automatically while each failure names a NEW gap (the per-run recovery budget is capped in code by `verdict.mjs`), stopping only on a repeated violation, a terminal outcome or a spent budget — always with its recommended fix, which a plain "continue" from the engineer authorizes; every completed milestone automatically runs blocking `fda_qa` before the next milestone; ends with the app RUNNING + "How to test", then `/launch`. |
 | `/feature` | `"request"` | Delta on an existing mapped system: size triage (module-sized routes UP to `/idea`), delta mini-grill, delta spec, DELTA tasks, approval before executing. Requires `map.yaml` (`/absorb` first otherwise). |
 | `/bug` | `"symptom"` | Classifies `direct` vs `rca`; ambiguous/risky defects get a versioned investigation and critical/sensitive/low-confidence RCAs require approval before claim. Then `fda_bug` enforces an assertion-failing reproduction before any fix. |
 | `/quick` | `"small change"` | Triage; SIMPLE runs `node imp/fda_quick.mjs` + the `Q-NNN` quick-log entry; COMPLEX routes to `/feature`/`/bug` naming the failed criterion. |

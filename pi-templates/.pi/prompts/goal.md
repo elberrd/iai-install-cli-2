@@ -55,14 +55,21 @@ Loop, until no unblocked task remains:
    milestone complete. This automatic boundary supersedes the cookbook's
    legacy “suggest `/qa` only” sentence.
 
-4. exit != 0 → ONE automatic recovery first (cookbook `harness_bridge`,
-   "On failure"): if the recommended action is re-run, or you would bring
-   me something to correct that an FDA can apply, do that once
-   (`--fda-id … --resume`, with a verdict `--missing` when you can name
-   the gap). If that also fails, or the outcome is `no_progress` /
-   `attempt_cap` / `budget_exhausted` / `engine_exhausted`: STOP. Show
-   the phase, the gate violations and the trace. I decide: fix, skip or
-   re-run. Never a third attempt on your own.
+4. exit != 0 → recover automatically while the run is making PROGRESS
+   (cookbook `harness_bridge`, "On failure"): each failure that names a
+   NEW gap an FDA can apply — or a recommended plain re-run — is yours
+   to repair without asking (`--fda-id … --resume`, with a verdict
+   `--missing` naming the gap). Report each recovery to me in one line
+   (what failed → what you fixed) and continue. Fixing one gate
+   violation often reveals the next; that chain is progress, walk it.
+   STOP only when: the SAME violation comes back (no progress), the
+   outcome is `no_progress` / `attempt_cap` / `budget_exhausted` /
+   `engine_exhausted`, or `verdict.mjs set` refuses because the run's
+   recovery budget is spent (that cap is enforced in code — never
+   work around it). On STOP: show the phase, the gate violations, the
+   trace AND your recommended fix. I decide: fix, skip or re-run — and
+   if I answer "continue" (or equivalent), that IS the authorization
+   for exactly the fix you recommended: execute it, never re-ask.
 
 Briefs with a `Spec: NNNN (…)` line arm the FDA's spec-coverage gate — on
 success, check the spec's Traceability table reflects the new tests and flag
