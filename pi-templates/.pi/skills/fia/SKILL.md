@@ -20,6 +20,7 @@ Deterministic Node.js FDAs own sequencing, retries, and acceptance; agents (Clau
 4. Known commands are code phases (`fda_quality`, test phases) — not agents
 5. You orchestrate — you do not replace an FDA's job
 6. A flow paused with a recommendation + the engineer answering "continue" (or any equivalent go-ahead) = authorization for exactly that recommended action — execute it and resume, never re-ask or restate it
+7. Never drive the real machine — no computer-use / `orca computer` / desktop automation / real-browser tab switching / screen capture. Browser verification is Playwright (`/qa`, isolated dev server), never the real Chrome. A missing dashboard-only/runtime secret is a STOP: ask the engineer to paste it (or `npx convex env set <KEY> <value>`), never scrape it from tabs, screenshots, logs, or another app. A hook enforces this.
 
 ## Routing
 

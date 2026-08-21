@@ -39,6 +39,32 @@ function isProtected(raw: string): boolean {
 const WRITE_BINARY = /(^|[\s;&|(])(rm|mv|cp|tee|chmod|chown|truncate|dd|ln|rsync|install)(\s|$)/;
 const SED_IN_PLACE = /(^|[\s;&|(])sed\s+(-\S*i|--in-place)/;
 
+// Desktop-control guard: agents build a web app here and must never drive the
+// real machine — no computer-use, no switching the real browser's tabs, no
+// screen capture, no keystroke injection. Mirrors imp/scripts/desktop-guard.mjs
+// (Pi compiles its own TypeScript and cannot import the .mjs, so the rule shape
+// is duplicated on purpose). Browser verification is Playwright (`/qa`), never
+// the real Chrome; a missing secret is asked for, never scraped.
+const DESKTOP_CONTROL: { label: string; test: (c: string) => boolean }[] = [
+	{ label: "Orca computer-use (`orca computer …`)", test: (c) => /\borca\s+computer\b/.test(c) },
+	{
+		label: "desktop input injection (cliclick / xdotool / ydotool / dotool)",
+		test: (c) => /\bcliclick\b/.test(c) || /\b(?:xdotool|ydotool|dotool)\b/.test(c),
+	},
+	{ label: "screen capture (`screencapture`)", test: (c) => /\bscreencapture\b/.test(c) },
+	{
+		label: "AppleScript UI automation (`osascript` driving System Events)",
+		test: (c) => /\bosascript\b/.test(c) && /(system events|keystroke|key code|key down|key up)/i.test(c),
+	},
+];
+
+function blockedDesktopControl(command: string): string | undefined {
+	for (const rule of DESKTOP_CONTROL) {
+		if (rule.test(command)) return rule.label;
+	}
+	return undefined;
+}
+
 /** First token in the command that resolves to a protected path, if any. */
 function firstProtectedToken(command: string): string | undefined {
 	const tokens = command
@@ -77,6 +103,23 @@ export default function (pi: ExtensionAPI) {
 
 		if (event.toolName === "bash") {
 			const command = String(event.input.command ?? "");
+
+			const desktop = blockedDesktopControl(command);
+			if (desktop) {
+				if (ctx.hasUI) {
+					ctx.ui.notify(`FIA: blocked ${desktop} — agents don't operate the real machine`, "warning");
+				}
+				return {
+					block: true,
+					reason:
+						`Blocked: ${desktop}. Agents in this project must never drive the real machine — ` +
+						"no computer-use, no switching the real browser's tabs, no screen capture, no keystroke injection. " +
+						"Verify the UI with Playwright instead (`/qa` runs an isolated dev server on 127.0.0.1, never your real Chrome). " +
+						"If you are missing a secret (an R2 S3 token, a dashboard-only key), STOP and ask the engineer to paste it " +
+						"(or `npx convex env set <KEY> <value>`) — never obtain it from browser tabs, screenshots, logs, or another app.",
+				};
+			}
+
 			const writeContext = WRITE_BINARY.test(command) || SED_IN_PLACE.test(command);
 			const hit = (writeContext ? firstProtectedToken(command) : undefined) ?? redirectTargets(command).find((t) => isProtected(t));
 			if (hit) {
