@@ -970,7 +970,7 @@ Design system and references:
 | `/theme [hint\|accept?]` | Visual identity behind a side-by-side preview: ~7-question interview (colors, dark/light, typography, shape, interaction patterns), preserves the UI contract's selected theme library/custom entrypoint, generates its full project-native token set (WCAG AA contrast is a blocker), renders Current × Proposed with REAL registry components, and only applies through that implementation's native provider/files after explicit approval. Canonical `fia-universal` on Next.js maps this to `next/font` + `app/globals.css`; other stacks do not inherit those APIs. `accept` records a conscious "keep the default" decision — enough to satisfy the theme gate. |
 | `/ui-contract [profile\|show\|review]` | Creates or reviews schema-v3 `ai-docs/ui/contract.json`: one confirmed product profile resolves app shell, breadcrumb, System/Light/Dark, DataTable/advanced controls and Kanban to `required`, `optional`, `not_applicable` or a scoped `waived`, and records the implementation for each surface. An explicit existing/specified library or custom component always wins for its named surface and must resolve through a concrete local entrypoint; a package is not treated as proof that it implements unrelated surfaces. With no detailed choice, `fia-universal` is the deterministic fallback. A capability boolean changes atomically with `capability --name <capability> --enabled true\|false`; the false→true `dataTables` transition also enables its professional advanced controls (only while the advanced-controls rule is `optional`/`required` — a waived/not_applicable decision stands), while explicitly disabling the advanced capability afterwards records a compact opt-out that an idempotent base-table reassertion preserves. Other dependency enables cascade safely and conflicting disables fail without writing. Every skip keeps a reason; responsive/containment/keyboard/focus/recovery/drag-quality invariants cannot be waived. |
 | `/design <images + description>` | Layout redesign from reference images: structure/hierarchy/density/motion come from the reference, colors/fonts/components stay OURS (theme + registry only). Contained scope applies directly; broad scope becomes roadmap tasks. Uses the Impeccable skill for motion when installed. |
-| `/example <url> [notes] \| list` | Registers an external reference on the example shelf: reads the source (never registers from a URL alone), pins license + commit, writes `ai-docs/examples/<slug>/NOTES.md` (mandatory `## What NOT to take`) + a registry row. GPL-family/unknown licenses are never copied verbatim. |
+| `/example <url> [notes] \| list` | Registers an external reference on the example shelf: reads the source (never registers from a URL alone), pins license + commit, writes `ai-docs/examples/<slug>/NOTES.md` (mandatory `## What NOT to take`) + a registry row. GPL-family/unknown licenses are never copied verbatim. Before implementation, cite the entry's NOTES in `/grill ai-docs/PRD.md`, then ask `/map` to reconcile the approved additions into open specs/tasks. |
 | `/kit [focus?] [--report-only]` | Brownfield design-system audit: as-built registry rows → `/ui-components` page → **gap report** vs the core kit (`kit-report.md`: missing needs, below-contract items with file/line evidence — the DataTable contract audited item by item, plus Combobox overlay width, yellow search highlight, calendar month/year caption, pointer cursor, and one-component-per-card isolation from `references/interaction.md` — duplicates without roles) → engineer approves → delta spec + `Kind: kit` design-only tasks with one checkbox per contract item. Changes no component and no screen itself. |
 
 Going live and meta:
@@ -2264,6 +2264,13 @@ Shared conventions between the harness (Claude Code/Cursor) and Pi, all under
   this project's conventions; `AGPL-3.0`, any `GPL-*` and `unknown` are never
   copied verbatim, and any verbatim copy is called out in the task summary with
   its license. The `0000-*` entry is a format reference and never counts.
+  **Planning follow-through is required after adding an example:** before
+  `/task` or `/goal`, run `/grill ai-docs/PRD.md` and explicitly cite the
+  relevant `ai-docs/examples/<slug>/NOTES.md`. Approve which findings should
+  become requirements, then run `/map` with an explicit instruction to
+  reconcile the plan with those approved findings and update the open specs
+  and tasks with what entered the PRD. `/example` itself never changes product
+  scope, and rejected findings stay optional prior art.
 - **Test credentials** — the convention every auth flow feeds:
   ONE dev test user per profile/role, created by the auth task via the
   provider's native mechanism (Clerk dev instances: any `+clerk_test` email
@@ -2451,7 +2458,7 @@ update_roster.
 | `/theme` | `[hint\|accept?]` | Identity interview → FDA-built side-by-side preview in the project-native component catalog → explicit approval through the UI contract's selected theme implementation. `accept` records "keep the default" (satisfies the theme gate) with zero app changes. Canonical Next files/APIs apply only to canonical `fia-universal`; AA contrast remains a blocker everywhere. |
 | `/ui-contract` | `[profile\|show\|review]` | Schema-v3 UI applicability plus implementation precedence: explicit per-surface library/custom choices with concrete local entrypoints win, while canonical remains the default for untouched surfaces; confirmed booleans use atomic `capability --name <capability> --enabled true\|false`; writes only after confirmation and migrates v1/v2 explicitly. |
 | `/design` | `images + scope` | Layout redesign from references — structure from the image, identity from OUR system. |
-| `/example` | `URL [notes] \| list` | Register an external reference on the shelf (license researched, `What NOT to take` mandatory). |
+| `/example` | `URL [notes] \| list` | Register an external reference on the shelf (license researched, `What NOT to take` mandatory). After adding one, cite its NOTES in `/grill ai-docs/PRD.md`, then run `/map` to reconcile approved PRD additions into open specs/tasks before implementation. |
 | `/agents` | — | Opens the viewer's Agents tab (`npm run agents -- --detach`) to edit engines/models/fallbacks; Pi is forbidden from editing `imp/fia.config.yaml` itself. |
 | `/onboarding` | `[focus?] [--report-only]` | First command on an EXISTING system: chains `/absorb` → `/stack` → `/kit` in one guided pass (each stage's own prompt is the law; stages whose artifacts already exist can be kept and skipped), then hands over explaining the split — `/idea` for a MODULE-sized addition vs `/feature` for a one-sentence delta. The tour keeps a **resume rail** in the decision log (`open onboarding` → one stage note each → `close`): an interrupted session resumes from its last stage note instead of restarting. `--report-only` is the express path — the `/kit` stage presents its gap report and defers the design decisions to a later `/kit` run. |
 | `/absorb` | `[focus?]` | Brownfield onboarding (as-built PRD/map/conventions/registry, maintained wiki + digest stamp, and one canonical project skill in `.agents/skills/project/` with a Claude symlink; never `.pi` or `.cursor` copies). Divergent legacy copies in any engine stop for an explicit choice. |
@@ -2888,8 +2895,17 @@ imp                          # open Pi
 /login openai-codex          # one time only (never Anthropic inside Pi)
 /idea                        # interview → PRD + the best stack (ai-docs/)
 /stack                       # research + docs per tech + CLIs/MCPs/skills
+
+# If you add an external example, this follow-through is required:
+/example <url> <what-liked>  # when using prior art: research + register it
+/grill ai-docs/PRD.md using ai-docs/examples/<slug>/NOTES.md
+                             # approve what the example adds to the PRD
+/map "Reconcile the plan with the approved example findings and update open specs and tasks"
+
+# Without an external example, use these two lines instead:
 /grill                       # stress-test the PRD before building
 /map                         # PRD → screens, tasks, milestones (opens the plan)
+
 /task                        # Task 01 (Foundation) via FDA
 /theme                       # the greenfield checkpoint (or `/theme accept`)
 /goal                        # every remaining task, one FDA each
