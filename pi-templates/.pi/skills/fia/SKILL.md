@@ -19,6 +19,7 @@ Deterministic Node.js FDAs own sequencing, retries, and acceptance; agents (Clau
 3. Gates verify claims after the fact
 4. Known commands are code phases (`fda_quality`, test phases) — not agents
 5. You orchestrate — you do not replace an FDA's job
+6. A flow paused with a recommendation + the engineer answering "continue" (or any equivalent go-ahead) = authorization for exactly that recommended action — execute it and resume, never re-ask or restate it
 
 ## Routing
 

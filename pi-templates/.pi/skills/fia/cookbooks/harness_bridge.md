@@ -165,7 +165,7 @@ repeat:
   2. brief has exact `Mode: prototype`? run fda_prototype
      otherwise run fda_sdlc (or fda_plan_build_test when /goal --light)
   3. exit 0? → report the phase summary, continue
-     exit != 0? → ONE automatic recovery (see On failure), then continue or STOP
+     exit != 0? → recover while each failure is NEW (see On failure), then continue or STOP
 until no unblocked issues remain
 ```
 
@@ -192,19 +192,30 @@ Rules for the loop:
   "Task finished" requires the brief's checkboxes fully ticked (the checklist
   gate guarantees it on exit 0) — a brief left with `- [ ]` is an unfinished
   task, whatever the announcement says.
-- On failure: apply ONE automatic recovery before asking the engineer.
-  The FDA itself already retries a fully-rolled-back allowlist breach
-  once (and treats Finder/Explorer junk like `.DS_Store` as benign). If
-  you would bring the engineer something to correct that an FDA can
-  apply — leftover UI violation, missing test, brief checkbox, or a
-  recommended `--resume` after a revert — dispatch that ONE repair
-  (`--fda-id … --resume`, with `verdict set --missing` when you can name
-  the gap). Do not ask first. If that second attempt also fails, OR the
-  outcome is `no_progress` / `attempt_cap` / `budget_exhausted` /
-  `engine_exhausted` (login/limit): STOP and hand the evidence
-  (`fda:phases`, gate violations, envelope). The engineer decides: fix,
-  skip, or re-run. Never a third attempt on your own. Never implement in
-  place of an FDA.
+- On failure: recover automatically while the run is making PROGRESS —
+  never ask permission for a repair an FDA can apply. The FDA itself
+  already retries a fully-rolled-back allowlist breach once (and treats
+  Finder/Explorer junk like `.DS_Store` as benign). If you would bring
+  the engineer something to correct that an FDA can apply — leftover UI
+  violation, missing test, brief checkbox, a malformed receipt field, or
+  a recommended `--resume` after a revert — dispatch the repair
+  (`--fda-id … --resume`, with `verdict set --missing` naming the gap),
+  report it in one line (what failed → what you fixed) and continue.
+  Progress means each failure is a DIFFERENT gap than the last: fixing
+  one gate violation often reveals the next, and that chain is yours to
+  walk without asking. STOP and hand the evidence (`fda:phases`, gate
+  violations, envelope) only when: the SAME violation returns (no
+  progress), the outcome is `no_progress` / `attempt_cap` /
+  `budget_exhausted` / `engine_exhausted` (login/limit), or
+  `verdict set` refuses because the run's recovery budget is spent —
+  that cap is enforced in code, never worked around, and it is what
+  makes this loop safe to run without asking. Always include your
+  recommended fix in the STOP report; if the engineer then answers
+  "continue" (or equivalent), that IS the authorization for exactly
+  that recommendation — execute it, never re-ask. A recovery verdict
+  corrects evidence so it becomes TRUE — it never waives a gate or
+  relaxes a security/isolation boolean to make one pass. Never
+  implement in place of an FDA.
 - Suggest keeping `npm run fda:viewer` open — it live-updates every 2s.
 - When the **last task of a milestone** completes inside the loop (all tasks
   listed under that milestone are now `done`), run

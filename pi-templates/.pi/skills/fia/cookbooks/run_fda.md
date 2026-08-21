@@ -67,7 +67,12 @@ or a recommended `--resume` after a revert — dispatch that ONE repair first
 (`--fda-id … --resume`, with a verdict `--missing` when you can name the
 gap). If that also fails, or the outcome is `no_progress` / `attempt_cap` /
 `budget_exhausted` / `engine_exhausted`: hand the decision back. Never a
-third attempt on your own. Never implement in place of an FDA.
+third attempt on your own. Never implement in place of an FDA. (Goal mode
+runs by a different rule — recover while each failure names a NEW gap, per
+"On failure" in `harness_bridge.md`; the recovery budget enforced by
+`verdict.mjs` bounds both.) When you hand the decision back, include your
+recommended fix — and if the engineer answers "continue", that authorizes
+exactly that fix: execute it, never re-ask.
 
 `stopped_by_request` is not a failure and never gets a repair round: the
 engineer pressed the stop button. No run starts while it is armed — disarm
@@ -136,3 +141,11 @@ Rules for you: `--missing` items are the GAP in plain English, never a design
 engineer said it or you verified it in the code. `verdict show <fda_id>` reads
 one back, `verdict clear <fda_id>` drops it, and `set` refuses while that run is
 still in progress.
+
+`set` also refuses once the run has spent its **recovery budget** (4 verdicts
+per run, counted in a ledger `clear` never resets). That refusal is a real
+STOP: never work around it, never delete the ledger yourself — bring the
+evidence and your recommended fix to the engineer, who decides (deleting the
+ledger to grant more recoveries is a human-only act). A verdict corrects
+evidence so it becomes TRUE; it never waives a gate or relaxes a
+security/isolation boolean to make one pass.

@@ -3,18 +3,27 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
 import {
   RUN_VERDICT_FILE,
+  VERDICT_HISTORY_FILE,
   buildScopeBlock,
   clearRunVerdict,
   readRunVerdict,
+  readVerdictHistory,
   writeRunVerdict,
 } from '../fia-templates/modules/continuation.mjs';
-import { dataDirOf, main, outcomeOf, renderVerdict, savedPhases } from '../fia-templates/scripts/verdict.mjs';
+import {
+  VERDICT_SET_CAP,
+  dataDirOf,
+  main,
+  outcomeOf,
+  renderVerdict,
+  savedPhases,
+} from '../fia-templates/scripts/verdict.mjs';
 
 const SCRIPT = join(import.meta.dirname, '..', 'fia-templates', 'scripts', 'verdict.mjs');
 
@@ -254,6 +263,60 @@ test('renderVerdict: only a phase with a saved result is promised as re-run', ()
   const none = renderVerdict({ ...verdict, redo: ['review'] }, 'r_abc', { saved: ['build', 'plan'] });
   assert.match(none, /None of those phases has a saved result/);
   assert.match(none, /This run saved: build, plan\./);
+});
+
+// ── the recovery budget: at most VERDICT_SET_CAP verdicts per run ────────────
+
+test('CLI: the recovery budget refuses the set beyond the cap, and clear does not refund it', () => {
+  const root = project();
+  const dir = sessionDirOf(root);
+
+  for (let i = 1; i <= VERDICT_SET_CAP; i += 1) {
+    const set = cli(['set', 'r_test1', '--missing', `gap ${i}`], root);
+    assert.equal(set.status, 0, `set ${i} of ${VERDICT_SET_CAP} is within budget`);
+    assert.match(set.stdout, new RegExp(`Recovery budget: ${i}/${VERDICT_SET_CAP} used`));
+  }
+  assert.equal(readVerdictHistory(dir).length, VERDICT_SET_CAP, 'every set landed in the ledger');
+
+  const over = cli(['set', 'r_test1', '--missing', 'one gap too many'], root);
+  assert.equal(over.status, 1);
+  assert.match(over.stderr, /spent its recovery budget/);
+  assert.match(over.stderr, /enforced in code/);
+  assert.match(over.stderr, new RegExp(VERDICT_HISTORY_FILE));
+  assert.deepEqual(
+    readRunVerdict(dir).missing,
+    [`gap ${VERDICT_SET_CAP}`],
+    'the refused set did not overwrite the standing verdict',
+  );
+
+  // `clear` consumes the verdict — it must NOT refund the budget, or the agent
+  // flow that consumes verdicts would reset its own ceiling every cycle.
+  assert.equal(cli(['clear', 'r_test1'], root).status, 0);
+  const afterClear = cli(['set', 'r_test1', '--missing', 'still over budget'], root);
+  assert.equal(afterClear.status, 1);
+  assert.match(afterClear.stderr, /spent its recovery budget/);
+
+  // Deleting the ledger is the deliberate human override the refusal names.
+  unlinkSync(join(dir, VERDICT_HISTORY_FILE));
+  const granted = cli(['set', 'r_test1', '--missing', 'human granted more'], root);
+  assert.equal(granted.status, 0);
+  assert.match(granted.stdout, new RegExp(`Recovery budget: 1/${VERDICT_SET_CAP} used`));
+});
+
+test('CLI: a refused set spends no budget, and a malformed ledger reads as empty', () => {
+  const root = project();
+  const dir = sessionDirOf(root);
+  savePhases(root, 'r_test1', ['build']);
+
+  // Refused before the ledger: neither a missing scope nor an unknown --redo counts.
+  assert.equal(cli(['set', 'r_test1'], root).status, 1);
+  assert.equal(cli(['set', 'r_test1', '--missing', 'x', '--redo', 'review'], root).status, 1);
+  assert.equal(readVerdictHistory(dir).length, 0, 'refusals never reach the ledger');
+
+  writeFileSync(join(dir, VERDICT_HISTORY_FILE), '{ not json');
+  assert.deepEqual(readVerdictHistory(dir), [], 'a corrupt ledger errs toward allowing the recovery');
+  assert.equal(cli(['set', 'r_test1', '--missing', 'x'], root).status, 0);
+  assert.equal(readVerdictHistory(dir).length, 1, 'the corrupt ledger was replaced by a counting one');
 });
 
 // ── the run bootstrap consuming it ───────────────────────────────────────────

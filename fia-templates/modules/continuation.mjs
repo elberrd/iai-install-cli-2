@@ -31,6 +31,15 @@ export const ENGINE_ERROR_FILE = 'engine_error.json';
  */
 export const RUN_VERDICT_FILE = 'run_verdict.json';
 
+/**
+ * The durable ledger of every verdict ever SET for this run. The verdict file
+ * above is one-shot (consumed by the resume it narrows); this ledger is not —
+ * it is what makes the per-run recovery budget enforceable in code. `clear`
+ * and the resume that consumes a verdict leave it untouched on purpose: a
+ * consumed recovery still spent budget.
+ */
+export const VERDICT_HISTORY_FILE = 'verdict_history.json';
+
 const MESSAGE_CAP = 1000;
 const MISSING_CAP = 20; // a verdict is a scope, not a backlog
 
@@ -142,6 +151,38 @@ export function readRunVerdict(sessionDir) {
     /* no verdict */
   }
   return null;
+}
+
+/**
+ * Every verdict ever recorded for this run, oldest first. Unreadable or
+ * malformed history reads as [] — the budget check then errs on the side of
+ * allowing the recovery, which is the correct failure mode for a guard whose
+ * job is to stop runaway loops, not to strand a healthy one.
+ */
+export function readVerdictHistory(sessionDir) {
+  try {
+    const history = JSON.parse(readFileSync(join(sessionDir, VERDICT_HISTORY_FILE), 'utf8'));
+    if (Array.isArray(history)) return history;
+  } catch {
+    /* no history */
+  }
+  return [];
+}
+
+/**
+ * Append one recorded verdict to the run's ledger. Best-effort like every
+ * marker write — but the caller checks the budget BEFORE writing the verdict,
+ * so a failed append can only under-count, never block.
+ */
+export function appendVerdictHistory(sessionDir, verdict) {
+  const history = readVerdictHistory(sessionDir);
+  history.push({ at: verdict.at, missing: verdict.missing, redo: verdict.redo });
+  try {
+    writeFileSync(join(sessionDir, VERDICT_HISTORY_FILE), JSON.stringify(history, null, 2));
+  } catch {
+    /* best-effort: an unwritable ledger under-counts the budget, nothing more */
+  }
+  return history;
 }
 
 /**

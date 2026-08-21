@@ -1,5 +1,7 @@
-// Tripwire: the orchestrator prompts must tell the agent to try ONE
-// automatic recovery before asking the engineer — never the old
+// Tripwire: the orchestrator prompts must carry the recovery policy —
+// progress-gated in goal mode (repair each NEW gap without asking, bounded by
+// the code-enforced recovery budget in verdict.mjs), one-shot in the
+// single-task commands where the engineer is present — never the old
 // "stop immediately / never retry" wording as the only policy.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,13 +12,23 @@ import { fileURLToPath } from 'node:url';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PI = join(ROOT, 'pi-templates', '.pi');
 
+const PROGRESS = 'recover automatically while the run is making PROGRESS';
 const SURFACES = [
-  ['prompts/goal.md', 'ONE automatic recovery'],
-  ['prompts/task.md', 'ONE automatic recovery'],
-  ['prompts/bug.md', 'ONE automatic recovery'],
-  ['prompts/quick.md', 'ONE automatic recovery'],
-  ['skills/fia/cookbooks/harness_bridge.md', 'ONE automatic recovery'],
-  ['skills/fia/cookbooks/run_fda.md', 'Automatic recovery (once)'],
+  ['prompts/goal.md', [PROGRESS, 'recovery budget']],
+  ['prompts/task.md', ['ONE automatic recovery']],
+  ['prompts/bug.md', ['ONE automatic recovery']],
+  ['prompts/quick.md', ['ONE automatic recovery']],
+  ['skills/fia/cookbooks/harness_bridge.md', [PROGRESS, 'recovery budget']],
+  ['skills/fia/cookbooks/run_fda.md', ['Automatic recovery (once)', 'recovery budget']],
+];
+
+// A paused flow + "continue" from the engineer = authorization for the
+// recommended action; re-asking is the exact behavior this policy removes.
+const CONTINUE_AUTHORIZES = [
+  'skills/fia/SKILL.md',
+  'prompts/goal.md',
+  'skills/fia/cookbooks/harness_bridge.md',
+  'skills/fia/cookbooks/run_fda.md',
 ];
 
 const HIDDEN_CYCLE = [
@@ -27,10 +39,10 @@ const HIDDEN_CYCLE = [
   ['agents/task-master-generator.md', 'hidden cycle'],
 ];
 
-test('orchestrator surfaces share the one-shot recovery policy', () => {
-  for (const [rel, needle] of SURFACES) {
+test('orchestrator surfaces carry the recovery policy for their mode', () => {
+  for (const [rel, needles] of SURFACES) {
     const text = readFileSync(join(PI, rel), 'utf8');
-    assert.ok(text.includes(needle), `${rel} lost its "${needle}" clause`);
+    for (const needle of needles) assert.ok(text.includes(needle), `${rel} lost its "${needle}" clause`);
     assert.equal(
       text.includes('without retrying on your own'),
       false,
@@ -41,6 +53,13 @@ test('orchestrator surfaces share the one-shot recovery policy', () => {
       false,
       `${rel} reintroduced "never retry blindly" as the only policy`,
     );
+  }
+});
+
+test('a paused flow treats "continue" as authorization, never a reason to re-ask', () => {
+  for (const rel of CONTINUE_AUTHORIZES) {
+    const text = readFileSync(join(PI, rel), 'utf8');
+    assert.ok(text.includes('never re-ask'), `${rel} lost the "continue authorizes the recommendation" clause`);
   }
 });
 
