@@ -17,9 +17,14 @@ import {
   writeQaReport,
 } from './modules/qa-gate.mjs';
 import {
+  clearE2eAttempt,
   ensurePlaywrightSetup,
   preflightPlaywright,
+  readE2eAttempt,
+  recordE2eFailure,
+  repoStamp,
   runPlaywrightE2e,
+  unchangedRetryError,
 } from './modules/qa-playwright.mjs';
 import { loadUiContract } from './scripts/ui-contract.mjs';
 import { verifyUiKitReceipt } from './modules/ui-kit-receipt.mjs';
@@ -101,16 +106,31 @@ await runFda(
     await run.runPhase(
       phaseParams('preflight', 'code', 'quality', 'Verify Playwright and the test:e2e script are available before authoring'),
       async (ph) => {
+        // Self-healing: ensurePlaywrightSetup installs @playwright/test,
+        // Chromium, the config and the test:e2e script — so a missing piece is
+        // installed HERE instead of failing the run with the very command this
+        // code can run itself. Only a project that is not npm at all (no
+        // package.json) or a setup that genuinely fails (offline, npm error)
+        // still stops, with the manual commands.
+        if (!existsSync(join(run.repoRoot, 'package.json'))) {
+          throw new Error(`${preflightFailMessage(run.repoRoot)}\n(no package.json — browser QA needs an npm project)`);
+        }
         const check = await preflightPlaywright(run.repoRoot);
         if (!check.ok) {
-          ph.log({ problems: check.problems });
-          throw new Error(`${preflightFailMessage(run.repoRoot)}\n(${check.problems.join('; ')})`);
+          ph.log({ missing: check.problems, auto_setup: true });
+          run.console.note(
+            `qa preflight: ${check.problems.join('; ')} — setting Playwright up now (first install downloads Chromium, give it a few minutes)`,
+          );
         }
         await ensurePlaywrightSetup(run.repoRoot, {
           artifactRelDir,
           videoPolicy: cli.video,
         });
-        ph.log({ ready: true, artifact_dir: artifactRelDir });
+        const after = check.ok ? check : await preflightPlaywright(run.repoRoot);
+        if (!after.ok) {
+          throw new Error(`${preflightFailMessage(run.repoRoot)}\n(${after.problems.join('; ')})`);
+        }
+        ph.log({ ready: true, artifact_dir: artifactRelDir, ...(check.ok ? {} : { installed: check.problems }) });
       },
     );
 
@@ -131,10 +151,25 @@ await runFda(
     const e2e = await run.runPhase(
       phaseParams('e2e', 'code', 'quality', 'Run Playwright e2e with configured viewports and optional video capture'),
       async (ph) => {
+        // Unchanged-retry guard: a resume re-executes this phase, and a failed
+        // suite on the EXACT same tree can only fail again — refuse before
+        // spending anything (a real run burned 8 identical rounds this way).
+        const artifactAbsDir = join(run.repoRoot, artifactRelDir);
+        const stamp = repoStamp(run.repoRoot);
+        const futile = unchangedRetryError({
+          prior: readE2eAttempt(artifactAbsDir),
+          stamp,
+          fdaId: run.fdaId,
+          artifactRelDir,
+          override: cli.retryUnchanged,
+        });
+        if (futile) throw new Error(futile);
         const result = await runPlaywrightE2e(run, {
           artifactRelDir,
           videoPolicy: cli.video,
         });
+        if (result.passed) clearE2eAttempt(artifactAbsDir);
+        else recordE2eFailure(artifactAbsDir, stamp);
         ph.log({ passed: result.passed, artifact_dir: artifactRelDir });
         return result;
       },
@@ -147,26 +182,41 @@ await runFda(
       /* log may be absent on catastrophic failure */
     }
 
-    const audit = await run.runPhase(
-      phaseParams(
-        'audit',
-        'agent',
-        'reviewer',
-        'Audit screenshots and Playwright output against registry, patterns, and responsiveness',
-        { retries: 1, replay: false },
-      ),
-      async (ph) =>
-        ph.call({
-          outputType: 'ReviewOutput',
-          prompt: auditPrompt(resolved.scope, {
-            artifactDir: artifactRelDir,
-            e2eSummary: auditSummary,
-            routes: resolved.routes,
-            contract: resolved.contract,
+    // The reviewer audit only runs on a GREEN e2e: auditing screenshots of a
+    // failed run spends 1M+ reviewer tokens on a verdict the gate must refuse
+    // anyway. The skip is its own (free) phase so the timeline stays honest;
+    // the name differs from 'audit' so a later resume with a fixed suite
+    // replays nothing and runs the real audit.
+    let audit = { approved: false, summary: 'Design audit skipped — Playwright e2e failed; fix the e2e failures first.', blocking: [] };
+    if (e2e.passed) {
+      audit = await run.runPhase(
+        phaseParams(
+          'audit',
+          'agent',
+          'reviewer',
+          'Audit screenshots and Playwright output against registry, patterns, and responsiveness',
+          { retries: 1, replay: false },
+        ),
+        async (ph) =>
+          ph.call({
+            outputType: 'ReviewOutput',
+            prompt: auditPrompt(resolved.scope, {
+              artifactDir: artifactRelDir,
+              e2eSummary: auditSummary,
+              routes: resolved.routes,
+              contract: resolved.contract,
+            }),
+            gates: [verdictConsistent],
           }),
-          gates: [verdictConsistent],
-        }),
-    );
+      );
+    } else {
+      await run.runPhase(
+        phaseParams('audit_skip', 'code', 'quality', 'Skip the design audit — e2e failed, there is nothing to approve'),
+        async (ph) => {
+          ph.log({ skipped: true, reason: 'Playwright e2e failed — the design audit runs only after e2e goes green' });
+        },
+      );
+    }
 
     const reportBody = formatQaReport({
       scope: resolved.scope,
@@ -194,7 +244,10 @@ await runFda(
       phaseParams('gate', 'code', 'quality', 'Refuse to close while e2e or the design audit failed'),
       async (ph) => {
         if (!e2e.passed) {
-          throw new Error(`Playwright e2e failed — see ${artifactRelDir}/playwright.log`);
+          throw new Error(
+            `Playwright e2e failed — see ${artifactRelDir}/playwright.log\n` +
+              'Fix the failures first (/bug for app defects, /task for missing work) — re-running QA on an unchanged repo is refused by the e2e guard.',
+          );
         }
         if (!audit.approved) {
           const blocking = [...(audit.blocking || []), ...(audit.findings || []).filter((f) => !f.met).map((f) => f.requirement)];

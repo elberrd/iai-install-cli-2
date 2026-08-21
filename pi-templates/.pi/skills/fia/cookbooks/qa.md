@@ -59,16 +59,24 @@ Project override in `imp/fia.config.yaml`:
 
 1. **scope** (code) — resolve milestone/spec/task; skip cleanly when the scope
    is API-only (`Surface: api` with no UI).
-2. **preflight** (code) — ensure `@playwright/test`, Chromium, `test:e2e`, and
-   `playwright.config.ts` exist (installs into the **project**, never the CLI).
+2. **preflight** (code) — SELF-HEALING: a missing `@playwright/test`,
+   Chromium, `test:e2e` or `playwright.config.ts` is installed right here,
+   into the **project** (never the CLI). It only fails on a non-npm project
+   (no package.json) or when the install itself fails — never treat
+   "installing Playwright" as an error.
 3. **author** (builder agent) — write/update committed tests under `e2e/`.
 4. **e2e** (code) — `npm run test:e2e` with mobile/tablet/desktop projects;
-   Playwright starts `npm run dev` via `webServer`.
+   Playwright starts `npm run dev` via `webServer`. A failed suite records a
+   fingerprint of the working tree; re-running while NOTHING changed in the
+   repo is refused (fix first, then resume — `--retry-unchanged` is the
+   human-only override for genuinely flaky suites).
 5. **audit** (reviewer agent) — screenshots + logs vs registry, patterns, theme
-   tokens, overflow, console errors.
+   tokens, overflow, console errors. Runs ONLY when e2e is green: a failed e2e
+   records a free `audit_skip` phase instead of spending the reviewer on a
+   verdict the gate must refuse anyway.
 6. **report** (code) — `ai-docs/qa/YYYY-MM-DD-<scope>.md`
 7. **gate** (code) — fail the run if e2e or audit failed. **No fix loop** —
-   failures go to `/bug` or `/task`.
+   failures go to `/bug` or `/task`; never re-run `/qa` on an unchanged repo.
 
 ## Artifacts
 
