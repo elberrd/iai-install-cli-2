@@ -198,6 +198,15 @@ clear it.
 | `/note "idea"` | One line into `ai-docs/inbox.md` — zero questions. |
 | `/fia` | Factory overview. |
 
+**Added an example? Reconcile it before implementation.** `/example` only
+researches and registers prior art; it does not silently change product scope.
+After adding an example, run `/grill ai-docs/PRD.md` and explicitly point it to
+the relevant `ai-docs/examples/<slug>/NOTES.md` so you can approve which
+findings become product requirements. Then run `/map` with an instruction such
+as `Reconcile the plan with the approved example findings; update the open
+specs and tasks with what was added to the PRD.` Do this before `/task` or
+`/goal`. Ideas you reject remain optional inspiration on the example shelf.
+
 ### In Claude Code / Cursor — the harness, interactive building
 
 | Command | What it does |
