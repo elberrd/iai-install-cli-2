@@ -15,7 +15,6 @@
 import Database from 'better-sqlite3';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parse as parseYaml } from 'yaml';
 import { readPlanOverview, readPlanTasks, readPlanDoc, parseMdTables } from './plan-docs.mjs';
 import { docsStatus as manifestDocsStatus } from './docs-manifest.mjs';
 import { durSec } from '../modules/format.mjs';
@@ -244,41 +243,9 @@ export function loadPlan(aiDocsDir, projectRoot = process.cwd()) {
   return { overview: readPlanOverview(aiDocsDir, projectRoot), tasks: readPlanTasks(aiDocsDir) };
 }
 
-/**
- * Roster for display — defaults merged into each agent (viewer semantics),
- * plus the defaults themselves and per-agent `explicit` flags so the UI can
- * tell "chosen for this agent" from "inherited from the default LLM".
- */
-export function loadRoster(configPath) {
-  let cfg = {};
-  try {
-    cfg = parseYaml(readFileSync(configPath, 'utf8')) || {};
-  } catch {
-    return { available: false, defaults: null, agents: [] };
-  }
-  const defaults = cfg.defaults || {};
-  const agents = (cfg.agents || []).map((a) => ({
-    name: a.name,
-    color: a.color || null,
-    coding_agent: a.coding_agent ?? defaults.coding_agent ?? 'pi',
-    model: a.model ?? defaults.model ?? '',
-    thinking: a.thinking ?? defaults.thinking ?? '',
-    effort: a.effort ?? defaults.effort ?? '',
-    purpose: a.purpose || '',
-    fallbacks: Array.isArray(a.fallbacks) ? a.fallbacks : [],
-    explicit: { coding_agent: a.coding_agent != null, model: a.model != null },
-  }));
-  return {
-    available: agents.length > 0,
-    defaults: {
-      coding_agent: defaults.coding_agent ?? 'pi',
-      model: defaults.model ?? '',
-      effort: defaults.effort ?? '',
-      thinking: defaults.thinking ?? '',
-    },
-    agents,
-  };
-}
+// Roster display data (defaults merged + `explicit` flags) lives in
+// roster.mjs, next to the writer, shared with fia-llm.mjs.
+export { loadRoster } from './roster.mjs';
 
 /**
  * Lifetime token/cost ledger per LLM, from the `agent_end` events — each one

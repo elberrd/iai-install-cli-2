@@ -176,6 +176,9 @@ export async function finish(ctx) {
           : `FIA: installed — run \`${agentCmd(ctx)}\` and use /fia, /map, /task, /goal, /qa, /ui-contract, /evolve (plan: npm run plan · agents: npm run agents · viewer: npm run fda:viewer · terminal dashboard: npm run tui)`
         : null,
       ctx.fiaInstalled
+        ? 'Switch a model anytime: `imp llm` (or /llm inside Pi) — numbered agent list, "1 → fable" changes it.'
+        : null,
+      ctx.fiaInstalled
         ? 'Codex outage? `imp handoff` continues your newest Pi conversation in the `claude` CLI.'
         : null,
       // The reporters that answer "is this project healthy?" and "undo that run".

@@ -76,6 +76,11 @@ Usage:
                          (one git commit per fix), --allow-dirty
   imp handoff            Continue the newest Pi conversation in the \`claude\` CLI
                          (works while Codex is down; --list picks a session)
+  imp llm                List the FDA agents (phase owners) numbered, each with
+                         the LLM it runs on, and switch any by number or name:
+                         \`imp llm set 1 fable\`. Interactive on a TTY; --json
+                         for machines; same rules as /agents (comments kept,
+                         backup first, locked while a run is live)
   imp health             Loop-health report: scores the five dimensions of this
                          project's agent work loop from real evidence and names
                          the command that repairs each finding.
@@ -219,6 +224,10 @@ const STAMPED = {
   },
   handoff: {
     script: 'imp/scripts/handoff.mjs',
+    missing: 'Run `imp init` in your project folder first — or `npx impactus --update-runtime` on an older install.',
+  },
+  llm: {
+    script: 'imp/scripts/fia-llm.mjs',
     missing: 'Run `imp init` in your project folder first — or `npx impactus --update-runtime` on an older install.',
   },
   health: {

@@ -122,6 +122,8 @@ imp stop                       # the stop button: halts FDA runs cleanly before 
                                # phase (fails closed; --status / --clear to disarm)
 imp handoff                    # continue the newest Pi conversation in `claude`
                                # (Codex outage? your work keeps moving)
+imp llm                        # numbered list of the FDA agents + the LLM each runs on;
+                               # switch by number or name (`imp llm set 1 fable`)
 imp health                     # loop-health report: how well the agent loop is working
 imp rewind                     # undo an FDA run — checkpoints, preview, restore-only
 imp notify                     # run-end pings (webhook/Slack/Discord/Telegram); off by default
@@ -192,6 +194,7 @@ clear it.
 | `/launch` | Go live — public beta and production, with readiness gates. |
 | `/qa [scope?]` | Browser QA at milestone/spec/task — Playwright e2e, responsive check, design audit, durable report. |
 | `/agents` | Visual roster editor: engine, model and fallbacks per FDA agent — with automatic mid-run relay when an engine dies. |
+| `/llm ["1 → fable"?]` | Quick model switch: numbered list of the FDA agents with the LLM each one runs on — answer by number or name and it's applied (same safe write path as `/agents`; also `imp llm` in a terminal). |
 | `/status` | Progress + latest runs. |
 | `/evolve --run <id>` / `--since <period>` | Evidence-backed retrospective of a finished FDA run or project-history window; writes local reports and never changes the system automatically. |
 | `/guide [goal?]` | Lost? Reads the project state, confirms your goal in one question and charts the shortest route. |
