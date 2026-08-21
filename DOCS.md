@@ -1039,7 +1039,9 @@ with blockers/criteria, design system and every `ai-docs/` file rendered —
 `/agents` inside `pi`) opens the "Agents" tab to see engine login status and
 edit each FDA agent's engine/model/reasoning and `fallbacks:` chain — saving
 rewrites `imp/fia.config.yaml` preserving comments (locked while an FDA
-runs). See §9.6.
+runs). For a one-line switch without the browser, `imp llm` (or `/llm`
+inside `pi`) lists the agents numbered and applies "1 → fable"-style changes
+through the same write path. See §9.6.
 
 ## 9. FIA — the IAI Agent Factory
 
@@ -2442,7 +2444,7 @@ run_fda, create_fda, observability, evolution, architecture, decision-log,
 stack, specs, components, theme, design, examples, launch, qa and
 update_roster.
 
-### 12.1 The 26 commands (`.pi/prompts/`)
+### 12.1 The 27 commands (`.pi/prompts/`)
 
 | Command | Arguments | What it does |
 |---|---|---|
@@ -2468,6 +2470,7 @@ update_roster.
 | `/design` | `images + scope` | Layout redesign from references — structure from the image, identity from OUR system. |
 | `/example` | `URL [notes] \| list` | Register an external reference on the shelf (license researched, `What NOT to take` mandatory). After adding one, cite its NOTES in `/grill ai-docs/PRD.md`, then run `/map` to reconcile approved PRD additions into open specs/tasks before implementation. |
 | `/agents` | — | Opens the viewer's Agents tab (`npm run agents -- --detach`) to edit engines/models/fallbacks; Pi is forbidden from editing `imp/fia.config.yaml` itself. |
+| `/llm` | `["1 → fable"?]` | Numbered list of the FDA agents with the LLM each one runs on (phases included); the student answers by number or name and the switch is applied via `imp/scripts/fia-llm.mjs set` — the same comment-preserving, backed-up, run-locked write path as the Agents tab. Terminal twin: `imp llm` / `npm run llm`. |
 | `/onboarding` | `[focus?] [--report-only]` | First command on an EXISTING system: chains `/absorb` → `/stack` → `/kit` in one guided pass (each stage's own prompt is the law; stages whose artifacts already exist can be kept and skipped), then hands over explaining the split — `/idea` for a MODULE-sized addition vs `/feature` for a one-sentence delta. The tour keeps a **resume rail** in the decision log (`open onboarding` → one stage note each → `close`): an interrupted session resumes from its last stage note instead of restarting. `--report-only` is the express path — the `/kit` stage presents its gap report and defers the design decisions to a later `/kit` run. |
 | `/absorb` | `[focus?]` | Brownfield onboarding (as-built PRD/map/conventions/registry, maintained wiki + digest stamp, and one canonical project skill in `.agents/skills/project/` with a Claude symlink; never `.pi` or `.cursor` copies). Divergent legacy copies in any engine stop for an explicit choice. |
 | `/kit` | `[focus?] [--report-only]` | Brownfield design-system audit → gap report vs core-kit + `interaction.md` → approved design-only tasks. |

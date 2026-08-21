@@ -19,16 +19,17 @@
  *                                   [--view plan] [--ai-docs ai-docs] [--detach]
  */
 import { createServer } from 'node:http';
-import { existsSync, readFileSync, realpathSync, writeFileSync, mkdirSync, renameSync, copyFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { spawn, execFile } from 'node:child_process';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import Database from 'better-sqlite3';
-import { parse as parseYaml, parseDocument } from 'yaml';
+import { parse as parseYaml } from 'yaml';
 import { PAGE } from './fia-viewer-page.mjs';
 import { piSessionsDirFor, listPiSessions, readPiSession, readPiRun } from './pi-sessions.mjs';
 import { readPlanOverview, readPlanScreens, readPlanTasks, readPlanDesign, readPlanDoc } from './plan-docs.mjs';
-import { checkEngines, MAX_FALLBACKS, PI_ENV_KEYS, PI_OAUTH_PROVIDERS } from '../modules/engines.mjs';
+import { checkEngines, PI_ENV_KEYS, PI_OAUTH_PROVIDERS } from '../modules/engines.mjs';
+import { saveRoster, validateRosterPatch } from './roster.mjs';
 
 const DEFAULT_DB = process.env.FIA_DB || 'imp/data/fia.db';
 const DEFAULT_CONFIG = process.env.FIA_CONFIG || 'imp/fia.config.yaml';
@@ -239,77 +240,9 @@ export function startViewer({
 
   const runningCount = () => runningSessions().filter((s) => !s.stale).length;
 
-  const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'];
-  const THINKING = ['minimal', 'low', 'medium', 'high'];
-  const CODING_AGENTS = ['claude_code', 'pi', 'cursor'];
-  const modelOk = (m) => typeof m === 'string' && m.trim() && m.length <= 200 && !/[\n\r]/.test(m);
-
-  const validateRosterPatch = (patch) => {
-    if (!patch || !Array.isArray(patch.agents) || !patch.agents.length) return 'body must be { agents: [...] }';
-    for (const a of patch.agents) {
-      if (!a || typeof a.name !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(a.name)) return 'agent name missing or invalid';
-      if (!CODING_AGENTS.includes(a.coding_agent)) return `${a.name}: coding_agent must be one of ${CODING_AGENTS.join('|')}`;
-      if (!modelOk(a.model)) return `${a.name}: model is required`;
-      if (a.effort != null && !EFFORTS.includes(a.effort)) return `${a.name}: effort must be ${EFFORTS.join('|')}`;
-      if (a.thinking != null && !THINKING.includes(a.thinking)) return `${a.name}: thinking must be ${THINKING.join('|')}`;
-      if (a.fallbacks !== undefined) {
-        if (!Array.isArray(a.fallbacks) || a.fallbacks.length > MAX_FALLBACKS)
-          return `${a.name}: fallbacks must be a list of at most ${MAX_FALLBACKS}`;
-        for (const fb of a.fallbacks) {
-          if (!fb || !CODING_AGENTS.includes(fb.coding_agent) || !modelOk(fb.model)) {
-            return `${a.name}: each fallback needs coding_agent and model`;
-          }
-          if (fb.effort != null && !EFFORTS.includes(fb.effort)) return `${a.name}: fallback effort invalid`;
-          if (fb.thinking != null && !THINKING.includes(fb.thinking)) return `${a.name}: fallback thinking invalid`;
-        }
-      }
-    }
-    return null;
-  };
-
-  /**
-   * Apply the patch to fia.config.yaml PRESERVING comments: parseDocument
-   * edits the YAML AST in place instead of re-serializing from scratch.
-   * Backup first, then atomic write (tmp + rename).
-   */
-  const saveRoster = (patch) => {
-    const text = readFileSync(configPath, 'utf8');
-    const doc = parseDocument(text);
-    if (doc.errors?.length) throw new Error(`config has YAML errors: ${doc.errors[0].message}`);
-    const seq = doc.get('agents');
-    if (!seq || !Array.isArray(seq.items)) throw new Error('config has no agents list');
-    for (const a of patch.agents) {
-      const item = seq.items.find((it) => it.get && it.get('name') === a.name);
-      if (!item) throw new Error(`unknown agent "${a.name}" — the editor cannot add or remove agents`);
-      item.set('coding_agent', a.coding_agent);
-      item.set('model', a.model);
-      for (const [key, allowed] of [['effort', EFFORTS], ['thinking', THINKING]]) {
-        if (a[key] === null) {
-          if (item.has(key)) item.delete(key);
-        } else if (a[key] !== undefined && allowed.includes(a[key])) {
-          item.set(key, a[key]);
-        }
-      }
-      if (a.fallbacks !== undefined) {
-        if (!a.fallbacks.length) {
-          if (item.has('fallbacks')) item.delete('fallbacks');
-        } else {
-          const node = doc.createNode(a.fallbacks);
-          for (const fb of node.items) fb.flow = true; // keep the compact one-line style
-          item.set('fallbacks', node);
-        }
-      }
-    }
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const backupDir = join(dirname(dbPath), 'backups');
-    mkdirSync(backupDir, { recursive: true });
-    const backup = join(backupDir, `fia.config.${stamp}.yaml`);
-    copyFileSync(configPath, backup);
-    const tmp = join(dirname(configPath), `.fia.config.yaml.tmp-${process.pid}`);
-    writeFileSync(tmp, String(doc), 'utf8');
-    renameSync(tmp, configPath);
-    return { saved: configPath, backup };
-  };
+  // Validation enums and the comment-preserving YAML writer live in
+  // roster.mjs, shared with the terminal switcher (fia-llm.mjs).
+  const saveRosterPatch = (patch) => saveRoster({ configPath, backupDir: join(dirname(dbPath), 'backups') }, patch);
 
   /**
    * The viewer gained a WRITE endpoint, so every request must prove it is
@@ -493,7 +426,7 @@ export function startViewer({
           // to that phase's agent and reverts it — never write mid-run.
           return json(res, { error: 'fda-running', running: live.length, fda_id: live[0].fda_id, age_s: live[0].age_s, sessions: live }, 409);
         }
-        json(res, { ok: true, ...saveRoster(patch) });
+        json(res, { ok: true, ...saveRosterPatch(patch) });
       } else {
         res.writeHead(404, { 'content-type': 'text/plain' });
         res.end('not found');

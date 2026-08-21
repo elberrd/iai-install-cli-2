@@ -36,6 +36,7 @@ test('imp: help exits 0 and prints the brand + usage', async () => {
   assert.match(res.stdout, /imp doctor/);
   assert.match(res.stdout, /imp fix/);
   assert.match(res.stdout, /imp health/);
+  assert.match(res.stdout, /imp llm/);
   assert.match(res.stdout, /imp rewind/);
   assert.match(res.stdout, /imp notify/);
   assert.match(res.stdout, /imp settings/);
@@ -49,6 +50,7 @@ test('imp: the project-stamped reporters refuse outside a project instead of rea
   const empty = mkdtempSync(join(tmpdir(), 'imp-no-runtime-'));
   for (const [verb, script] of [
     ['health', 'loop-health.mjs'],
+    ['llm', 'fia-llm.mjs'],
     ['rewind', 'rewind.mjs'],
     ['notify', 'notify.mjs'],
   ]) {

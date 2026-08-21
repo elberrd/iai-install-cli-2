@@ -2,7 +2,19 @@
 
 The roster lives in `imp/fia.config.yaml` (FDAs) and `.pi/agents/*.md` (interactive pi-subagents). Keep the two aligned: same names, same `writes`, same purpose.
 
-## The visual way — /agents (recommended)
+## The quick way — /llm (switch one model in one sentence)
+
+`/llm` (inside `pi`) or `imp llm` (terminal) lists the FDA agents NUMBERED,
+each with the engine + model it runs on and the run phases it owns. The
+student answers "1 → fable" (or "builder → openai-codex/gpt-5.6") and the
+change is applied by `node imp/scripts/fia-llm.mjs set <n|name> <model>` —
+the SAME write path as the Agents tab: comments preserved, backup under
+`imp/data/backups/`, atomic write, refused while an FDA run is live. Claude
+aliases route to `claude_code`, `provider/id` routes to `pi` (`anthropic/*`
+is refused — extra usage), cursor ids need `--engine cursor`. Pi must never
+edit `imp/fia.config.yaml` directly — the script owns the write.
+
+## The visual way — /agents (recommended for fallbacks and overviews)
 
 `/agents` (inside `pi`) or `npm run agents` opens the FIA viewer's "Agents" tab
 (http://127.0.0.1:4600#agents). There the student sees the engine login status
