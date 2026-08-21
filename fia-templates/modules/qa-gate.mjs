@@ -38,6 +38,7 @@ export function qaPolicyOf(cfg) {
 export function parseQaCli(rawPrompt, cfg = {}) {
   const policy = qaPolicyOf(cfg);
   let videoCli = null;
+  let retryUnchanged = false;
   const parts = [];
   const tokens = String(rawPrompt || '')
     .trim()
@@ -53,11 +54,17 @@ export function parseQaCli(rawPrompt, cfg = {}) {
       videoCli = token.slice('--video='.length);
       continue;
     }
+    if (token === '--retry-unchanged') {
+      // Explicit override of the unchanged-retry guard (flaky suites only).
+      retryUnchanged = true;
+      continue;
+    }
     parts.push(token);
   }
   return {
     scopeRaw: parts.join(' ').trim(),
     video: resolveVideoPolicy(videoCli, policy.video),
+    retryUnchanged,
     warnings: policy.warnings,
   };
 }

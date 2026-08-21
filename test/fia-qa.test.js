@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { FIA } from '../src/config.js';
@@ -20,10 +21,15 @@ import {
 } from '../fia-templates/modules/qa-gate.mjs';
 import { defaultContract, saveUiContract } from '../fia-templates/scripts/ui-contract.mjs';
 import {
+  clearE2eAttempt,
   playwrightConfigTemplate,
   preflightInstallHint,
   preflightPlaywright,
+  readE2eAttempt,
   readPackageScripts,
+  recordE2eFailure,
+  repoStamp,
+  unchangedRetryError,
 } from '../fia-templates/modules/qa-playwright.mjs';
 import { runLaunchChecks } from '../fia-templates/scripts/fia-launch-check.mjs';
 
@@ -103,6 +109,13 @@ test('parseQaCli: strips --video and reads config default', () => {
   assert.equal(out.video, 'on');
   const cfg = parseQaCli('spec 0003', { qa: { video: 'off' } });
   assert.equal(cfg.video, 'off');
+});
+
+test('parseQaCli: --retry-unchanged is a flag, never part of the scope', () => {
+  const out = parseQaCli('M1 --retry-unchanged');
+  assert.equal(out.scopeRaw, 'M1');
+  assert.equal(out.retryUnchanged, true);
+  assert.equal(parseQaCli('M1').retryUnchanged, false);
 });
 
 // ── scope resolution ─────────────────────────────────────────────────────────
@@ -524,4 +537,96 @@ test('browser QA verifies the executable UI-kit receipt before authoring tests',
     source.indexOf('verifyUiKitReceipt(run.repoRoot, contract)') < source.indexOf("phaseParams('author'"),
     'receipt verification must run before the browser-test author agent',
   );
+});
+
+// ── unchanged-retry guard (the 8-identical-rounds burn) ──────────────────────
+
+function gitFixture() {
+  const root = mkdtempSync(join(tmpdir(), 'fia-qa-stamp-'));
+  const git = (args) => execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8' });
+  git(['init', '-q']);
+  git(['config', 'user.email', 'qa@test.local']);
+  git(['config', 'user.name', 'QA Fixture']);
+  writeFileSync(join(root, 'app.js'), 'console.log(1);\n');
+  git(['add', '.']);
+  git(['commit', '-qm', 'init']);
+  return root;
+}
+
+test('repoStamp: stable on an untouched tree, moves on real changes, ignores run side effects', () => {
+  const root = gitFixture();
+  const before = repoStamp(root);
+  assert.ok(before, 'stamp computed in a git repo');
+  assert.equal(repoStamp(root), before, 'same tree → same stamp');
+
+  // The e2e run's own droppings must NOT move the stamp (or the guard never fires).
+  mkdirSync(join(root, 'playwright-report'), { recursive: true });
+  writeFileSync(join(root, 'playwright-report', 'index.html'), '<html/>');
+  mkdirSync(join(root, 'imp', 'data', 'qa'), { recursive: true });
+  writeFileSync(join(root, 'imp', 'data', 'qa', 'log.txt'), 'x');
+  writeFileSync(join(root, 'tsconfig.tsbuildinfo'), '{}');
+  assert.equal(repoStamp(root), before, 'test/build side effects are noise');
+
+  writeFileSync(join(root, 'app.js'), 'console.log(2);\n'); // uncommitted app edit
+  const edited = repoStamp(root);
+  assert.notEqual(edited, before, 'an uncommitted app change moves the stamp');
+  writeFileSync(join(root, 'novel.spec.ts'), 'x'); // new untracked test
+  assert.notEqual(repoStamp(root), edited, 'a new untracked file moves the stamp');
+});
+
+test('repoStamp: fails open (null) outside a git repository', () => {
+  const plain = mkdtempSync(join(tmpdir(), 'fia-qa-nogit-'));
+  assert.equal(repoStamp(plain), null);
+});
+
+test('e2e attempt marker: record accumulates per stamp, resets on change, clears on green', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'fia-qa-attempt-'));
+  assert.equal(readE2eAttempt(dir), null);
+  assert.equal(recordE2eFailure(dir, null), null, 'no fingerprint → nothing recorded');
+  assert.equal(recordE2eFailure(dir, 'aaa').count, 1);
+  assert.equal(recordE2eFailure(dir, 'aaa').count, 2, 'same tree accumulates');
+  assert.equal(recordE2eFailure(dir, 'bbb').count, 1, 'a changed tree restarts the count');
+  assert.equal(readE2eAttempt(dir).stamp, 'bbb');
+  clearE2eAttempt(dir);
+  assert.equal(readE2eAttempt(dir), null, 'a green run clears the marker');
+});
+
+test('unchangedRetryError refuses ONLY the provably futile re-run', () => {
+  const base = { fdaId: 'abc12345', artifactRelDir: 'imp/data/qa/abc12345' };
+  assert.equal(unchangedRetryError({ ...base, prior: null, stamp: 'aaa' }), null, 'first attempt runs');
+  assert.equal(unchangedRetryError({ ...base, prior: { stamp: 'aaa', count: 1 }, stamp: 'bbb' }), null, 'repo changed → runs');
+  assert.equal(unchangedRetryError({ ...base, prior: { stamp: 'aaa', count: 1 }, stamp: null }), null, 'no fingerprint → fails open');
+  assert.equal(
+    unchangedRetryError({ ...base, prior: { stamp: 'aaa', count: 2 }, stamp: 'aaa', override: true }),
+    null,
+    '--retry-unchanged overrides (flaky suites)',
+  );
+  const msg = unchangedRetryError({ ...base, prior: { stamp: 'aaa', count: 2 }, stamp: 'aaa' });
+  assert.match(msg, /cannot pass/);
+  assert.match(msg, /--fda-id abc12345/);
+  assert.match(msg, /playwright\.log/);
+  assert.match(msg, /--retry-unchanged/);
+});
+
+test('fda_qa spends the reviewer audit only on a green e2e, and self-heals the preflight', () => {
+  const source = readFileSync(new URL('../fia-templates/fda_qa.mjs', import.meta.url), 'utf8');
+  // Audit is conditional on e2e.passed; the skip is a free code phase.
+  assert.match(source, /if \(e2e\.passed\) \{/);
+  assert.match(source, /audit_skip/);
+  assert.ok(
+    source.indexOf('if (e2e.passed) {') < source.indexOf("phaseParams(\n          'audit'"),
+    'the reviewer audit phase must sit behind the e2e.passed branch',
+  );
+  // The e2e phase consults the unchanged-retry guard and records outcomes.
+  for (const call of ['unchangedRetryError(', 'recordE2eFailure(', 'clearE2eAttempt(', 'repoStamp(']) {
+    assert.ok(source.includes(call), `fda_qa wires ${call}`);
+  }
+  // Preflight installs instead of refusing: ensurePlaywrightSetup runs even
+  // when the check failed (only a non-npm project stops immediately).
+  assert.match(source, /no package\.json — browser QA needs an npm project/);
+  assert.ok(
+    source.indexOf('await ensurePlaywrightSetup(') > source.indexOf('const check = await preflightPlaywright('),
+    'setup runs after the check regardless of its verdict',
+  );
+  assert.ok(!source.includes('throw new Error(`${preflightFailMessage(run.repoRoot)}\\n(${check.problems'), 'a failed check no longer throws before setup');
 });

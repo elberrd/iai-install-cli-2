@@ -30,9 +30,14 @@ node imp/fda_qa.mjs "<scope>" [--video retain-on-failure]
 4. Exit 0 → show me the report path under `ai-docs/qa/` and summarize what
    was exercised. Remind me that milestone `Status: done` is still my manual
    edit — a green `/qa` is the evidence that makes it honest.
-5. Exit != 0 → show the failing phase (contract/scope vs e2e vs audit), artifact dir under
-   `imp/data/qa/<fda-id>/`, and suggest `/bug` or `/task` for fixes — never
-   re-run `/qa` until the underlying issue is addressed.
+5. Exit != 0 → show the failing phase (contract/scope vs e2e vs audit), the
+   artifact dir under `imp/data/qa/<fda-id>/` (e2e failures: read
+   `playwright.log` there), and suggest `/bug` or `/task` for fixes — never
+   re-run `/qa` until the underlying issue is addressed. The runtime enforces
+   this: an e2e re-run with zero repo changes is refused by the unchanged-retry
+   guard (only a human may override with `--retry-unchanged`, for flaky
+   suites); a missing Playwright is installed automatically by the preflight,
+   so never treat "installing Playwright" as an error to fix.
 
 For applicable UI rules, the authored Playwright evidence must cover exact
 360/768/1440 viewports and 100%/125%/200% zoom. Theme-capable products cover

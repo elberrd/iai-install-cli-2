@@ -2,9 +2,10 @@
  * Playwright bootstrap and deterministic e2e execution for fda_qa.mjs.
  * Known commands stay in code phases — never delegated to an agent.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { nowIso } from './utils.mjs';
 
 const PLAYWRIGHT_CONFIG = 'playwright.config.ts';
@@ -127,6 +128,111 @@ export async function preflightPlaywright(repoRoot) {
 
 export function preflightInstallHint() {
   return 'npm install -D @playwright/test && npx playwright install chromium';
+}
+
+// ── unchanged-retry guard ────────────────────────────────────────────────────
+// A failed e2e re-run with ZERO repo changes cannot pass — but a resumed run
+// happily re-executes it (and everything after it) anyway. These helpers give
+// fda_qa a deterministic stop: fingerprint the working tree at each failure
+// and refuse the next attempt while the fingerprint has not moved.
+
+// Build/test side effects the e2e run itself produces. They must not move the
+// stamp — otherwise every failed round "changes" the tree and the guard never
+// fires. Mirrors the benign defaults of the permission gate (permissions.mjs)
+// plus Playwright's own output dirs; none of these paths hold app code, so
+// over-matching can only weaken the guard, never block a real fix.
+const STAMP_NOISE = [
+  /^imp\/data\//,
+  /^imp\/reports\//,
+  /^playwright-report\//,
+  /^test-results\//,
+  /^node_modules\//,
+  /^\.next\//,
+  /^\.turbo\//,
+  /^coverage\//,
+  /\.tsbuildinfo$/,
+  /^next-env\.d\.ts$/,
+  /^AGENTS\.md$/,
+  /^\.eslintcache$/,
+  /^\.DS_Store$/,
+  /^Thumbs\.db$/,
+  /^desktop\.ini$/,
+];
+
+/**
+ * Content fingerprint of the working tree (HEAD + status + uncommitted diff,
+ * with the run's own side-effect paths filtered out), or null when it cannot
+ * be computed (not a git repo, git missing) — the guard FAILS OPEN: no stamp
+ * means no refusal, never a blocked run.
+ */
+export function repoStamp(repoRoot) {
+  try {
+    const git = (args, opts = {}) =>
+      execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, ...opts });
+    const head = git(['rev-parse', 'HEAD']).trim();
+    // -uall lists changed/untracked files by name; `diff HEAD` carries every
+    // tracked content change (staged or not). Together they move on any real fix.
+    const status = git(['status', '--porcelain=v1', '-uall'])
+      .split('\n')
+      .filter((line) => {
+        const path = line.slice(3).replace(/^"|"$/g, '');
+        return path && !STAMP_NOISE.some((re) => re.test(path));
+      })
+      .join('\n');
+    const diff = execFileSync('git', ['diff', 'HEAD'], { cwd: repoRoot, maxBuffer: 64 * 1024 * 1024 });
+    return createHash('sha1').update(head).update('\0').update(status).update('\0').update(diff).digest('hex');
+  } catch {
+    return null;
+  }
+}
+
+const e2eAttemptPath = (artifactDir) => join(artifactDir, 'e2e-attempts.json');
+
+/** The recorded last failure — { stamp, count, at } — or null. */
+export function readE2eAttempt(artifactDir) {
+  try {
+    const data = JSON.parse(readFileSync(e2eAttemptPath(artifactDir), 'utf8'));
+    return data && typeof data.stamp === 'string' ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Record a failure under this stamp; a NEW stamp restarts the count at 1. */
+export function recordE2eFailure(artifactDir, stamp) {
+  if (!stamp) return null; // no fingerprint → nothing to compare next time
+  const prior = readE2eAttempt(artifactDir);
+  const entry = { stamp, count: prior?.stamp === stamp ? (prior.count || 1) + 1 : 1, at: nowIso() };
+  try {
+    mkdirSync(artifactDir, { recursive: true });
+    writeFileSync(e2eAttemptPath(artifactDir), JSON.stringify(entry, null, 2));
+  } catch {
+    /* the marker is a guard, never a blocker */
+  }
+  return entry;
+}
+
+export function clearE2eAttempt(artifactDir) {
+  try {
+    rmSync(e2eAttemptPath(artifactDir), { force: true });
+  } catch {
+    /* absent is fine */
+  }
+}
+
+/**
+ * The refusal message when re-running e2e is provably futile, or null when
+ * the attempt should proceed: first try, the repo changed since the failure,
+ * no fingerprint available, or the engineer overrode with --retry-unchanged.
+ */
+export function unchangedRetryError({ prior, stamp, fdaId, artifactRelDir, override = false }) {
+  if (override || !stamp || !prior || prior.stamp !== stamp) return null;
+  return (
+    `Playwright e2e already failed ${prior.count === 1 ? 'once' : `${prior.count} times`} on this exact tree — nothing changed in the repo since, so re-running cannot pass.\n` +
+    `Fix the app or the tests first (log: ${artifactRelDir}/playwright.log), then resume:\n` +
+    `  node imp/fda_qa.mjs --resume --fda-id ${fdaId}\n` +
+    'Genuinely flaky suite? Re-run explicitly with --retry-unchanged.'
+  );
 }
 
 /**
