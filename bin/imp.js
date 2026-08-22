@@ -81,6 +81,12 @@ Usage:
                          \`imp llm set 1 fable\`. Interactive on a TTY; --json
                          for machines; same rules as /agents (comments kept,
                          backup first, locked while a run is live)
+  imp defer              Postpone a task that cannot proceed now (missing API
+                         keys, a pending decision): \`imp defer <n>\` quarantines
+                         its sealed holdout probes (rename only — reversible),
+                         marks it deferred and ledgers it; \`imp defer resume <n>\`
+                         brings everything back. The launch check warns about
+                         every open deferral. Flags: --reason "…", --yes, --json
   imp health             Loop-health report: scores the five dimensions of this
                          project's agent work loop from real evidence and names
                          the command that repairs each finding.
@@ -228,6 +234,10 @@ const STAMPED = {
   },
   llm: {
     script: 'imp/scripts/fia-llm.mjs',
+    missing: 'Run `imp init` in your project folder first — or `npx impactus --update-runtime` on an older install.',
+  },
+  defer: {
+    script: 'imp/scripts/task-defer.mjs',
     missing: 'Run `imp init` in your project folder first — or `npx impactus --update-runtime` on an older install.',
   },
   health: {

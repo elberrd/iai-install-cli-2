@@ -1996,6 +1996,20 @@ with `npm run holdout -- --require`, which fails on an empty directory. CLI:
 `npm run holdout` (`--list`, `--require`, `--json`); green emits the literal
 marker `HOLDOUT_PASSED scenarios=N`.
 
+Because probes accumulate, a task postponed for a reason outside the code
+(missing API keys, a decision the engineer will make later) would leave its
+sealed probes failing every later run — and agents cannot touch the
+directory. The sanctioned escape hatch is **`imp defer <n>`** (or `/defer`
+inside Pi, `imp/scripts/task-defer.mjs`): the ENGINEER's command that renames
+the task's probes `NN-*` → `_NN-*` (the runner's "not a probe" prefix —
+content untouched), sets the task `deferred` in the issue file and the index,
+and ledgers the deferral (`imp/data/deferrals.json` + an inbox note).
+`imp defer resume <n>` restores the exact sealed probes and sets the task
+`pending`. It refuses inside an FDA phase and while a run is live, asks for
+confirmation (or an explicit `--yes`), and the launch check's
+`tasks_deferred` warning names every open deferral — so shipping without a
+deferred task is always a conscious call, never a forgotten `mv`.
+
 **Gate probes (`imp/scripts/gate-probes.mjs`)** — the self-test of the
 harness: deliberate defects (an unchecked brief box, a rubber-stamp `— N/A`,
 a swapped checklist item, a ghost artifact, a lowered floor, an approved
@@ -2444,7 +2458,7 @@ run_fda, create_fda, observability, evolution, architecture, decision-log,
 stack, specs, components, theme, design, examples, launch, qa and
 update_roster.
 
-### 12.1 The 27 commands (`.pi/prompts/`)
+### 12.1 The 28 commands (`.pi/prompts/`)
 
 | Command | Arguments | What it does |
 |---|---|---|
@@ -2471,6 +2485,7 @@ update_roster.
 | `/example` | `URL [notes] \| list` | Register an external reference on the shelf (license researched, `What NOT to take` mandatory). After adding one, cite its NOTES in `/grill ai-docs/PRD.md`, then run `/map` to reconcile approved PRD additions into open specs/tasks before implementation. |
 | `/agents` | — | Opens the viewer's Agents tab (`npm run agents -- --detach`) to edit engines/models/fallbacks; Pi is forbidden from editing `imp/fia.config.yaml` itself. |
 | `/llm` | `["1 → fable"?]` | Numbered list of the FDA agents with the LLM each one runs on (phases included); the student answers by number or name and the switch is applied via `imp/scripts/fia-llm.mjs set` — the same comment-preserving, backed-up, run-locked write path as the Agents tab. Terminal twin: `imp llm` / `npm run llm`. |
+| `/defer` | `[n \| resume n]` | Postpone a task that cannot proceed right now (missing API keys, a paid account for later, a pending decision) — via `imp/scripts/task-defer.mjs`, never by hand: status → `deferred` in issue + index, its sealed holdout probes renamed `NN-*` → `_NN-*` (content untouched, reversible), deferral ledgered in `imp/data/deferrals.json` + noted in the inbox. `resume n` restores everything and sets `pending`. Refuses while an FDA run is live; the launch check warns about every open deferral. Terminal twin: `imp defer` / `npm run defer`. |
 | `/onboarding` | `[focus?] [--report-only]` | First command on an EXISTING system: chains `/absorb` → `/stack` → `/kit` in one guided pass (each stage's own prompt is the law; stages whose artifacts already exist can be kept and skipped), then hands over explaining the split — `/idea` for a MODULE-sized addition vs `/feature` for a one-sentence delta. The tour keeps a **resume rail** in the decision log (`open onboarding` → one stage note each → `close`): an interrupted session resumes from its last stage note instead of restarting. `--report-only` is the express path — the `/kit` stage presents its gap report and defers the design decisions to a later `/kit` run. |
 | `/absorb` | `[focus?]` | Brownfield onboarding (as-built PRD/map/conventions/registry, maintained wiki + digest stamp, and one canonical project skill in `.agents/skills/project/` with a Claude symlink; never `.pi` or `.cursor` copies). Divergent legacy copies in any engine stop for an explicit choice. |
 | `/kit` | `[focus?] [--report-only]` | Brownfield design-system audit → gap report vs core-kit + `interaction.md` → approved design-only tasks. |

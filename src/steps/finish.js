@@ -179,6 +179,9 @@ export async function finish(ctx) {
         ? 'Switch a model anytime: `imp llm` (or /llm inside Pi) — numbered agent list, "1 → fable" changes it.'
         : null,
       ctx.fiaInstalled
+        ? 'Task blocked on API keys or a decision? `imp defer <n>` (or /defer) postpones it with its sealed probes — `imp defer resume <n>` brings it back.'
+        : null,
+      ctx.fiaInstalled
         ? 'Codex outage? `imp handoff` continues your newest Pi conversation in the `claude` CLI.'
         : null,
       // The reporters that answer "is this project healthy?" and "undo that run".

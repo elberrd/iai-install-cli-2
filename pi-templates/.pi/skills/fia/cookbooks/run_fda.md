@@ -87,6 +87,16 @@ demand with `npm run holdout` (`--list`, `--require`); a green run prints
 `HOLDOUT_PASSED scenarios=N`. Never "fix" a probe — bring the violation to
 the engineer.
 
+A task that cannot proceed for a reason OUTSIDE the code — missing API keys,
+a paid account the engineer will only create later, a pending decision — is
+DEFERRED, never worked around: `/defer <n>` (or `imp defer <n>` in a
+terminal) marks it deferred and quarantines its sealed probes reversibly
+(`NN-*` → `_NN-*`, content untouched); `/defer resume <n>` brings everything
+back. Never rename or edit anything in `imp/data/holdout/` yourself, and
+never weaken a probe so a run can pass — the script is the only sanctioned
+path, it refuses while a run is live, and the launch check warns about every
+open deferral.
+
 ## Re-running a failed FDA (resume)
 
 When an FDA fails mid-run and the engineer chooses "re-run", NEVER start from

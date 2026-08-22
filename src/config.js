@@ -209,6 +209,9 @@ export const FIA = {
     // The LLM switcher: numbered list of the FDA agents + switch by number or
     // name (`imp llm`, `/llm` inside Pi). Same write path as the Agents tab.
     llm: 'node imp/scripts/fia-llm.mjs',
+    // Defer/resume a task with its sealed holdout probes (`imp defer`,
+    // `/defer` inside Pi) — the engineer's reversible escape hatch.
+    defer: 'node imp/scripts/task-defer.mjs',
     // Terminal dashboard (read-only): tasks, specs, milestones and runs in the
     // terminal — the TUI twin of the web viewer (decision record: tui-plan.md,
     // private impactus-internal-docs repo).
