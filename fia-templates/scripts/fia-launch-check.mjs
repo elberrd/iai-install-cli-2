@@ -29,7 +29,8 @@ import { hasSourcesGone, runWikiCheck } from './wiki-check.mjs';
 import { runSecurityScan } from './security-scan.mjs';
 import { validateUiContract } from './ui-contract.mjs';
 import { verifyUiKitReceipt } from '../modules/ui-kit-receipt.mjs';
-import { isMainModule } from '../modules/utils.mjs';
+import { listQuarantinedProbes } from './task-defer.mjs';
+import { dataDirOf, isMainModule } from '../modules/utils.mjs';
 
 const MAX_SRC_FILES = 400; // security greps stay cheap even on big projects
 
@@ -399,6 +400,37 @@ export function runLaunchChecks(root = process.cwd(), opts = {}) {
       'Plan tasks completed',
       open === 0 ? `${plan.counts.done}/${plan.counts.total} done` : `${open} open of ${plan.counts.total}`,
       open === 0 ? null : 'finish with /goal (or launch anyway, knowingly)',
+    );
+  }
+  // Deferred work must be a conscious call at launch, never an oversight:
+  // `tasks_done` counts deferred tasks as closed, and a quarantined holdout
+  // probe (`_NN-*.mjs`, `imp defer`) silently sits outside every gate.
+  {
+    const deferredTasks = plan.tasks.filter((t) => t.status === 'deferred').map((t) => t.num);
+    let quarantined = [];
+    try {
+      quarantined = listQuarantinedProbes(dataDirOf(root)).map((p) => p.name);
+    } catch {
+      /* no holdout directory — nothing quarantined */
+    }
+    const openDeferrals = deferredTasks.length + quarantined.length;
+    add(
+      'Work',
+      'tasks_deferred',
+      'warn',
+      openDeferrals === 0 ? 'pass' : 'fail',
+      'No task deferred with its probes out of the gate',
+      openDeferrals === 0
+        ? null
+        : [
+            deferredTasks.length ? `deferred: ${deferredTasks.join(', ')}` : null,
+            quarantined.length ? `quarantined probes: ${quarantined.join(', ')}` : null,
+          ]
+            .filter(Boolean)
+            .join(' · '),
+      openDeferrals === 0
+        ? null
+        : 'resume with `imp defer resume <n>` and run the task — or ship without it, knowingly',
     );
   }
   // Milestones marked done should carry browser QA evidence (ai-docs/qa/).

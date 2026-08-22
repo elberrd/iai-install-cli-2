@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -190,6 +190,7 @@ test('runLaunchChecks: flags the planted defects and summarizes correctly', () =
   assert.equal(by.backup_exists.status, 'fail');
   assert.equal(by.error_monitor.status, 'fail', 'no Sentry');
   assert.equal(by.tasks_done.status, 'skip', 'no ai-docs');
+  assert.equal(by.tasks_deferred.status, 'pass', 'nothing deferred, nothing quarantined');
   assert.ok(report.summary.blockers >= 2, 'public secret + webhook without verify');
   assert.ok(report.summary.passes >= 3);
 });
@@ -726,4 +727,41 @@ test('spec_diagrams: skips with no specs, fails for a spec with no mermaid block
   );
   by = idOf(runLaunchChecks(root, opts));
   assert.equal(by.spec_diagrams.status, 'pass');
+});
+
+test('tasks_deferred: warns for a deferred task and for a quarantined probe, passes once resumed', () => {
+  const root = mkdtempSync(join(tmpdir(), 'launch-deferred-'));
+  const opts = { backupsDir: join(root, 'no-backups-here') };
+  const idOf = (r) => Object.fromEntries(r.checks.map((c) => [c.id, c]));
+
+  // A deferred task in the index alone must surface — tasks_done counts it as closed.
+  mkdirSync(join(root, 'ai-docs', 'todos'), { recursive: true });
+  writeFileSync(
+    join(root, 'ai-docs', 'todos', 'task-master.md'),
+    '# Task Master\n\n| # | Task | Status | Blocked by |\n|---|---|---|---|\n| 21 | Benchmark | deferred | — |\n',
+  );
+  let by = idOf(runLaunchChecks(root, opts));
+  assert.equal(by.tasks_deferred.status, 'fail');
+  assert.equal(by.tasks_deferred.level, 'warn');
+  assert.match(by.tasks_deferred.detail, /21/);
+  assert.match(by.tasks_deferred.fix, /imp defer resume/);
+  assert.equal(by.tasks_done.status, 'pass', 'the deferral is invisible to tasks_done — exactly why tasks_deferred exists');
+
+  // A quarantined probe alone (no task metadata) must surface too.
+  mkdirSync(join(root, 'imp', 'data', 'holdout'), { recursive: true });
+  writeFileSync(join(root, 'imp', 'data', 'holdout', '_21-benchmark-composes.mjs'), 'process.exit(1);\n');
+  writeFileSync(
+    join(root, 'ai-docs', 'todos', 'task-master.md'),
+    '# Task Master\n\n| # | Task | Status | Blocked by |\n|---|---|---|---|\n| 21 | Benchmark | done | — |\n',
+  );
+  by = idOf(runLaunchChecks(root, opts));
+  assert.equal(by.tasks_deferred.status, 'fail');
+  assert.match(by.tasks_deferred.detail, /_21-benchmark-composes\.mjs/);
+
+  // Probe back in the gate + no deferred status → pass.
+  renameSync(
+    join(root, 'imp', 'data', 'holdout', '_21-benchmark-composes.mjs'),
+    join(root, 'imp', 'data', 'holdout', '21-benchmark-composes.mjs'),
+  );
+  assert.equal(idOf(runLaunchChecks(root, opts)).tasks_deferred.status, 'pass');
 });

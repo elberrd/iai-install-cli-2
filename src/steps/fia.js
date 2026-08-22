@@ -182,6 +182,7 @@ export async function setupFia(ctx) {
       '  /launch     go live — public beta and real production (guided)',
       '  /agents     view/change each FDA agent\'s engine and model (visual editor)',
       '  /llm        the quick switch: numbered agent list + "1 → fable" changes the model (also: imp llm)',
+      '  /defer      postpone a task blocked on something external (API keys, a decision) — probes quarantined reversibly; "resume" brings it back (also: imp defer)',
       '  /status     progress and latest runs',
       '  /evolve     review one finished FDA run or a history window and propose evidence-backed system improvements (local report only)',
       '',
